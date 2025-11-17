@@ -1,0 +1,89 @@
+{
+  "name": "parcel-tools-app",
+  "version": "2.0.0",
+  "description": "Professional Surveying & Mapping Desktop Application",
+  "main": "electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on -t 30000 http-get://localhost:5173 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "start:python": "python backend/app.py",
+    "start": "npm run electron:dev"
+  },
+  "keywords": ["surveying", "parcel", "mapping", "desktop"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "axios": "^1.6.2",
+    "lucide-react": "^0.294.0",
+    "framer-motion": "^10.16.16"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "concurrently": "^8.2.2",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "vite": "^5.0.8",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.parceltools.app",
+    "productName": "Parcel Tools",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "backend/**/*",
+      "!backend/**/__pycache__",
+      "!backend/**/venv",
+      "!backend/**/.pytest_cache"
+    ],
+    "extraResources": [
+      {
+        "from": "backend/",
+        "to": "backend/",
+        "filter": ["**/*", "!__pycache__", "!venv", "!.pytest_cache"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Parcel Tools",
+      "installerIcon": "public/icon.png",
+      "uninstallerIcon": "public/icon.png"
+    },
+    "fileAssociations": [
+      {
+        "ext": "prcl",
+        "name": "Parcel Project",
+        "description": "Parcel Tools Project File",
+        "icon": "public/icon.png",
+        "role": "Editor"
+      }
+    ]
+  }
+}
+
+

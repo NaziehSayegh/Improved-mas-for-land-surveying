@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-electron
+.vite
+.cache
+backend\__pycache__
+backend\data
+*.log
+
+
+
