@@ -45,7 +45,16 @@ function AppContent() {
             });
 
             if (!response.ok) {
-              throw new Error('Failed to load project');
+              let errorMessage = 'Failed to load project';
+              try {
+                const errorData = await response.json();
+                if (errorData?.error) {
+                  errorMessage = errorData.error;
+                }
+              } catch (parseError) {
+                console.warn('[App] Could not parse load error response', parseError);
+              }
+              throw new Error(errorMessage);
             }
 
             const result = await response.json();

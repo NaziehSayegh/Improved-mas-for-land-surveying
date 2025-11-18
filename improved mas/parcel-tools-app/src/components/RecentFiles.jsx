@@ -63,13 +63,14 @@ const RecentFiles = () => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        if (response.status === 404 || errorData.error?.includes('not found')) {
+        const errorMessage = typeof errorData?.error === 'string' ? errorData.error : '';
+        if (response.status === 404 || errorMessage.toLowerCase().includes('not found')) {
           // File was deleted - refresh recent files to remove it
           loadRecentFiles();
           alert('❌ Project file not found. It may have been deleted. Refreshing list...');
           return;
         }
-        throw new Error('Failed to load project');
+        throw new Error(errorMessage || 'Failed to load project');
       }
 
       const result = await response.json();

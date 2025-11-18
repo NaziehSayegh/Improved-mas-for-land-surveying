@@ -10,6 +10,24 @@ import os
 import math
 from datetime import datetime
 import re
+import builtins
+
+# Some environments (like packaged Windows apps) don't have a writable console.
+# Printing in those cases raises "OSError: [Errno 22] Invalid argument" and can
+# crash API requests. Wrap print so logging never interrupts request handling.
+_original_print = builtins.print
+
+
+def safe_print(*args, **kwargs):
+    try:
+        _original_print(*args, **kwargs)
+    except OSError:
+        # Ignore console write failures (no console attached)
+        pass
+
+
+builtins.print = safe_print
+print = safe_print  # noqa: A001
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Electron frontend
