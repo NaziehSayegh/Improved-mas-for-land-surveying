@@ -200,6 +200,14 @@ export const ProjectProvider = ({ children }) => {
     setFileHeading,
   };
 
+  // Expose context globally for quick save utility
+  useEffect(() => {
+    window.__PROJECT_CONTEXT__ = value;
+    return () => {
+      delete window.__PROJECT_CONTEXT__;
+    };
+  }, [value]);
+
   return (
     <ProjectContext.Provider value={value}>
       {children}

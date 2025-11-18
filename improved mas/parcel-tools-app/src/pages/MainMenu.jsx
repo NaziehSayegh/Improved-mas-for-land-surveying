@@ -80,13 +80,23 @@ const MainMenu = () => {
             </span>
           )}
         </div>
-        <div className="mt-3 sm:mt-4 flex justify-center">
+        <div className="mt-3 sm:mt-4 flex justify-center gap-3">
           <button
             onClick={() => navigate('/assistant')}
             className="px-3 sm:px-4 py-1.5 sm:py-2 bg-dark-800 hover:bg-dark-700 border border-dark-600 hover:border-primary rounded-lg text-dark-100 text-sm sm:text-base transition-all"
             title="Open Assistant (F1)"
           >
             ❓ Help / Assistant (F1)
+          </button>
+          <button
+            onClick={async () => {
+              const { handleQuickSaveAs } = await import('../utils/quickSave');
+              await handleQuickSaveAs();
+            }}
+            className="px-3 sm:px-4 py-1.5 sm:py-2 bg-primary hover:bg-primary-dark border border-primary rounded-lg text-white text-sm sm:text-base transition-all font-semibold"
+            title="Save Project As"
+          >
+            💾 Save Project As
           </button>
         </div>
       </motion.div>

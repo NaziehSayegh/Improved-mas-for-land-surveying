@@ -460,10 +460,11 @@ def load_project_file():
 
 @app.route('/api/projects', methods=['GET'])
 def list_project_files():
-    """List all saved project files (from DATA_DIR and recent files)"""
+    """List all saved project files (from DATA_DIR, recent files, and common user directories)"""
     try:
         projects = []
         project_paths_seen = set()  # Track paths to avoid duplicates
+        scan_full = request.args.get('scan') == 'full'  # Optional: scan common directories
         
         # First, get projects from DATA_DIR
         if os.path.exists(DATA_DIR):
@@ -486,6 +487,61 @@ def list_project_files():
                             project_paths_seen.add(filepath)
                     except Exception:
                         continue
+        
+        # Scan common user directories for .prcl files
+        if scan_full:
+            print('[List Projects] Scanning common directories for .prcl files...')
+            common_dirs = []
+            
+            # Add common Windows directories
+            import sys
+            if sys.platform == 'win32':
+                user_home = os.path.expanduser('~')
+                common_dirs = [
+                    os.path.join(user_home, 'Documents'),
+                    os.path.join(user_home, 'Desktop'),
+                    os.path.join(user_home, 'Downloads'),
+                    user_home
+                ]
+            
+            for directory in common_dirs:
+                if not os.path.exists(directory):
+                    continue
+                
+                try:
+                    # Search recursively but limit depth to 3 levels
+                    for root, dirs, files in os.walk(directory):
+                        # Calculate depth
+                        depth = root[len(directory):].count(os.sep)
+                        if depth > 2:
+                            dirs[:] = []  # Don't recurse deeper
+                            continue
+                        
+                        for filename in files:
+                            if filename.endswith('.prcl'):
+                                filepath = os.path.join(root, filename)
+                                
+                                if filepath in project_paths_seen:
+                                    continue
+                                
+                                try:
+                                    with open(filepath, 'r', encoding='utf-8') as f:
+                                        data = json.load(f)
+                                    
+                                    projects.append({
+                                        'fileName': filename,
+                                        'filePath': filepath,
+                                        'projectName': data.get('projectName', filename.replace('.prcl', '')),
+                                        'savedParcels': len(data.get('savedParcels', [])),
+                                        'pointsFile': data.get('pointsFileName', 'N/A'),
+                                        'lastModified': os.path.getmtime(filepath)
+                                    })
+                                    project_paths_seen.add(filepath)
+                                except Exception:
+                                    continue
+                except Exception as e:
+                    print(f'[List Projects] Error scanning {directory}: {e}')
+                    continue
         
         # Also include projects from recent files (includes custom paths from Save As)
         # First clean up recent files to remove deleted entries

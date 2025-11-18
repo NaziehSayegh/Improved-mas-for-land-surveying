@@ -226,11 +226,12 @@ const DataFiles = () => {
   }, [pointsFileName]);
 
   // Load saved projects list
-  const loadSavedProjects = async () => {
+  const loadSavedProjects = async (scanFull = false) => {
     setLoadingProjects(true);
     try {
       // Force refresh by adding timestamp to avoid cache
-      const response = await fetch(`http://localhost:5000/api/projects?t=${Date.now()}`);
+      const scanParam = scanFull ? '&scan=full' : '';
+      const response = await fetch(`http://localhost:5000/api/projects?t=${Date.now()}${scanParam}`);
       if (response.ok) {
         const projects = await response.json();
         // Filter out any projects that might have been deleted since the last check
@@ -244,6 +245,32 @@ const DataFiles = () => {
     } finally {
       setLoadingProjects(false);
     }
+  };
+
+  // Scan computer for all .prcl files
+  const handleScanComputer = async () => {
+    const confirmed = confirm('🔍 Scan your computer for .prcl files?\n\nThis will search in:\n• Documents\n• Desktop\n• Downloads\n• Home folder\n\nThis may take a minute...');
+    if (!confirmed) return;
+    
+    await loadSavedProjects(true);
+    
+    // Show success toast
+    const toast = document.createElement('div');
+    toast.innerHTML = `✅ Scan complete! Found ${savedProjects.length} projects.`;
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      font-weight: bold;
+      z-index: 10000;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
   };
 
   // Load projects on mount and when switching to projects tab
@@ -1110,10 +1137,15 @@ const DataFiles = () => {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card mt-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-2xl font-bold text-dark-50">Saved Projects ({savedProjects.length})</h2>
-              <button onClick={loadSavedProjects} disabled={loadingProjects} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
-                <RefreshCw className={`w-4 h-4 ${loadingProjects ? 'animate-spin' : ''}`} />
-                Refresh
-              </button>
+              <div className="flex gap-2">
+                <button onClick={() => loadSavedProjects(false)} disabled={loadingProjects} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
+                  <RefreshCw className={`w-4 h-4 ${loadingProjects ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+                <button onClick={handleScanComputer} disabled={loadingProjects} className="btn-primary py-2 px-4 text-sm flex items-center gap-2">
+                  🔍 Scan Computer
+                </button>
+              </div>
             </div>
 
             {loadingProjects ? (
