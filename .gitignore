@@ -1,5 +1,6 @@
 
 # Exclude build outputs and large files
-*.zip
-*.exe
+# Don't ignore release files
+!releases/*.zip
+!releases/*.exe
 *.msi
