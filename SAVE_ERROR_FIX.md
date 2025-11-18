@@ -81,7 +81,7 @@ The error message will now tell you EXACTLY what's wrong:
 
 ### Step 3: Test Download
 ```
-https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel.Tools.Setup.2.0.0.exe
+https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel.Tools.Setup.2.0.0-FIXED.exe
 ```
 
 ---

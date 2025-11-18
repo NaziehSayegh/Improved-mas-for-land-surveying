@@ -4,7 +4,7 @@
 
 ### Direct Download Link:
 ```
-https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel.Tools.Setup.2.0.0.exe
+https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel.Tools.Setup.2.0.0-FIXED.exe
 ```
 
 ---
@@ -46,11 +46,11 @@ If the file was downloaded as `.zip`:
 ## 🚀 Installation Steps
 
 ### Step 1: Download
-- Download `Parcel.Tools.Setup.2.0.0.exe` (110 MB)
+- Download `Parcel.Tools.Setup.2.0.0-FIXED.exe` (110 MB)
 - Save to your Downloads folder
 
 ### Step 2: Run Installer
-1. Double-click `Parcel.Tools.Setup.2.0.0.exe`
+1. Double-click `Parcel.Tools.Setup.2.0.0-FIXED.exe`
 2. Windows may show **"Windows protected your PC"**
    - Click **"More info"**
    - Click **"Run anyway"**
@@ -104,7 +104,7 @@ If website download doesn't work:
 
 2. **Find v2.0.0 release**
 
-3. **Click on:** `Parcel.Tools.Setup.2.0.0.exe` under Assets
+3. **Click on:** `Parcel.Tools.Setup.2.0.0-FIXED.exe` under Assets
 
 4. **File will download directly**
 
