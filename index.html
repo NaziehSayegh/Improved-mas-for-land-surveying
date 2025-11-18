@@ -69,8 +69,8 @@
         <!-- Download Button -->
         <div id="download" class="mb-8">
             <a href="#" id="downloadBtn" class="glow-button inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold text-xl px-12 py-5 rounded-xl transition transform hover:scale-105 shadow-2xl">
-                ⬇️ Download for Windows
-                <div class="text-sm font-normal opacity-80 mt-1">Version 2.0.0 • ~200 MB • Windows 10/11 (64-bit)</div>
+                ⬇️ Download for Windows (Portable)
+                <div class="text-sm font-normal opacity-80 mt-1">Version 2.0.0 • ZIP File • Windows 10/11 (64-bit)</div>
             </a>
             
             <!-- Alternative Downloads -->
@@ -241,12 +241,10 @@
         // Download button functionality
         // Download configuration
         const DOWNLOAD_CONFIG = {
-            // UPDATE THESE LINKS AFTER BUILDING:
-            github: 'https://github.com/YOUR_USERNAME/parcel-tools/releases/download/v2.0.0/Parcel-Tools-Setup-2.0.0.exe',
-            direct: 'https://your-hosting.com/downloads/Parcel-Tools-Setup-2.0.0.exe',
-            releases: 'https://github.com/YOUR_USERNAME/parcel-tools/releases',
-            // Or use relative path if hosting on same server:
-            // direct: './downloads/Parcel-Tools-Setup-2.0.0.exe',
+            // Download links configured for GitHub Releases
+            github: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel-Tools-Portable-2.0.0.zip',
+            direct: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel-Tools-Portable-2.0.0.zip',
+            releases: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases',
         };
 
         // Main download button
@@ -271,9 +269,9 @@
                 setTimeout(() => {
                     alert('✅ Download started!\n\n' +
                           'After download:\n' +
-                          '1. Run Parcel-Tools-Setup-2.0.0.exe\n' +
-                          '2. Follow the installation wizard\n' +
-                          '3. Launch from Desktop or Start Menu\n\n' +
+                          '1. Extract the ZIP file to any folder\n' +
+                          '2. Run "Parcel Tools.exe" from the extracted folder\n' +
+                          '3. Create a shortcut to your Desktop for easy access\n\n' +
                           'System Requirements:\n' +
                           '• Windows 10/11 (64-bit)\n' +
                           '• 4 GB RAM (8 GB recommended)\n' +
