@@ -53,6 +53,11 @@ function startPythonBackend() {
   const pythonScript = path.join(backendRoot, 'app.py');
   const { command, env } = getPythonExecutionConfig();
 
+  // Set environment variable to tell backend it's running in packaged mode
+  if (app.isPackaged) {
+    env.PORTABLE_EXECUTABLE_DIR = '1';
+  }
+
   pythonProcess = spawn(command, [pythonScript], {
     cwd: backendRoot,
     env,
@@ -383,6 +388,52 @@ ipcMain.handle('show-save-dialog', async (event, options) => {
     return { canceled: true, error: 'No file path returned' };
   } catch (error) {
     console.error('[Main] Dialog error:', error);
+    return { canceled: true, error: error.message };
+  }
+});
+
+// Open file dialog
+ipcMain.handle('show-open-dialog', async (event, options) => {
+  console.log('[Main] show-open-dialog called with options:', options);
+  
+  const windowToUse = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  
+  if (!windowToUse) {
+    console.error('[Main] No window available for dialog');
+    return { canceled: true, error: 'No window available' };
+  }
+  
+  try {
+    const dialogOptions = {
+      title: options.title || 'Open File',
+      filters: options.filters || [
+        { name: 'Project Files', extensions: ['prcl'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      properties: options.properties || ['openFile']
+    };
+    
+    console.log('[Main] Showing open dialog with options:', dialogOptions);
+    
+    const result = await dialog.showOpenDialog(windowToUse, dialogOptions);
+    
+    console.log('[Main] Open dialog result:', result);
+    
+    if (result.canceled) {
+      return { canceled: true };
+    }
+    
+    if (result.filePaths && result.filePaths.length > 0) {
+      return {
+        canceled: false,
+        filePaths: result.filePaths,
+        filePath: result.filePaths[0]
+      };
+    }
+    
+    return { canceled: true, error: 'No file selected' };
+  } catch (error) {
+    console.error('[Main] Open dialog error:', error);
     return { canceled: true, error: error.message };
   }
 });

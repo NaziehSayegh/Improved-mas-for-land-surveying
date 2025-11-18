@@ -16,6 +16,10 @@ const electronAPI = {
   getAppVersion: () => {
     return ipcRenderer.invoke('get-app-version');
   },
+  showOpenDialog: (options) => {
+    console.log('[Preload] showOpenDialog called with options:', options);
+    return ipcRenderer.invoke('show-open-dialog', options);
+  },
   // Listen for project file to load (when double-clicked)
   onLoadProjectFile: (callback) => {
     console.log('[Preload] Setting up onLoadProjectFile listener');

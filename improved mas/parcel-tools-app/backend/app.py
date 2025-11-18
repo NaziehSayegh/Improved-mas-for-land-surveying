@@ -15,15 +15,42 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for Electron frontend
 
 # Data storage paths
-DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
+# In packaged app, use user's AppData folder instead of app directory (which might be read-only)
+if os.environ.get('PORTABLE_EXECUTABLE_DIR'):
+    # Running from packaged Electron app
+    import sys
+    if sys.platform == 'win32':
+        APP_DATA = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        DATA_DIR = os.path.join(APP_DATA, 'ParcelTools', 'data')
+    else:
+        DATA_DIR = os.path.join(os.path.expanduser('~'), '.parceltools', 'data')
+else:
+    # Development mode - use backend/data
+    DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
+
 PROJECTS_FILE = os.path.join(DATA_DIR, 'projects.json')
 POINTS_DIR = os.path.join(DATA_DIR, 'points')
 AI_CONFIG_FILE = os.path.join(DATA_DIR, 'ai_config.json')
 RECENT_FILES_FILE = os.path.join(DATA_DIR, 'recent_files.json')
 
 # Ensure data directories exist
-os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(POINTS_DIR, exist_ok=True)
+print(f'[Backend] Data directory: {DATA_DIR}')
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(POINTS_DIR, exist_ok=True)
+    print(f'[Backend] Data directories created successfully')
+except Exception as e:
+    print(f'[Backend ERROR] Failed to create data directories: {e}')
+    # Fall back to temp directory if we can't create in AppData
+    import tempfile
+    DATA_DIR = os.path.join(tempfile.gettempdir(), 'ParcelTools', 'data')
+    PROJECTS_FILE = os.path.join(DATA_DIR, 'projects.json')
+    POINTS_DIR = os.path.join(DATA_DIR, 'points')
+    AI_CONFIG_FILE = os.path.join(DATA_DIR, 'ai_config.json')
+    RECENT_FILES_FILE = os.path.join(DATA_DIR, 'recent_files.json')
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(POINTS_DIR, exist_ok=True)
+    print(f'[Backend] Using fallback temp directory: {DATA_DIR}')
 
 
 def load_projects():
