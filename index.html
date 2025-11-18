@@ -69,8 +69,8 @@
         <!-- Download Button -->
         <div id="download" class="mb-8">
             <a href="#" id="downloadBtn" class="glow-button inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold text-xl px-12 py-5 rounded-xl transition transform hover:scale-105 shadow-2xl">
-                ⬇️ Download for Windows (Portable)
-                <div class="text-sm font-normal opacity-80 mt-1">Version 2.0.0 • ZIP File • Windows 10/11 (64-bit)</div>
+                ⬇️ Download for Windows
+                <div class="text-sm font-normal opacity-80 mt-1">Version 2.0.0 • No Installation Required • Windows 10/11 (64-bit)</div>
             </a>
             
             <!-- Alternative Downloads -->
@@ -267,15 +267,17 @@
                 
                 // Show thank you message
                 setTimeout(() => {
-                    alert('✅ Download started!\n\n' +
-                          'After download:\n' +
-                          '1. Extract the ZIP file to any folder\n' +
-                          '2. Run "Parcel Tools.exe" from the extracted folder\n' +
-                          '3. Create a shortcut to your Desktop for easy access\n\n' +
-                          'System Requirements:\n' +
-                          '• Windows 10/11 (64-bit)\n' +
-                          '• 4 GB RAM (8 GB recommended)\n' +
-                          '• 500 MB free disk space');
+                    alert('✅ Download Started!\n\n' +
+                          'QUICK START GUIDE:\n' +
+                          '━━━━━━━━━━━━━━━━━━━\n\n' +
+                          '1️⃣ Extract the ZIP file to any folder\n' +
+                          '   (Recommended: C:\\Program Files\\Parcel Tools)\n\n' +
+                          '2️⃣ Double-click "Parcel Tools.exe"\n\n' +
+                          '3️⃣ Right-click the EXE → Send to → Desktop\n' +
+                          '   (Creates a shortcut for easy access)\n\n' +
+                          '✨ TIP: No installation means faster startup\n' +
+                          'and easy updates - just replace the folder!\n\n' +
+                          'System Requirements: Windows 10/11 (64-bit) • 4GB RAM');
                 }, 500);
             }
         });
