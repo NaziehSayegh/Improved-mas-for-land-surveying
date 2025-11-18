@@ -49,6 +49,9 @@
       "!backend/**/venv",
       "!backend/**/.pytest_cache"
     ],
+    "asarUnpack": [
+      "backend/**"
+    ],
     "extraResources": [
       {
         "from": "backend/",

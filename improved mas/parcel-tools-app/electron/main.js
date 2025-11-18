@@ -11,10 +11,17 @@ const __dirname = path.dirname(__filename);
 let mainWindow;
 let pythonProcess;
 
+function getBackendRoot() {
+  if (app.isPackaged) {
+    // backend files are unpacked to app.asar.unpacked/backend
+    return path.join(process.resourcesPath, 'app.asar.unpacked', 'backend');
+  }
+  return path.join(__dirname, '../backend');
+}
+
 function getPythonExecutionConfig() {
-  const embeddedPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'app', 'backend', 'python-embed', 'python.exe')
-    : path.join(__dirname, '../backend/python-embed/python.exe');
+  const backendRoot = getBackendRoot();
+  const embeddedPath = path.join(backendRoot, 'python-embed', 'python.exe');
 
   if (fs.existsSync(embeddedPath)) {
     const pythonHome = path.dirname(embeddedPath);
@@ -42,11 +49,12 @@ function getPythonExecutionConfig() {
 
 // Start Python backend
 function startPythonBackend() {
-  const pythonScript = path.join(__dirname, '../backend/app.py');
+  const backendRoot = getBackendRoot();
+  const pythonScript = path.join(backendRoot, 'app.py');
   const { command, env } = getPythonExecutionConfig();
 
   pythonProcess = spawn(command, [pythonScript], {
-    cwd: path.join(__dirname, '../backend'),
+    cwd: backendRoot,
     env,
     windowsHide: true
   });
