@@ -118,10 +118,16 @@ def load_recent_files():
 def save_recent_files(recent_files):
     """Save recent files history"""
     try:
+        # Ensure directory exists
+        recent_dir = os.path.dirname(RECENT_FILES_FILE)
+        if recent_dir and not os.path.exists(recent_dir):
+            os.makedirs(recent_dir, exist_ok=True)
+        
         with open(RECENT_FILES_FILE, 'w', encoding='utf-8') as f:
             json.dump(recent_files, f, indent=2, ensure_ascii=False)
         return True
-    except Exception:
+    except Exception as e:
+        print(f'[Recent Files ERROR] Failed to save: {e}')
         return False
 
 
@@ -356,8 +362,11 @@ def save_project_file():
         project_data = data.get('projectData', {})
         custom_filepath = data.get('filePath')  # REQUIRED: user must select a path
         
-        print(f'[Save] Attempting to save project: {project_name}')
-        print(f'[Save] Requested file path: {custom_filepath}')
+        print(f'[Save] ========== START SAVE REQUEST ==========')
+        print(f'[Save] Project name: {project_name}')
+        print(f'[Save] Raw file path from frontend: {repr(custom_filepath)}')
+        print(f'[Save] Path type: {type(custom_filepath)}')
+        print(f'[Save] Path length: {len(custom_filepath) if custom_filepath else 0}')
         
         # REQUIRE user-selected path - never save to app data directory
         if not custom_filepath:
@@ -365,15 +374,32 @@ def save_project_file():
         
         # Clean and normalize the path
         filepath = custom_filepath.strip()
+        print(f'[Save] After strip: {repr(filepath)}')
+        
+        # Check for path separators
+        has_forward_slash = '/' in filepath
+        has_back_slash = '\\' in filepath
+        print(f'[Save] Has forward slash: {has_forward_slash}, Has backslash: {has_back_slash}')
+        
+        # Normalize path separators to Windows style
+        filepath = filepath.replace('/', '\\')
+        print(f'[Save] After normalizing separators: {repr(filepath)}')
+        
+        # Split into directory and filename
+        file_dir = os.path.dirname(filepath)
+        file_name = os.path.basename(filepath)
+        print(f'[Save] Directory part: {repr(file_dir)}')
+        print(f'[Save] Filename part: {repr(file_name)}')
         
         # Fix common Windows path issues
         # Remove trailing dots or spaces from filename (Windows doesn't allow these)
-        file_dir = os.path.dirname(filepath)
-        file_name = os.path.basename(filepath)
+        original_filename = file_name
         file_name = file_name.rstrip('. ')
+        if file_name != original_filename:
+            print(f'[Save] Cleaned filename from {repr(original_filename)} to {repr(file_name)}')
         
         if not file_name:
-            return jsonify({'error': 'Invalid filename'}), 400
+            return jsonify({'error': 'Invalid filename - filename is empty after cleaning'}), 400
         
         # Check for reserved Windows filenames
         reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 
@@ -384,15 +410,12 @@ def save_project_file():
             print(f'[Save ERROR] Reserved Windows filename: {file_name}')
             return jsonify({'error': f'"{file_name}" is a reserved Windows filename. Please choose a different name.'}), 400
         
-        # Rebuild filepath with cleaned filename
-        filepath = os.path.join(file_dir, file_name) if file_dir else file_name
-        
         # Remove any invalid characters from filename (excluding drive letter colon)
         invalid_chars = '<>"|?*'
-        filename_part = os.path.basename(filepath)
+        filename_part = file_name
         for char in invalid_chars:
             if char in filename_part:
-                print(f'[Save ERROR] Invalid character found in filename: {char}')
+                print(f'[Save ERROR] Invalid character found in filename: {repr(char)}')
                 return jsonify({'error': f'Invalid character in filename: {char}. Please remove it and try again.'}), 400
         
         # Check for colons in the filename itself (not drive letter)
@@ -400,16 +423,19 @@ def save_project_file():
             print(f'[Save ERROR] Colon found in filename: {filename_part}')
             return jsonify({'error': 'Filename cannot contain colons (:). Please use a different name.'}), 400
         
+        # Rebuild filepath with cleaned filename
+        filepath = os.path.join(file_dir, file_name) if file_dir else file_name
+        print(f'[Save] After rejoining dir and filename: {repr(filepath)}')
+        
         # Ensure .prcl extension
         if not filepath.lower().endswith('.prcl'):
             filepath += '.prcl'
-        
-        print(f'[Save] Normalized path: {filepath}')
+            print(f'[Save] Added .prcl extension: {repr(filepath)}')
         
         # Convert to absolute path if relative
         if not os.path.isabs(filepath):
             filepath = os.path.abspath(filepath)
-            print(f'[Save] Converted to absolute path: {filepath}')
+            print(f'[Save] Converted to absolute path: {repr(filepath)}')
         
         # Check path length (Windows limit is 260 characters unless long path support enabled)
         if len(filepath) > 250:  # Leave some buffer
@@ -418,41 +444,130 @@ def save_project_file():
         
         # Ensure directory exists (for the user-selected path)
         file_dir = os.path.dirname(filepath)
+        print(f'[Save] Final directory to check/create: {repr(file_dir)}')
+        
         if file_dir:
-            print(f'[Save] Creating directory if needed: {file_dir}')
+            print(f'[Save] Checking if directory exists: {os.path.exists(file_dir)}')
+            print(f'[Save] Checking if directory is dir: {os.path.isdir(file_dir) if os.path.exists(file_dir) else "N/A"}')
+            
             try:
-                os.makedirs(file_dir, exist_ok=True)
+                if not os.path.exists(file_dir):
+                    print(f'[Save] Creating directory: {file_dir}')
+                    os.makedirs(file_dir, exist_ok=True)
+                    print(f'[Save] Directory created successfully')
+                else:
+                    print(f'[Save] Directory already exists')
             except OSError as dir_error:
                 print(f'[Save ERROR] Failed to create directory: {dir_error}')
+                print(f'[Save ERROR] Error type: {type(dir_error).__name__}')
+                print(f'[Save ERROR] Error errno: {getattr(dir_error, "errno", "N/A")}')
                 return jsonify({'error': f'Cannot create directory: {str(dir_error)}'}), 400
         
         # Validate we can write to this location
-        if not os.path.exists(file_dir):
+        if file_dir and not os.path.exists(file_dir):
             print(f'[Save ERROR] Directory does not exist after creation attempt: {file_dir}')
             return jsonify({'error': 'Directory path is invalid or cannot be created'}), 400
         
-        # Try to write the file
-        print(f'[Save] Writing project data to file...')
+        # Check if we have write permission
+        if file_dir:
+            try:
+                # Try to access the directory
+                test_path = os.path.join(file_dir, '.parcel_tools_test')
+                print(f'[Save] Testing write permission with test file: {test_path}')
+                with open(test_path, 'w') as test_file:
+                    test_file.write('test')
+                os.remove(test_path)
+                print(f'[Save] Write permission test passed')
+            except Exception as perm_error:
+                print(f'[Save ERROR] No write permission: {perm_error}')
+                return jsonify({'error': f'No write permission in directory: {file_dir}'}), 400
+        
+        # Final validation before write
+        print(f'[Save] ==== FINAL PRE-WRITE VALIDATION ====')
+        print(f'[Save] Final filepath: {repr(filepath)}')
+        print(f'[Save] File exists check: {os.path.exists(filepath)}')
+        print(f'[Save] Directory exists check: {os.path.exists(file_dir)}')
+        print(f'[Save] Is absolute path: {os.path.isabs(filepath)}')
+        print(f'[Save] Data size: {len(str(project_data))} chars')
+        
+        # Check for any non-ASCII characters in path that might cause issues
         try:
-            with open(filepath, 'w', encoding='utf-8') as f:
+            filepath_ascii = filepath.encode('ascii')
+            print(f'[Save] Path is pure ASCII')
+        except UnicodeEncodeError:
+            print(f'[Save] WARNING: Path contains non-ASCII characters')
+            # Try to normalize the path
+            try:
+                import unicodedata
+                filepath_normalized = unicodedata.normalize('NFKD', filepath)
+                print(f'[Save] Normalized path: {repr(filepath_normalized)}')
+            except:
+                print(f'[Save] Could not normalize path')
+        
+        # Try to write the file
+        print(f'[Save] ==== ATTEMPTING FILE WRITE ====')
+        
+        try:
+            # Use a more explicit open mode
+            with open(filepath, 'w', encoding='utf-8', newline='') as f:
                 json.dump(project_data, f, indent=2, ensure_ascii=False)
-            print(f'[Save] File written successfully')
+            print(f'[Save] SUCCESS: File written successfully!')
+            
+            # Verify file was created
+            if os.path.exists(filepath):
+                file_size = os.path.getsize(filepath)
+                print(f'[Save] SUCCESS: File verified - Size: {file_size} bytes')
+            else:
+                print(f'[Save ERROR] File was written but cannot be found!')
+                return jsonify({'error': 'File written but verification failed'}), 500
+                
         except OSError as write_error:
-            print(f'[Save ERROR] Failed to write file: {write_error}')
+            print(f'[Save ERROR] ==== FILE WRITE FAILED (OSError) ====')
+            print(f'[Save ERROR] Error: {write_error}')
+            print(f'[Save ERROR] Error type: {type(write_error).__name__}')
+            print(f'[Save ERROR] Error errno: {getattr(write_error, "errno", "N/A")}')
+            print(f'[Save ERROR] Error strerror: {getattr(write_error, "strerror", "N/A")}')
+            print(f'[Save ERROR] Error filename: {getattr(write_error, "filename", "N/A")}')
+            print(f'[Save ERROR] Error args: {write_error.args}')
+            
             error_msg = str(write_error)
             if 'Errno 22' in error_msg or 'Invalid argument' in error_msg:
-                return jsonify({'error': 'Invalid file path or filename. Please choose a different location or filename.'}), 400
+                detailed_error = f'Invalid file path. Windows path rules violated. Path: {filepath}'
+                print(f'[Save ERROR] {detailed_error}')
+                # Give more specific hint
+                if len(filepath) > 200:
+                    detailed_error += ' (Path is very long - try a shorter location)'
+                if any(ord(c) > 127 for c in filepath):
+                    detailed_error += ' (Path contains non-English characters - try an English path)'
+                return jsonify({'error': detailed_error}), 400
             return jsonify({'error': f'Cannot write file: {error_msg}'}), 400
+        except UnicodeError as write_error:
+            print(f'[Save ERROR] ==== UNICODE ERROR ====')
+            print(f'[Save ERROR] Error: {write_error}')
+            return jsonify({'error': f'Unicode encoding error in path or filename: {str(write_error)}'}), 400
+        except Exception as write_error:
+            print(f'[Save ERROR] ==== UNEXPECTED WRITE ERROR ====')
+            print(f'[Save ERROR] Error: {write_error}')
+            print(f'[Save ERROR] Error type: {type(write_error).__name__}')
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Unexpected error writing file: {str(write_error)}'}), 400
         
-        # Add to recent files
-        metadata = {
-            'projectName': project_name,
-            'parcelCount': len(project_data.get('savedParcels', [])),
-            'pointsCount': len(project_data.get('loadedPoints', {}))
-        }
-        print(f'[Save] Adding to recent files: {filepath}')
-        add_to_recent_files('projects', filepath, os.path.basename(filepath), metadata)
-        print(f'[Save] Recent files updated successfully')
+        # Add to recent files (don't let this fail the save operation)
+        try:
+            metadata = {
+                'projectName': project_name,
+                'parcelCount': len(project_data.get('savedParcels', [])),
+                'pointsCount': len(project_data.get('loadedPoints', {}))
+            }
+            print(f'[Save] Adding to recent files: {filepath}')
+            add_to_recent_files('projects', filepath, os.path.basename(filepath), metadata)
+            print(f'[Save] Recent files updated successfully')
+        except Exception as recent_error:
+            print(f'[Save WARNING] Failed to update recent files: {recent_error}')
+            # Don't fail the save operation just because recent files failed
+        
+        print(f'[Save] ========== SAVE COMPLETE ==========')
         
         return jsonify({
             'success': True,
@@ -462,7 +577,9 @@ def save_project_file():
         })
     
     except Exception as e:
-        print(f'[Save ERROR] Unexpected error: {e}')
+        print(f'[Save ERROR] ========== UNEXPECTED EXCEPTION ==========')
+        print(f'[Save ERROR] {e}')
+        print(f'[Save ERROR] Error type: {type(e).__name__}')
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -552,9 +669,11 @@ def load_project_file():
 def list_project_files():
     """List all saved project files (from DATA_DIR, recent files, and common user directories)"""
     try:
+        print('[List Projects] ========== START LIST PROJECTS ==========')
         projects = []
         project_paths_seen = set()  # Track paths to avoid duplicates
         scan_full = request.args.get('scan') == 'full'  # Optional: scan common directories
+        print(f'[List Projects] Scan full: {scan_full}')
         
         # First, get projects from DATA_DIR
         if os.path.exists(DATA_DIR):
@@ -697,12 +816,16 @@ def list_project_files():
         projects.sort(key=lambda x: x['lastModified'], reverse=True)
         
         print(f'[List Projects] Returning {len(projects)} projects')
-        for p in projects:
-            print(f'  - {p["projectName"]} ({p["fileName"]}) at {p["filePath"]}')
+        print('[List Projects] ========== END LIST PROJECTS ==========')
         
         return jsonify(projects)
     
     except Exception as e:
+        print(f'[List Projects ERROR] ========== EXCEPTION ==========')
+        print(f'[List Projects ERROR] {e}')
+        print(f'[List Projects ERROR] Error type: {type(e).__name__}')
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
@@ -1084,9 +1207,9 @@ def export_pdf():
             # Status
             c.setFont("Courier-Bold", 10)
             if error_results['exceedsLimit']:
-                c.drawString(40, y_position, "⚠ ERROR EXCEEDS PERMISSIBLE LIMITS - Using original calculated areas")
+                c.drawString(40, y_position, "WARNING: ERROR EXCEEDS PERMISSIBLE LIMITS - Using original calculated areas")
             else:
-                c.drawString(40, y_position, "✓ WITHIN PERMISSIBLE LIMITS - Areas adjusted proportionally")
+                c.drawString(40, y_position, "OK: WITHIN PERMISSIBLE LIMITS - Areas adjusted proportionally")
             y_position -= 30
             
             # Parcel Results Table Header
