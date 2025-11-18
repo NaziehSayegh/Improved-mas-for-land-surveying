@@ -1,0 +1,6 @@
+python313.zip
+.
+Lib/site-packages
+
+# Automatically initialize site module so embedded interpreter can load packages
+import site

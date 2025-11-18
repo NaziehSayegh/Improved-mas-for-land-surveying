@@ -11,17 +11,65 @@ const __dirname = path.dirname(__filename);
 let mainWindow;
 let pythonProcess;
 
+function getPythonExecutionConfig() {
+  const embeddedPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'app', 'backend', 'python-embed', 'python.exe')
+    : path.join(__dirname, '../backend/python-embed/python.exe');
+
+  if (fs.existsSync(embeddedPath)) {
+    const pythonHome = path.dirname(embeddedPath);
+    const sitePackages = path.join(pythonHome, 'Lib', 'site-packages');
+    console.log('[Backend] Using embedded Python runtime:', embeddedPath);
+
+    return {
+      command: embeddedPath,
+      env: {
+        ...process.env,
+        PYTHONHOME: pythonHome,
+        PYTHONPATH: `${sitePackages}`,
+        PYTHONUNBUFFERED: '1'
+      }
+    };
+  }
+
+  const fallback = process.platform === 'win32' ? 'python' : 'python3';
+  console.log('[Backend] Embedded Python not found. Falling back to system interpreter:', fallback);
+  return {
+    command: fallback,
+    env: { ...process.env, PYTHONUNBUFFERED: '1' }
+  };
+}
+
 // Start Python backend
 function startPythonBackend() {
   const pythonScript = path.join(__dirname, '../backend/app.py');
-  pythonProcess = spawn('python', [pythonScript]);
+  const { command, env } = getPythonExecutionConfig();
+
+  pythonProcess = spawn(command, [pythonScript], {
+    cwd: path.join(__dirname, '../backend'),
+    env,
+    windowsHide: true
+  });
 
   pythonProcess.stdout.on('data', (data) => {
-    console.log(`Python: ${data}`);
+    console.log(`[Python] ${data}`.trim());
   });
 
   pythonProcess.stderr.on('data', (data) => {
-    console.error(`Python Error: ${data}`);
+    console.error(`[Python Error] ${data}`.trim());
+  });
+
+  pythonProcess.on('error', (error) => {
+    console.error('[Backend] Failed to start Python process:', error);
+    dialog.showErrorBox(
+      'Parcel Tools Backend Error',
+      'Could not start the built-in Parcel Tools engine.\n\n' +
+      'Please make sure Windows Defender or antivirus is not blocking the app and try again.'
+    );
+  });
+
+  pythonProcess.on('exit', (code, signal) => {
+    console.warn(`[Backend] Python process exited (code: ${code}, signal: ${signal})`);
   });
 }
 
