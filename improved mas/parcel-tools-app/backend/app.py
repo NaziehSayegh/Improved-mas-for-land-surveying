@@ -338,24 +338,93 @@ def save_project_file():
         project_data = data.get('projectData', {})
         custom_filepath = data.get('filePath')  # REQUIRED: user must select a path
         
+        print(f'[Save] Attempting to save project: {project_name}')
+        print(f'[Save] Requested file path: {custom_filepath}')
+        
         # REQUIRE user-selected path - never save to app data directory
         if not custom_filepath:
             return jsonify({'error': 'File path is required. User must select a save location.'}), 400
         
-        # Use the user-selected path
-        filepath = custom_filepath
+        # Clean and normalize the path
+        filepath = custom_filepath.strip()
+        
+        # Fix common Windows path issues
+        # Remove trailing dots or spaces from filename (Windows doesn't allow these)
+        file_dir = os.path.dirname(filepath)
+        file_name = os.path.basename(filepath)
+        file_name = file_name.rstrip('. ')
+        
+        if not file_name:
+            return jsonify({'error': 'Invalid filename'}), 400
+        
+        # Check for reserved Windows filenames
+        reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 
+                         'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 
+                         'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9']
+        name_without_ext = os.path.splitext(file_name)[0].upper()
+        if name_without_ext in reserved_names:
+            print(f'[Save ERROR] Reserved Windows filename: {file_name}')
+            return jsonify({'error': f'"{file_name}" is a reserved Windows filename. Please choose a different name.'}), 400
+        
+        # Rebuild filepath with cleaned filename
+        filepath = os.path.join(file_dir, file_name) if file_dir else file_name
+        
+        # Remove any invalid characters from filename (excluding drive letter colon)
+        invalid_chars = '<>"|?*'
+        filename_part = os.path.basename(filepath)
+        for char in invalid_chars:
+            if char in filename_part:
+                print(f'[Save ERROR] Invalid character found in filename: {char}')
+                return jsonify({'error': f'Invalid character in filename: {char}. Please remove it and try again.'}), 400
+        
+        # Check for colons in the filename itself (not drive letter)
+        if ':' in filename_part:
+            print(f'[Save ERROR] Colon found in filename: {filename_part}')
+            return jsonify({'error': 'Filename cannot contain colons (:). Please use a different name.'}), 400
+        
         # Ensure .prcl extension
         if not filepath.lower().endswith('.prcl'):
             filepath += '.prcl'
         
+        print(f'[Save] Normalized path: {filepath}')
+        
+        # Convert to absolute path if relative
+        if not os.path.isabs(filepath):
+            filepath = os.path.abspath(filepath)
+            print(f'[Save] Converted to absolute path: {filepath}')
+        
+        # Check path length (Windows limit is 260 characters unless long path support enabled)
+        if len(filepath) > 250:  # Leave some buffer
+            print(f'[Save ERROR] Path too long ({len(filepath)} characters): {filepath}')
+            return jsonify({'error': f'File path is too long ({len(filepath)} characters). Please choose a shorter path or filename.'}), 400
+        
         # Ensure directory exists (for the user-selected path)
         file_dir = os.path.dirname(filepath)
         if file_dir:
-            os.makedirs(file_dir, exist_ok=True)
+            print(f'[Save] Creating directory if needed: {file_dir}')
+            try:
+                os.makedirs(file_dir, exist_ok=True)
+            except OSError as dir_error:
+                print(f'[Save ERROR] Failed to create directory: {dir_error}')
+                return jsonify({'error': f'Cannot create directory: {str(dir_error)}'}), 400
         
-        # Save project data
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(project_data, f, indent=2, ensure_ascii=False)
+        # Validate we can write to this location
+        if not os.path.exists(file_dir):
+            print(f'[Save ERROR] Directory does not exist after creation attempt: {file_dir}')
+            return jsonify({'error': 'Directory path is invalid or cannot be created'}), 400
+        
+        # Try to write the file
+        print(f'[Save] Writing project data to file...')
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(project_data, f, indent=2, ensure_ascii=False)
+            print(f'[Save] File written successfully')
+        except OSError as write_error:
+            print(f'[Save ERROR] Failed to write file: {write_error}')
+            error_msg = str(write_error)
+            if 'Errno 22' in error_msg or 'Invalid argument' in error_msg:
+                return jsonify({'error': 'Invalid file path or filename. Please choose a different location or filename.'}), 400
+            return jsonify({'error': f'Cannot write file: {error_msg}'}), 400
         
         # Add to recent files
         metadata = {
@@ -375,6 +444,9 @@ def save_project_file():
         })
     
     except Exception as e:
+        print(f'[Save ERROR] Unexpected error: {e}')
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 

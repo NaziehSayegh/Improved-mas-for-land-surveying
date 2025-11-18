@@ -68,16 +68,17 @@
 
         <!-- Download Button -->
         <div id="download" class="mb-8">
-            <a href="#" id="downloadPortable" class="glow-button inline-block bg-green-600 hover:bg-green-700 text-white font-bold text-2xl px-16 py-6 rounded-xl transition transform hover:scale-105 shadow-2xl mb-6">
-                ⬇️ Download Parcel Tools
-                <div class="text-sm font-normal opacity-80 mt-1">Portable ZIP • No installation needed • 108 MB</div>
+            <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel.Tools.Setup.2.0.0.exe" id="downloadInstaller" class="glow-button inline-block bg-green-600 hover:bg-green-700 text-white font-bold text-2xl px-16 py-6 rounded-xl transition transform hover:scale-105 shadow-2xl mb-6" download="Parcel.Tools.Setup.2.0.0.exe">
+                ⬇️ Download Parcel Tools v2.0.0
+                <div class="text-sm font-normal opacity-80 mt-1">Windows Installer • 110 MB • Free</div>
             </a>
             
-            <div class="mt-6 text-center">
-                <p class="text-gray-400 text-sm mb-3">Alternative download:</p>
-                <a href="#" id="downloadInstaller" class="text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg px-8 py-3 hover:bg-blue-500/10 transition inline-block">
-                    🔧 Installer Version (if available)
-                </a>
+            <!-- Important Notice -->
+            <div class="mt-6 max-w-2xl mx-auto bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                <p class="text-yellow-400 text-sm font-semibold mb-2">⚠️ Important Installation Note:</p>
+                <p class="text-gray-300 text-sm">
+                    If your browser shows a security warning or renames the file to .zip, simply <strong>right-click the download button → "Save link as..."</strong> and save it as <code class="bg-gray-700 px-2 py-1 rounded">.exe</code>
+                </p>
             </div>
             
             <!-- Alternative Downloads -->
@@ -245,68 +246,38 @@
         // Download button functionality
         // Download configuration
         const DOWNLOAD_CONFIG = {
-            // Direct download links from GitHub repository (Git LFS)
-            installer: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/raw/main/releases/Parcel-Tools-Setup-2.0.0.exe',
-            portable: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/raw/main/releases/Parcel-Tools-Portable-2.0.0.zip',
-            github: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/raw/main/releases/Parcel-Tools-Setup-2.0.0.exe',
-            direct: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/raw/main/releases/Parcel-Tools-Portable-2.0.0.zip',
+            // GitHub Releases installer download
+            installer: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel.Tools.Setup.2.0.0.exe',
             releases: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases',
         };
 
         // Installer download button
         document.getElementById('downloadInstaller').addEventListener('click', function(e) {
             e.preventDefault();
+            console.log('Starting installer download...');
             
-            // Try to download installer
-            fetch(DOWNLOAD_CONFIG.installer, { method: 'HEAD' })
-                .then(response => {
-                    if (response.ok) {
-                        console.log('Starting installer download...');
-                        window.location.href = DOWNLOAD_CONFIG.installer;
-                        
-                        setTimeout(() => {
-                            alert('✅ Installer Download Started!\n\n' +
-                                  'INSTALLATION STEPS:\n' +
-                                  '━━━━━━━━━━━━━━━━━━━\n\n' +
-                                  '1️⃣ Run "Parcel Tools Setup 2.0.0.exe"\n' +
-                                  '2️⃣ Follow the setup wizard\n' +
-                                  '3️⃣ Choose installation location\n' +
-                                  '4️⃣ Launch from Desktop or Start Menu\n\n' +
-                                  '✨ TIP: Installer creates shortcuts automatically!\n\n' +
-                                  'System Requirements: Windows 10/11 (64-bit) • 4GB RAM');
-                        }, 500);
-                    } else {
-                        throw new Error('File not available');
-                    }
-                })
-                .catch(error => {
-                    alert('⚠️ Installer Not Available\n\n' +
-                          'The installer version is not yet uploaded.\n\n' +
-                          '👉 Please use the PORTABLE ZIP version instead!\n' +
-                          'It works exactly the same - just extract and run!\n\n' +
-                          'Click the green "Download Parcel Tools" button above.');
-                });
-        });
-
-        // Portable ZIP download button
-        document.getElementById('downloadPortable').addEventListener('click', function(e) {
-            e.preventDefault();
-            console.log('Starting portable download...');
-            window.location.href = DOWNLOAD_CONFIG.portable;
+            // Direct download
+            window.location.href = DOWNLOAD_CONFIG.installer;
             
             setTimeout(() => {
-                alert('✅ Portable ZIP Download Started!\n\n' +
-                      'QUICK START GUIDE:\n' +
+                alert('✅ Download Started!\n\n' +
+                      'INSTALLATION STEPS:\n' +
                       '━━━━━━━━━━━━━━━━━━━\n\n' +
-                      '1️⃣ Extract the ZIP file to any folder\n' +
-                      '   (Recommended: C:\\Parcel Tools)\n\n' +
-                      '2️⃣ Double-click "Parcel Tools.exe"\n\n' +
-                      '3️⃣ Right-click the EXE → Send to → Desktop\n' +
-                      '   (Creates a shortcut for easy access)\n\n' +
-                      '✨ TIP: Portable = No installation needed!\n' +
-                      'Run from USB drive or any folder!\n\n' +
-                      'System Requirements: Windows 10/11 (64-bit) • 4GB RAM');
-            }, 500);
+                      '1️⃣ Locate the downloaded file:\n' +
+                      '   "Parcel.Tools.Setup.2.0.0.exe"\n\n' +
+                      '⚠️ If your browser renamed it to .zip:\n' +
+                      '   • Rename it back to .exe\n' +
+                      '   • Or right-click download button → "Save link as..."\n\n' +
+                      '2️⃣ Run the installer\n' +
+                      '3️⃣ Follow the setup wizard\n' +
+                      '4️⃣ Launch from Desktop shortcut\n\n' +
+                      '✨ Windows may show a SmartScreen warning.\n' +
+                      '   Click "More info" → "Run anyway"\n\n' +
+                      'System Requirements:\n' +
+                      '• Windows 10/11 (64-bit)\n' +
+                      '• 4GB RAM (8GB recommended)\n' +
+                      '• 500MB disk space');
+            }, 800);
         });
 
 
