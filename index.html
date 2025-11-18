@@ -68,16 +68,19 @@
 
         <!-- Download Button -->
         <div id="download" class="mb-8">
-            <a href="#" id="downloadBtn" class="glow-button inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold text-xl px-12 py-5 rounded-xl transition transform hover:scale-105 shadow-2xl">
-                ⬇️ Download for Windows
-                <div class="text-sm font-normal opacity-80 mt-1">Version 2.0.0 • No Installation Required • Windows 10/11 (64-bit)</div>
-            </a>
+            <div class="flex gap-4 justify-center mb-6">
+                <a href="#" id="downloadInstaller" class="glow-button inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold text-xl px-12 py-5 rounded-xl transition transform hover:scale-105 shadow-2xl">
+                    🔧 Installer (Recommended)
+                    <div class="text-sm font-normal opacity-80 mt-1">Easy setup • Desktop shortcut • 110 MB</div>
+                </a>
+                <a href="#" id="downloadPortable" class="glow-button inline-block bg-green-600 hover:bg-green-700 text-white font-bold text-xl px-12 py-5 rounded-xl transition transform hover:scale-105 shadow-2xl">
+                    📦 Portable ZIP
+                    <div class="text-sm font-normal opacity-80 mt-1">No installation • Run anywhere • 108 MB</div>
+                </a>
+            </div>
             
             <!-- Alternative Downloads -->
             <div class="flex gap-4 justify-center mt-6">
-                <a href="#" id="downloadDirect" class="text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg px-6 py-3 hover:bg-blue-500/10 transition">
-                    📦 Direct Download
-                </a>
                 <a href="#" id="viewReleases" class="text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg px-6 py-3 hover:bg-blue-500/10 transition">
                     📋 View All Releases
                 </a>
@@ -242,55 +245,53 @@
         // Download configuration
         const DOWNLOAD_CONFIG = {
             // Download links configured for GitHub Releases
+            installer: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel-Tools-Setup-2.0.0.exe',
+            portable: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel-Tools-Portable-2.0.0.zip',
             github: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel-Tools-Setup-2.0.0.exe',
-            direct: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel-Tools-Setup-2.0.0.exe',
+            direct: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel-Tools-Portable-2.0.0.zip',
             releases: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases',
         };
 
-        // Main download button
-        document.getElementById('downloadBtn').addEventListener('click', function(e) {
+        // Installer download button
+        document.getElementById('downloadInstaller').addEventListener('click', function(e) {
             e.preventDefault();
+            console.log('Starting installer download...');
+            window.location.href = DOWNLOAD_CONFIG.installer;
             
-            // Check if download link is configured
-            if (DOWNLOAD_CONFIG.github.includes('YOUR_USERNAME')) {
-                // Not configured yet - show instructions
-                alert('📦 Download Ready!\n\n' +
-                      'To enable downloads:\n\n' +
-                      '1. Build the installer: Run build-installer.bat\n' +
-                      '2. Upload to GitHub Releases or file hosting\n' +
-                      '3. Update DOWNLOAD_CONFIG in index.html\n\n' +
-                      'The installer will be: Parcel-Tools-Setup-2.0.0.exe');
-            } else {
-                // Download link is configured - start download
-                console.log('Starting download...');
-                window.location.href = DOWNLOAD_CONFIG.github;
-                
-                // Show thank you message
-                setTimeout(() => {
-                    alert('✅ Download Started!\n\n' +
-                          'QUICK START GUIDE:\n' +
-                          '━━━━━━━━━━━━━━━━━━━\n\n' +
-                          '1️⃣ Extract the ZIP file to any folder\n' +
-                          '   (Recommended: C:\\Program Files\\Parcel Tools)\n\n' +
-                          '2️⃣ Double-click "Parcel Tools.exe"\n\n' +
-                          '3️⃣ Right-click the EXE → Send to → Desktop\n' +
-                          '   (Creates a shortcut for easy access)\n\n' +
-                          '✨ TIP: No installation means faster startup\n' +
-                          'and easy updates - just replace the folder!\n\n' +
-                          'System Requirements: Windows 10/11 (64-bit) • 4GB RAM');
-                }, 500);
-            }
+            setTimeout(() => {
+                alert('✅ Installer Download Started!\n\n' +
+                      'INSTALLATION STEPS:\n' +
+                      '━━━━━━━━━━━━━━━━━━━\n\n' +
+                      '1️⃣ Run "Parcel Tools Setup 2.0.0.exe"\n' +
+                      '2️⃣ Follow the setup wizard\n' +
+                      '3️⃣ Choose installation location\n' +
+                      '4️⃣ Launch from Desktop or Start Menu\n\n' +
+                      '✨ TIP: Installer creates shortcuts automatically!\n\n' +
+                      'System Requirements: Windows 10/11 (64-bit) • 4GB RAM');
+            }, 500);
         });
 
-        // Direct download button
-        document.getElementById('downloadDirect').addEventListener('click', function(e) {
+        // Portable ZIP download button
+        document.getElementById('downloadPortable').addEventListener('click', function(e) {
             e.preventDefault();
-            if (!DOWNLOAD_CONFIG.direct.includes('your-hosting.com')) {
-                window.location.href = DOWNLOAD_CONFIG.direct;
-            } else {
-                alert('Direct download link not configured yet.\nPlease use the main download button.');
-            }
+            console.log('Starting portable download...');
+            window.location.href = DOWNLOAD_CONFIG.portable;
+            
+            setTimeout(() => {
+                alert('✅ Portable ZIP Download Started!\n\n' +
+                      'QUICK START GUIDE:\n' +
+                      '━━━━━━━━━━━━━━━━━━━\n\n' +
+                      '1️⃣ Extract the ZIP file to any folder\n' +
+                      '   (Recommended: C:\\Parcel Tools)\n\n' +
+                      '2️⃣ Double-click "Parcel Tools.exe"\n\n' +
+                      '3️⃣ Right-click the EXE → Send to → Desktop\n' +
+                      '   (Creates a shortcut for easy access)\n\n' +
+                      '✨ TIP: Portable = No installation needed!\n' +
+                      'Run from USB drive or any folder!\n\n' +
+                      'System Requirements: Windows 10/11 (64-bit) • 4GB RAM');
+            }, 500);
         });
+
 
         // View releases button
         document.getElementById('viewReleases').addEventListener('click', function(e) {
