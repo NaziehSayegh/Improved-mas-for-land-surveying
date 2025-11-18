@@ -156,64 +156,51 @@ function createWindow() {
 
     tryPorts();
   } else {
-    // Production mode - handle both ASAR and unpacked scenarios
-    const isDev = !app.isPackaged;
-    let indexPath;
+    // Production mode
+    // Use app.getAppPath() which works correctly with both ASAR and unpacked apps
+    const appPath = app.getAppPath();
+    const indexPath = path.join(appPath, 'dist', 'index.html');
     
-    if (app.isPackaged) {
-      // In production, check if we're in ASAR or unpacked
-      const possiblePaths = [
-        path.join(process.resourcesPath, 'app.asar', 'dist', 'index.html'),
-        path.join(process.resourcesPath, 'app', 'dist', 'index.html'),
-        path.join(__dirname, '../dist/index.html'),
-        path.join(app.getAppPath(), 'dist', 'index.html')
-      ];
-      
-      // Find the first path that exists
-      indexPath = possiblePaths.find(p => {
-        const exists = fs.existsSync(p);
-        console.log(`Checking path: ${p} - ${exists ? 'EXISTS' : 'NOT FOUND'}`);
-        return exists;
-      });
-      
-      if (!indexPath) {
-        console.error('Could not find index.html in any of these locations:');
-        possiblePaths.forEach(p => console.error(`  - ${p}`));
+    console.log('[Production] App path:', appPath);
+    console.log('[Production] Loading from:', indexPath);
+    console.log('[Production] __dirname:', __dirname);
+    console.log('[Production] process.resourcesPath:', process.resourcesPath);
+    
+    mainWindow.loadFile(indexPath)
+      .then(() => {
+        console.log('[Production] Successfully loaded app');
+      })
+      .catch(err => {
+        console.error('[Production] Error loading file:', err);
+        console.error('[Production] Attempted path:', indexPath);
         
-        // Show error to user
-        mainWindow.show();
-        mainWindow.webContents.loadHTML(`
-          <html>
-            <body style="background: #0d1117; color: white; padding: 40px; font-family: monospace;">
-              <h1>⚠️ Application files not found</h1>
-              <p>Could not locate the application interface files.</p>
-              <p>Searched locations:</p>
-              <ul>
-                ${possiblePaths.map(p => `<li style="font-size: 12px; color: #888;">${p}</li>`).join('')}
-              </ul>
-              <p style="margin-top: 20px;">Please reinstall the application.</p>
-            </body>
-          </html>
-        `);
-        return;
-      }
-      
-      console.log(`Loading production app from: ${indexPath}`);
-    } else {
-      indexPath = path.join(__dirname, '../dist/index.html');
-    }
-    
-    mainWindow.loadFile(indexPath).catch(err => {
-      console.error('Error loading file:', err);
-      mainWindow.webContents.loadHTML(`
-        <html>
-          <body style="background: #0d1117; color: white; padding: 40px; font-family: monospace;">
-            <h1>⚠️ Error loading application</h1>
-            <p>${err.message}</p>
-          </body>
-        </html>
-      `);
-    });
+        // Try alternative path
+        const altPath = path.join(__dirname, '..', 'dist', 'index.html');
+        console.log('[Production] Trying alternative path:', altPath);
+        
+        mainWindow.loadFile(altPath).catch(err2 => {
+          console.error('[Production] Alternative path also failed:', err2);
+          
+          mainWindow.show();
+          mainWindow.webContents.loadHTML(`
+            <html>
+              <body style="background: #0d1117; color: white; padding: 40px; font-family: monospace;">
+                <h1>⚠️ Error loading application</h1>
+                <p>Could not load the application interface.</p>
+                <p style="margin-top: 20px; font-size: 12px; color: #888;">
+                  Tried paths:<br/>
+                  1. ${indexPath}<br/>
+                  2. ${altPath}<br/>
+                  <br/>
+                  App path: ${appPath}<br/>
+                  __dirname: ${__dirname}<br/>
+                </p>
+                <p style="margin-top: 20px;">Please reinstall the application.</p>
+              </body>
+            </html>
+          `);
+        });
+      });
   }
 
   mainWindow.on('closed', () => {
