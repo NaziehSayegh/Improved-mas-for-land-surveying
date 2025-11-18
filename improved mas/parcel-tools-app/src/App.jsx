@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import MainMenu from './pages/MainMenu';
 import ParcelCalculator from './pages/ParcelCalculator';
@@ -114,6 +114,9 @@ function AppContent() {
 }
 
 function App() {
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
+  const RouterComponent = isElectron ? HashRouter : BrowserRouter;
+
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -134,9 +137,9 @@ function App() {
 
   return (
     <ProjectProvider>
-      <Router>
+      <RouterComponent>
         <AppContent />
-      </Router>
+      </RouterComponent>
     </ProjectProvider>
   );
 }
