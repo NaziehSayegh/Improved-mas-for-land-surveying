@@ -356,9 +356,15 @@ def load_project_file():
     """Load project from file content or file path"""
     try:
         data = request.get_json()
+        print(f'[Load Project] Received request data keys: {list(data.keys()) if data else "None"}')
+        
         file_content = data.get('fileContent', '')
         file_path = data.get('filePath', '')
         file_name = data.get('fileName', '')
+        
+        print(f'[Load Project] file_content length: {len(file_content) if file_content else 0}')
+        print(f'[Load Project] file_path: {file_path}')
+        print(f'[Load Project] file_name: {file_name}')
         
         # If file path or name is provided, try to load from backend/data
         loaded_file_path = None
@@ -366,31 +372,47 @@ def load_project_file():
             if file_name and not file_path:
                 # Load from backend/data directory
                 file_path = os.path.join(DATA_DIR, file_name)
+                print(f'[Load Project] Constructed path from filename: {file_path}')
             
+            print(f'[Load Project] Checking if file exists: {file_path}')
             if os.path.exists(file_path):
                 loaded_file_path = file_path
+                print(f'[Load Project] File exists, loading: {file_path}')
                 with open(file_path, 'r', encoding='utf-8') as f:
                     project_data = json.load(f)
+                print(f'[Load Project] Successfully loaded project data from file')
             else:
-                return jsonify({'error': f'File not found: {file_path}'}), 404
+                error_msg = f'File not found: {file_path}'
+                print(f'[Load Project ERROR] {error_msg}')
+                return jsonify({'error': error_msg}), 404
         elif file_content:
             # Parse JSON from provided content
+            print(f'[Load Project] Parsing JSON from file content')
             project_data = json.loads(file_content)
+            print(f'[Load Project] Successfully parsed JSON from content')
             # If we have a path from the file, use it
             if file_path and os.path.exists(file_path):
                 loaded_file_path = file_path
         else:
-            return jsonify({'error': 'No file content, filePath, or fileName provided'}), 400
+            error_msg = 'No file content, filePath, or fileName provided'
+            print(f'[Load Project ERROR] {error_msg}')
+            return jsonify({'error': error_msg}), 400
         
         # Add to recent files if we have a valid path
         if loaded_file_path:
-            metadata = {
-                'projectName': project_data.get('projectName', ''),
-                'parcelCount': len(project_data.get('savedParcels', [])),
-                'pointsCount': len(project_data.get('loadedPoints', {}))
-            }
-            add_to_recent_files('projects', loaded_file_path, os.path.basename(loaded_file_path), metadata)
+            try:
+                metadata = {
+                    'projectName': project_data.get('projectName', ''),
+                    'parcelCount': len(project_data.get('savedParcels', [])),
+                    'pointsCount': len(project_data.get('loadedPoints', {}))
+                }
+                print(f'[Load Project] Adding to recent files: {loaded_file_path}')
+                add_to_recent_files('projects', loaded_file_path, os.path.basename(loaded_file_path), metadata)
+            except Exception as recent_err:
+                print(f'[Load Project WARNING] Failed to add to recent files: {str(recent_err)}')
+                # Don't fail the whole load if recent files fails
         
+        print(f'[Load Project] Success! Returning project data')
         return jsonify({
             'success': True,
             'projectData': project_data,
@@ -398,9 +420,15 @@ def load_project_file():
         })
     
     except json.JSONDecodeError as e:
-        return jsonify({'error': f'Invalid JSON: {str(e)}'}), 400
+        error_msg = f'Invalid JSON: {str(e)}'
+        print(f'[Load Project ERROR] {error_msg}')
+        return jsonify({'error': error_msg}), 400
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        error_msg = str(e)
+        print(f'[Load Project ERROR] Unexpected exception: {error_msg}')
+        import traceback
+        traceback.print_exc()  # Print full stack trace to console
+        return jsonify({'error': error_msg}), 500
 
 
 @app.route('/api/projects', methods=['GET'])
