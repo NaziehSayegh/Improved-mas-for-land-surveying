@@ -125,7 +125,7 @@ function createWindow() {
     frame: true,
     titleBarStyle: 'default',
     autoHideMenuBar: true,
-    icon: path.join(__dirname, '../public/icon.png')
+    icon: path.join(__dirname, '../build/app-icon.png')
   });
 
   // Debug: Check if preload loaded
