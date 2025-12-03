@@ -17,11 +17,17 @@ class LicenseManager:
     def __init__(self, data_dir):
         self.data_dir = data_dir
         self.license_file = os.path.join(data_dir, 'license.json')
+        print(f'[License] License file path: {self.license_file}')
+        print(f'[License] Data directory: {self.data_dir}')
         
     def get_license_info(self):
         """Get current license status"""
+        print(f'[License] Checking license file: {self.license_file}')
+        print(f'[License] File exists: {os.path.exists(self.license_file)}')
+        
         if not os.path.exists(self.license_file):
             # No license file exists - no trial, must purchase
+            print('[License] No license file found')
             return {
                 'status': 'no_license',
                 'is_valid': False,
@@ -93,13 +99,25 @@ class LicenseManager:
         }
         
         try:
+            # Ensure directory exists
+            os.makedirs(self.data_dir, exist_ok=True)
+            print(f'[License] Saving license to: {self.license_file}')
+            
             with open(self.license_file, 'w') as f:
                 json.dump(license_data, f, indent=2)
+            
+            # Verify the file was created
+            if os.path.exists(self.license_file):
+                print(f'[License] ✅ License saved successfully!')
+                print(f'[License] File size: {os.path.getsize(self.license_file)} bytes')
+            else:
+                print(f'[License] ❌ WARNING: License file was not created!')
             
             return {
                 'success': True,
                 'message': 'License activated successfully!',
-                'email': email
+                'email': email,
+                'saved_to': self.license_file  # Return path for debugging
             }
         except Exception as e:
             return {
