@@ -70,6 +70,7 @@ const MainMenu = () => {
           <span className="text-primary">📐 PARCEL TOOLS</span>
         </h1>
         <p className="text-base sm:text-lg md:text-xl text-dark-300">Professional Surveying & Mapping Software</p>
+        <p className="text-sm text-dark-400 mt-1">Developed by <span className="text-primary font-semibold">Nazieh Sayegh</span></p>
         <div className="mt-2 flex flex-wrap items-center justify-center gap-2 sm:gap-3">
           <span className="px-2 sm:px-3 py-1 bg-success-dark/20 border border-success rounded-full text-success text-xs sm:text-sm font-semibold">
             v2.0 Premium
@@ -209,6 +210,15 @@ const MainMenu = () => {
                   <span className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-primary">Get Help</span>
                 </div>
               </button>
+              <button
+                onClick={() => navigate('/license')}
+                className="w-full bg-yellow-600/20 hover:bg-yellow-600/30 border border-yellow-500/50 rounded-lg p-2.5 sm:p-3 text-left transition-all group"
+              >
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <span className="text-lg sm:text-xl md:text-2xl">🔑</span>
+                  <span className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-yellow-400">License</span>
+                </div>
+              </button>
             </div>
           </motion.div>
 
@@ -260,6 +270,9 @@ const MainMenu = () => {
         </p>
         <p className="text-dark-500 text-xs sm:text-sm">
           Professional Surveying Tools • Powered by React & Python
+        </p>
+        <p className="text-dark-600 text-xs mt-1">
+          © 2024 Nazieh Sayegh • All Rights Reserved
         </p>
       </motion.div>
     </div>

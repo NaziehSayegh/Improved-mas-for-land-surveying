@@ -86,6 +86,37 @@ function startPythonBackend() {
   });
 }
 
+async function checkLicenseStatus() {
+  return new Promise((resolve) => {
+    // Wait for backend to be ready
+    setTimeout(async () => {
+      try {
+        const request = http.get('http://localhost:5000/api/license/status', (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              const licenseInfo = JSON.parse(data);
+              resolve(licenseInfo);
+            } catch {
+              resolve({ is_valid: true }); // Default to valid if error
+            }
+          });
+        });
+        request.on('error', () => {
+          resolve({ is_valid: true }); // Default to valid if backend not ready
+        });
+        request.setTimeout(2000, () => {
+          request.destroy();
+          resolve({ is_valid: true });
+        });
+      } catch {
+        resolve({ is_valid: true });
+      }
+    }, 1500); // Give backend time to start
+  });
+}
+
 function createWindow() {
   // Resolve preload script path - use absolute path for reliability
   // Use .cjs extension to explicitly use CommonJS (package.json has "type": "module")
@@ -111,6 +142,7 @@ function createWindow() {
     minHeight: 700,
     backgroundColor: '#0d1117',
     show: false, // Don't show until ready
+    title: 'Parcel Tools - by Nazieh Sayegh',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -141,9 +173,45 @@ function createWindow() {
   });
 
   // Show window when ready to prevent blank screen
-  mainWindow.once('ready-to-show', () => {
+  mainWindow.once('ready-to-show', async () => {
     mainWindow.show();
     mainWindow.focus();
+    
+    // Check license status after a short delay (let backend fully start)
+    setTimeout(async () => {
+      const licenseInfo = await checkLicenseStatus();
+      console.log('[License] Status:', licenseInfo);
+      
+      // Show dialog if no license (no trial mode - must purchase)
+      if (licenseInfo && !licenseInfo.is_valid) {
+        const options = {
+          type: 'info',
+          title: 'Parcel Tools License',
+          message: 'License Required',
+          detail: 'Parcel Tools requires a valid license to use.\n\nClick "Buy License" to purchase for $29.99\n\nAlready have a license? Click "Activate" to enter your key.',
+          buttons: ['Buy License ($29.99)', 'Activate License', 'Later'],
+          defaultId: 0
+        };
+        
+        const response = await dialog.showMessageBox(mainWindow, options);
+        
+        if (response.response === 0) {
+          // User wants to buy - navigate to license page
+          mainWindow.webContents.executeJavaScript(`
+            if (window.location.hash !== '#/license') {
+              window.location.hash = '#/license';
+            }
+          `).catch(err => console.error('Failed to navigate to license page:', err));
+        } else if (response.response === 1) {
+          // User wants to activate - navigate to license page
+          mainWindow.webContents.executeJavaScript(`
+            if (window.location.hash !== '#/license') {
+              window.location.hash = '#/license';
+            }
+          `).catch(err => console.error('Failed to navigate to license page:', err));
+        }
+      }
+    }, 3000);
   });
 
   // Load app
