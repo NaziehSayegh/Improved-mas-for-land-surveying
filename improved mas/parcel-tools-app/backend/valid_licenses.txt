@@ -1,0 +1,9 @@
+# Valid Parcel Tools Licenses
+# Format: email:license_key
+# Add one line per customer
+
+# Example (remove this line when adding real customers):
+# customer@example.com:ABCD-1234-EFGH-5678
+
+# Your paid customers will be added here:
+

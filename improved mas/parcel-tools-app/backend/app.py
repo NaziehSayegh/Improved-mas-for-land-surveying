@@ -11,6 +11,12 @@ import math
 from datetime import datetime
 import re
 import builtins
+import sys
+
+# Add current directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from license_manager import LicenseManager
 
 # Some environments (like packaged Windows apps) don't have a writable console.
 # Printing in those cases raises "OSError: [Errno 22] Invalid argument" and can
@@ -50,6 +56,9 @@ PROJECTS_FILE = os.path.join(DATA_DIR, 'projects.json')
 POINTS_DIR = os.path.join(DATA_DIR, 'points')
 AI_CONFIG_FILE = os.path.join(DATA_DIR, 'ai_config.json')
 RECENT_FILES_FILE = os.path.join(DATA_DIR, 'recent_files.json')
+
+# Initialize License Manager
+license_manager = LicenseManager(DATA_DIR)
 
 # Ensure data directories exist
 print(f'[Backend] Data directory: {DATA_DIR}')
@@ -1472,6 +1481,79 @@ def clear_recent_files():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# LICENSE MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@app.route('/api/license/status', methods=['GET'])
+def get_license_status():
+    """Get current license status"""
+    try:
+        status = license_manager.get_license_info()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': str(e), 'is_valid': False}), 500
+
+
+# Trial mode removed - customers must purchase license
+
+
+@app.route('/api/license/activate', methods=['POST'])
+def activate_license():
+    """Activate a paid license key"""
+    try:
+        data = request.json
+        license_key = data.get('license_key', '').strip()
+        email = data.get('email', '').strip()
+        
+        if not license_key or not email:
+            return jsonify({
+                'success': False,
+                'error': 'License key and email are required'
+            }), 400
+        
+        result = license_manager.activate_license(license_key, email)
+        
+        if result.get('success'):
+            return jsonify(result)
+        else:
+            return jsonify(result), 400
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/license/deactivate', methods=['POST'])
+def deactivate_license():
+    """Deactivate current license"""
+    try:
+        result = license_manager.deactivate_license()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/license/generate', methods=['POST'])
+def generate_license_key():
+    """
+    Generate a license key for testing purposes
+    NOTE: In production, remove this endpoint and generate keys on your payment server
+    """
+    try:
+        data = request.json
+        email = data.get('email', '').strip()
+        
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+        
+        key = license_manager.generate_license_key(email)
+        return jsonify({'license_key': key, 'email': email})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     print("==> Starting Parcel Tools Backend API...")

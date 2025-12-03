@@ -8,6 +8,7 @@ import WorkMode from './pages/WorkMode';
 import Plotting from './pages/Plotting';
 import BackgroundEffects from './components/BackgroundEffects';
 import Assistant from './pages/Assistant';
+import LicensePage from './pages/LicensePage';
 
 // Inner component to handle file loading with access to context and navigation
 function AppContent() {
@@ -112,6 +113,7 @@ function AppContent() {
       <Routes>
         <Route path="/" element={<MainMenu />} />
         <Route path="/assistant" element={<Assistant />} />
+        <Route path="/license" element={<LicensePage />} />
         <Route path="/parcel-calculator" element={<ParcelCalculator />} />
         <Route path="/data-files" element={<DataFiles />} />
         <Route path="/work-mode" element={<WorkMode />} />
