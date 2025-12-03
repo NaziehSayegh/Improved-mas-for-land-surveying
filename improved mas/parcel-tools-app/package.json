@@ -22,7 +22,8 @@
     "react-router-dom": "^6.20.0",
     "axios": "^1.6.2",
     "lucide-react": "^0.294.0",
-    "framer-motion": "^10.16.16"
+    "framer-motion": "^10.16.16",
+    "electron-updater": "^6.1.7"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
@@ -38,6 +39,11 @@
   "build": {
     "appId": "com.parceltools.app",
     "productName": "Parcel Tools",
+    "publish": {
+      "provider": "github",
+      "owner": "NaziehSayegh",
+      "repo": "Improved-mas-for-land-surveying"
+    },
     "directories": {
       "output": "dist-electron"
     },

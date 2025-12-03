@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn, exec } from 'child_process';
@@ -366,6 +367,88 @@ app.on('open-file', (event, filePath) => {
   }
 });
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// AUTO-UPDATE CONFIGURATION
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Configure auto-updater (only in production)
+autoUpdater.logger = console;
+autoUpdater.autoDownload = false; // Don't auto-download, ask user first
+autoUpdater.autoInstallOnAppQuit = true;
+
+// Auto-updater event handlers
+autoUpdater.on('checking-for-update', () => {
+  console.log('[Auto-Update] Checking for updates...');
+});
+
+autoUpdater.on('update-available', (info) => {
+  console.log('[Auto-Update] Update available:', info.version);
+  
+  dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: 'Update Available',
+    message: `A new version (${info.version}) is available!`,
+    detail: 'Would you like to download and install it now?\n\n' +
+            'Current version: ' + app.getVersion() + '\n' +
+            'New version: ' + info.version + '\n\n' +
+            'The app will restart after the update is installed.',
+    buttons: ['Download & Install', 'Later'],
+    defaultId: 0,
+    cancelId: 1
+  }).then(result => {
+    if (result.response === 0) {
+      // User clicked "Download & Install"
+      autoUpdater.downloadUpdate();
+      
+      // Show download progress
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Downloading Update',
+        message: 'Downloading update...',
+        detail: 'Please wait while the update is being downloaded.\nThis may take a few minutes depending on your connection.',
+        buttons: ['OK']
+      });
+    }
+  });
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  console.log('[Auto-Update] No updates available. Current version:', info.version);
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  const percent = Math.round(progressObj.percent);
+  console.log(`[Auto-Update] Download progress: ${percent}%`);
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  console.log('[Auto-Update] Update downloaded:', info.version);
+  
+  dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: 'Update Ready',
+    message: 'Update downloaded successfully!',
+    detail: 'The update has been downloaded and will be installed when you quit the app.\n\n' +
+            'Click "Restart Now" to install the update immediately, or\n' +
+            'Click "Later" to install it the next time you start the app.',
+    buttons: ['Restart Now', 'Later'],
+    defaultId: 0,
+    cancelId: 1
+  }).then(result => {
+    if (result.response === 0) {
+      // User clicked "Restart Now"
+      autoUpdater.quitAndInstall(false, true);
+    }
+  });
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('[Auto-Update] Error:', err);
+  // Don't show error dialog for update checks, silently fail
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 app.whenReady().then(() => {
   // Set file associations for .prcl files
   if (process.platform === 'win32') {
@@ -374,6 +457,18 @@ app.whenReady().then(() => {
   
   startPythonBackend();
   createWindow();
+  
+  // Check for updates (only in production, after 3 seconds)
+  if (app.isPackaged) {
+    setTimeout(() => {
+      console.log('[Auto-Update] Starting update check...');
+      autoUpdater.checkForUpdates().catch(err => {
+        console.log('[Auto-Update] Check failed (this is normal in development):', err.message);
+      });
+    }, 3000);
+  } else {
+    console.log('[Auto-Update] Skipping update check in development mode');
+  }
   
   // If there's a file to open, send it to the window after it's ready
   if (fileToOpen && mainWindow) {
