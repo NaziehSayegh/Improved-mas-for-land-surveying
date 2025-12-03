@@ -38,7 +38,7 @@
   },
   "build": {
     "appId": "com.parceltools.app",
-    "productName": "Parcel Tools",
+    "productName": "Parcel-Tools",
     "publish": {
       "provider": "github",
       "owner": "NaziehSayegh",
