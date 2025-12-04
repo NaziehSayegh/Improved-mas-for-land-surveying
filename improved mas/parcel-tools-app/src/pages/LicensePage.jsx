@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { 
-  Shield, 
-  Check, 
-  AlertCircle, 
-  Clock, 
+import {
+  Shield,
+  Check,
+  AlertCircle,
+  Clock,
   CreditCard,
   ExternalLink,
   Key,
@@ -15,7 +15,7 @@ export default function LicensePage() {
   const [licenseStatus, setLicenseStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState(false);
-  
+
   // Form state
   const [email, setEmail] = useState('');
   const [licenseKey, setLicenseKey] = useState('');
@@ -23,22 +23,33 @@ export default function LicensePage() {
   const [success, setSuccess] = useState('');
 
   useEffect(() => {
-    // Don't check license status - causes errors when backend not running
-    // Just set default status
-    setLicenseStatus({
-      status: 'no_license',
-      is_valid: false,
-      message: 'No license activated'
-    });
-    setLoading(false);
-    
+    const checkStatus = async () => {
+      try {
+        const response = await fetch('http://127.0.0.1:5000/api/license/status');
+        const data = await response.json();
+        setLicenseStatus(data);
+      } catch (err) {
+        console.error('Failed to check license status:', err);
+        // Keep default "no license" state if check fails
+        setLicenseStatus({
+          status: 'no_license',
+          is_valid: false,
+          message: 'Could not connect to license server'
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkStatus();
+
     // ESC key to go back
     const handleEscKey = (e) => {
       if (e.key === 'Escape') {
         window.history.back();
       }
     };
-    
+
     window.addEventListener('keydown', handleEscKey);
     return () => window.removeEventListener('keydown', handleEscKey);
   }, []);
@@ -46,7 +57,7 @@ export default function LicensePage() {
   const handleBuyNow = () => {
     // Open the buy.html page in browser
     const buyPagePath = '/buy.html';
-    
+
     if (window.electronAPI && window.electronAPI.openExternal) {
       // In Electron, open in system browser
       const fullPath = window.location.origin + buyPagePath;
@@ -60,7 +71,7 @@ export default function LicensePage() {
   const initializePayPalButtons_DISABLED = () => {
     // PayPal buttons disabled - using simple buy button instead
     if (!window.paypal) return;
-    
+
     // Common order creation logic
     const createOrderConfig = (data, actions) => {
       return actions.order.create({
@@ -73,32 +84,32 @@ export default function LicensePage() {
         }]
       });
     };
-    
+
     // Common success handler
     const onApproveHandler = async (data, actions) => {
       const order = await actions.order.capture();
-      
+
       // Customer paid! Show success
       const customerEmail = order.payer.email_address;
       const transactionId = order.id;
       const paymentMethod = order.purchase_units[0].payments.captures[0].payment_method_detail || 'PayPal';
-      
+
       setSuccess(`✅ Payment successful! Check ${customerEmail} for your license key.`);
-      
+
       // In a real app, your backend would:
       // 1. Verify the payment with PayPal
       // 2. Generate license key
       // 3. Email it to customer
-      
+
       alert(`🎉 Payment Successful!\n\nTransaction ID: ${transactionId}\nPayment Method: ${paymentMethod}\n\nYour license key will be emailed to:\n${customerEmail}\n\nPlease check your inbox (and spam folder).`);
     };
-    
+
     // Common error handler
     const onErrorHandler = (err) => {
       setError('Payment failed. Please try again.');
       console.error('Payment error:', err);
     };
-    
+
     // PayPal Button
     if (document.getElementById('paypal-button-container')) {
       window.paypal.Buttons({
@@ -116,7 +127,7 @@ export default function LicensePage() {
         onError: onErrorHandler
       }).render('#paypal-button-container');
     }
-    
+
     // Credit/Debit Card Button (separate)
     if (document.getElementById('card-button-container')) {
       window.paypal.Buttons({
@@ -145,7 +156,7 @@ export default function LicensePage() {
 
   const handleActivateLicense = async (e) => {
     e.preventDefault();
-    
+
     if (!email || !licenseKey) {
       setError('Please enter both email and license key');
       return;
@@ -155,7 +166,7 @@ export default function LicensePage() {
       setActivating(true);
       setError('');
       setSuccess('');
-      
+
       const response = await fetch('http://127.0.0.1:5000/api/license/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -164,9 +175,9 @@ export default function LicensePage() {
           license_key: licenseKey.trim()
         })
       });
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         setSuccess('License activated successfully! 🎉');
         setEmail('');
@@ -197,9 +208,9 @@ export default function LicensePage() {
       const response = await fetch('http://127.0.0.1:5000/api/license/deactivate', {
         method: 'POST',
       });
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         setSuccess('License deactivated');
         await checkLicenseStatus();
@@ -257,7 +268,7 @@ export default function LicensePage() {
       {/* Current Status Card */}
       <div className="bg-gray-800 rounded-lg p-6 mb-6 border border-gray-700">
         <h2 className="text-xl font-semibold text-white mb-4">Current Status</h2>
-        
+
         {licenseStatus && (
           <div className="space-y-3">
             {/* Status Badge */}
@@ -271,11 +282,20 @@ export default function LicensePage() {
                   <span className="text-gray-400">{licenseStatus.email}</span>
                 </>
               )}
-              
-              {(!licenseStatus.status || licenseStatus.status === 'no_license') && (
-                <div className="flex items-center gap-2 px-4 py-2 bg-gray-500/20 border border-gray-500 rounded-lg">
-                  <AlertCircle className="w-5 h-5 text-gray-400" />
-                  <span className="text-gray-400 font-semibold">No License</span>
+
+              {licenseStatus.status === 'trial' && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-yellow-500/20 border border-yellow-500 rounded-lg">
+                  <Clock className="w-5 h-5 text-yellow-400" />
+                  <span className="text-yellow-400 font-semibold">Free Trial ({licenseStatus.days_left} days left)</span>
+                </div>
+              )}
+
+              {(!licenseStatus.status || licenseStatus.status === 'no_license' || licenseStatus.status === 'expired') && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-red-500/20 border border-red-500 rounded-lg">
+                  <AlertCircle className="w-5 h-5 text-red-400" />
+                  <span className="text-red-400 font-semibold">
+                    {licenseStatus.status === 'expired' ? 'Trial Expired' : 'No License'}
+                  </span>
                 </div>
               )}
             </div>
@@ -337,7 +357,7 @@ export default function LicensePage() {
               </div>
             </div>
           </div>
-          
+
           {/* Big Buy Now Button */}
           <button
             onClick={handleBuyNow}
@@ -347,7 +367,7 @@ export default function LicensePage() {
             Buy Now - $29.99
             <ExternalLink className="w-6 h-6" />
           </button>
-          
+
           <div className="text-center mt-4 space-y-1">
             <p className="text-sm text-gray-400 flex items-center justify-center gap-2">
               <span>💳</span>

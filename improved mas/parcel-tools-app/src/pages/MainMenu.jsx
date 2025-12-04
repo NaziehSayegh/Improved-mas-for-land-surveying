@@ -26,6 +26,16 @@ const MainMenu = () => {
     }
   };
 
+  const [licenseStatus, setLicenseStatus] = React.useState(null);
+
+  useEffect(() => {
+    // Check license status
+    fetch('http://127.0.0.1:5000/api/license/status')
+      .then(res => res.json())
+      .then(data => setLicenseStatus(data))
+      .catch(err => console.error('License check failed:', err));
+  }, []);
+
   // Keyboard shortcuts 0-9 and Ctrl+X
   useEffect(() => {
     const handleKeyPress = (e) => {
@@ -75,6 +85,26 @@ const MainMenu = () => {
           <span className="px-2 sm:px-3 py-1 bg-success-dark/20 border border-success rounded-full text-success text-xs sm:text-sm font-semibold">
             v2.0 Premium
           </span>
+
+          {/* License Status Badge */}
+          {licenseStatus && (
+            <>
+              {licenseStatus.status === 'activated' ? (
+                <span className="px-2 sm:px-3 py-1 bg-green-500/20 border border-green-500 rounded-full text-green-400 text-xs sm:text-sm font-semibold flex items-center gap-1">
+                  ✅ Licensed
+                </span>
+              ) : licenseStatus.status === 'trial' ? (
+                <span className="px-2 sm:px-3 py-1 bg-yellow-500/20 border border-yellow-500 rounded-full text-yellow-400 text-xs sm:text-sm font-semibold flex items-center gap-1">
+                  ⏳ Trial: {licenseStatus.days_left} Days Left
+                </span>
+              ) : (
+                <span className="px-2 sm:px-3 py-1 bg-red-500/20 border border-red-500 rounded-full text-red-400 text-xs sm:text-sm font-semibold flex items-center gap-1 cursor-pointer hover:bg-red-500/30" onClick={() => navigate('/license')}>
+                  ⚠️ Unlicensed
+                </span>
+              )}
+            </>
+          )}
+
           {projectName && (
             <span className="px-2 sm:px-3 py-1 bg-primary/20 border border-primary rounded-full text-primary text-xs sm:text-sm font-semibold">
               📁 {projectName}
@@ -263,9 +293,9 @@ const MainMenu = () => {
       >
         <p className="flex flex-wrap items-center justify-center gap-1 sm:gap-2">
           Press{' '}
-          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">1</kbd>, 
-          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">2</kbd>, 
-          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">3</kbd>, or 
+          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">1</kbd>,
+          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">2</kbd>,
+          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">3</kbd>, or
           <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">4</kbd> for quick access
         </p>
         <p className="text-dark-500 text-xs sm:text-sm">

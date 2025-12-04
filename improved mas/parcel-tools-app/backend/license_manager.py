@@ -26,35 +26,94 @@ class LicenseManager:
         print(f'[License] File exists: {os.path.exists(self.license_file)}')
         
         if not os.path.exists(self.license_file):
-            # No license file exists - no trial, must purchase
-            print('[License] No license file found')
-            return {
-                'status': 'no_license',
-                'is_valid': False,
-                'message': 'No license - Please purchase to activate'
-            }
+            # No license file exists - check/start trial
+            return self._check_trial_status()
         
         try:
-            with open(self.license_file, 'r') as f:
+            with open(self.license_file, 'r', encoding='utf-8') as f:
                 license_data = json.load(f)
             
             # Check if it's a paid license
             if license_data.get('type') == 'paid':
                 return self._check_paid_license(license_data)
             
-            # Invalid license file
-            return {
-                'status': 'invalid',
-                'is_valid': False,
-                'message': 'Invalid license file'
-            }
+            # Invalid license file, fall back to trial check
+            return self._check_trial_status()
             
         except Exception as e:
             print(f"Error reading license: {e}")
+            return self._check_trial_status()
+
+    def _check_trial_status(self):
+        """Check or start 7-day free trial"""
+        trial_file = os.path.join(self.data_dir, 'trial_info.json')
+        
+        try:
+            if os.path.exists(trial_file):
+                with open(trial_file, 'r', encoding='utf-8') as f:
+                    trial_data = json.load(f)
+                
+                start_date_str = trial_data.get('start_date')
+                if not start_date_str:
+                    # Invalid trial file, reset it
+                    return self._start_new_trial(trial_file)
+                
+                start_date = datetime.fromisoformat(start_date_str)
+                now = datetime.now()
+                
+                # Calculate expiration (7 days)
+                expiration_date = start_date + timedelta(days=7)
+                days_left = (expiration_date - now).days
+                
+                if now > expiration_date:
+                    return {
+                        'status': 'expired',
+                        'is_valid': False,
+                        'message': 'Trial Expired - Please Purchase'
+                    }
+                
+                return {
+                    'status': 'trial',
+                    'is_valid': True,
+                    'days_left': days_left + 1, # +1 to include today
+                    'message': f'Trial Mode ({days_left + 1} days left)'
+                }
+            else:
+                # Start new trial
+                return self._start_new_trial(trial_file)
+                
+        except Exception as e:
+            print(f"Trial check error: {e}")
+            # Fallback to expired if error
             return {
                 'status': 'error',
                 'is_valid': False,
-                'message': f'License error: {str(e)}'
+                'message': 'License Error'
+            }
+
+    def _start_new_trial(self, trial_file):
+        """Start a new 7-day trial"""
+        try:
+            trial_data = {
+                'start_date': datetime.now().isoformat(),
+                'type': 'trial'
+            }
+            
+            os.makedirs(self.data_dir, exist_ok=True)
+            with open(trial_file, 'w', encoding='utf-8') as f:
+                json.dump(trial_data, f, indent=2)
+                
+            return {
+                'status': 'trial',
+                'is_valid': True,
+                'days_left': 7,
+                'message': '7-Day Free Trial Started'
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'is_valid': False,
+                'message': f'Could not start trial: {str(e)}'
             }
     
     # Trial mode removed - customers must purchase
@@ -80,20 +139,95 @@ class LicenseManager:
     
     # Trial mode removed - no free trials available
     
+    def get_machine_id(self):
+        """Get unique machine identifier"""
+        try:
+            if sys.platform == 'win32':
+                cmd = 'wmic csproduct get uuid'
+                uuid = subprocess.check_output(cmd).decode().split('\n')[1].strip()
+                return uuid
+            else:
+                # Fallback for other OS
+                import uuid
+                return str(uuid.getnode())
+        except Exception:
+            # Fallback if wmic fails
+            import uuid
+            return str(uuid.getnode())
+
+    def validate_online(self, license_key, email, machine_id):
+        """
+        Verify license with online database (Supabase)
+        Returns: {'success': Bool, 'message': Str}
+        """
+        # TODO: Replace with your actual Supabase/API URL and Key
+        API_URL = "https://vhzgtdlcgdekczerzqfh.supabase.co" 
+        API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZoemd0ZGxjZ2Rla2N6ZXJ6cWZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ4NDU2NzQsImV4cCI6MjA4MDQyMTY3NH0.cg6OfTJxPIWTeafNkz5RwqbVTjpaFTwwHzxkxRJsfDA"
+        
+        if API_URL == "YOUR_SUPABASE_URL":
+            # Online check disabled/not configured
+            # For now, allow it (fallback to offline)
+            return {'success': True, 'message': 'Online check skipped'}
+            
+        try:
+            # Example Supabase RPC call
+            headers = {
+                "apikey": API_KEY,
+                "Authorization": f"Bearer {API_KEY}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "p_license_key": license_key,
+                "p_email": email,
+                "p_machine_id": machine_id
+            }
+            
+            response = requests.post(
+                f"{API_URL}/rest/v1/rpc/activate_license",
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                # result should be like: {"success": true, "message": "Activated"}
+                return result
+            else:
+                return {'success': False, 'message': f'Server error: {response.status_code}'}
+                
+        except Exception as e:
+            print(f"Online validation failed: {e}")
+            # Decide: Fail open (allow) or Fail closed (deny)?
+            # Usually fail open if internet is down, but fail closed if we want strict security.
+            # For this demo, we'll return True to not break the app.
+            return {'success': True, 'message': 'Could not connect to server'}
+
     def activate_license(self, license_key, email):
         """Activate a paid license"""
-        # Validate the license key
+        # 1. Validate the license key format (Offline)
         if not self.validate_license_key(license_key, email):
             return {
                 'success': False,
                 'error': 'Invalid license key or email'
             }
         
-        # Save activated license
+        # 2. Online Verification (Device Limit Check)
+        machine_id = self.get_machine_id()
+        online_result = self.validate_online(license_key, email, machine_id)
+        
+        if not online_result.get('success'):
+            return {
+                'success': False,
+                'error': online_result.get('message', 'Activation failed')
+            }
+        
+        # 3. Save activated license locally
         license_data = {
             'type': 'paid',
             'key': license_key,
             'email': email,
+            'machine_id': machine_id,
             'activated_date': datetime.now().isoformat(),
             'version': '2.0.0'
         }
@@ -103,7 +237,7 @@ class LicenseManager:
             os.makedirs(self.data_dir, exist_ok=True)
             print(f'[License] Saving license to: {self.license_file}')
             
-            with open(self.license_file, 'w') as f:
+            with open(self.license_file, 'w', encoding='utf-8') as f:
                 json.dump(license_data, f, indent=2)
             
             # Verify the file was created

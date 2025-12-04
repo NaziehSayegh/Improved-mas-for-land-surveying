@@ -24,9 +24,25 @@ from license_manager import LicenseManager
 _original_print = builtins.print
 
 
+# Reconfigure stdout/stderr to use UTF-8 (fixes Windows charmap errors)
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 def safe_print(*args, **kwargs):
     try:
         _original_print(*args, **kwargs)
+    except UnicodeEncodeError:
+        # Fallback: try to print with replacement characters
+        try:
+            encoding = sys.stdout.encoding or 'utf-8'
+            clean_args = [str(arg).encode(encoding, 'replace').decode(encoding) for arg in args]
+            _original_print(*clean_args, **kwargs)
+        except Exception:
+            pass
     except OSError:
         # Ignore console write failures (no console attached)
         pass
@@ -166,6 +182,20 @@ def add_to_recent_files(file_type, file_path, file_name, metadata=None):
     save_result = save_recent_files(recent)
     print(f'[Recent Files] Save result: {save_result}, New {file_type} count: {len(file_list)}')
     return recent
+
+
+
+@app.route('/api/debug/paths', methods=['GET'])
+def debug_paths():
+    """Debug endpoint to check paths"""
+    return jsonify({
+        'data_dir': DATA_DIR,
+        'license_file': license_manager.license_file,
+        'exists': os.path.exists(license_manager.license_file),
+        'app_data_env': os.environ.get('LOCALAPPDATA'),
+        'portable_env': os.environ.get('PORTABLE_EXECUTABLE_DIR'),
+        'is_packaged': bool(os.environ.get('PORTABLE_EXECUTABLE_DIR'))
+    })
 
 
 @app.route('/api/health', methods=['GET'])
