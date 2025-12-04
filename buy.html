@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,22 +8,33 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @keyframes gradient {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
+            0% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+
+            100% {
+                background-position: 0% 50%;
+            }
         }
+
         .gradient-bg {
             background: linear-gradient(-45deg, #1e3a8a, #1e40af, #3b82f6, #60a5fa);
             background-size: 400% 400%;
             animation: gradient 15s ease infinite;
         }
+
         .feature-card:hover {
             transform: translateY(-4px);
         }
     </style>
 </head>
+
 <body class="bg-gray-900 text-white">
-    
+
     <!-- Header -->
     <nav class="bg-gray-800/50 backdrop-blur-md border-b border-gray-700 sticky top-0 z-50">
         <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -42,7 +54,7 @@
     <section class="gradient-bg py-20 px-4">
         <div class="max-w-4xl mx-auto text-center">
             <h1 class="text-5xl md:text-6xl font-bold mb-6">
-                Get Parcel Tools<br/>
+                Get Parcel Tools<br />
                 <span class="text-yellow-300">Lifetime License</span>
             </h1>
             <p class="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
@@ -71,7 +83,8 @@
             </div>
 
             <!-- Pricing Card -->
-            <div class="bg-gradient-to-br from-blue-900/40 to-purple-900/40 rounded-2xl border-2 border-blue-500 p-8 md:p-12 shadow-2xl max-w-2xl mx-auto">
+            <div
+                class="bg-gradient-to-br from-blue-900/40 to-purple-900/40 rounded-2xl border-2 border-blue-500 p-8 md:p-12 shadow-2xl max-w-2xl mx-auto">
                 <div class="text-center mb-8">
                     <h3 class="text-3xl font-bold mb-4">Parcel Tools Pro</h3>
                     <div class="flex items-baseline justify-center gap-2 mb-6">
@@ -84,50 +97,66 @@
                 <!-- Features List -->
                 <ul class="space-y-4 mb-8">
                     <li class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
                         </svg>
                         <span class="text-lg">Full access to all professional surveying tools</span>
                     </li>
                     <li class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
                         </svg>
                         <span class="text-lg">Area calculation & parcel management</span>
                     </li>
                     <li class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
                         </svg>
                         <span class="text-lg">Point plotting & visualization</span>
                     </li>
                     <li class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
                         </svg>
                         <span class="text-lg">Project file management & export</span>
                     </li>
                     <li class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
                         </svg>
                         <span class="text-lg">Free updates forever</span>
                     </li>
                     <li class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
                         </svg>
                         <span class="text-lg">Priority email support</span>
                     </li>
                     <li class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
                         </svg>
                         <span class="text-lg">Works offline - no internet required</span>
                     </li>
                     <li class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        <svg class="w-6 h-6 text-green-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7">
+                            </path>
                         </svg>
                         <span class="text-lg">30-day money-back guarantee</span>
                     </li>
@@ -135,13 +164,16 @@
 
                 <!-- Payment Options -->
                 <div class="space-y-4">
-                    <button onclick="buyWithStripe()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-xl text-xl transition-all transform hover:scale-105 flex items-center justify-center gap-3">
+                    <button onclick="buyWithStripe()"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-xl text-xl transition-all transform hover:scale-105 flex items-center justify-center gap-3">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z">
+                            </path>
                         </svg>
                         Buy Now - PayPal or Card
                     </button>
-                    
+
                     <div class="flex items-center justify-center gap-3 text-gray-400 text-sm">
                         <span>💳 Visa</span>
                         <span>•</span>
@@ -167,7 +199,8 @@
             <p class="text-xl text-gray-300 mb-8">
                 Not sure yet? Download and try Parcel Tools free for 7 days!
             </p>
-            <a href="index.html#download" class="inline-block bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 px-8 rounded-xl text-lg transition-all">
+            <a href="index.html#download"
+                class="inline-block bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 px-8 rounded-xl text-lg transition-all">
                 Download Free Trial
             </a>
             <p class="text-gray-400 text-sm mt-4">
@@ -180,36 +213,42 @@
     <section class="py-20 px-4 bg-gray-900">
         <div class="max-w-3xl mx-auto">
             <h2 class="text-4xl font-bold text-center mb-12">Frequently Asked Questions</h2>
-            
+
             <div class="space-y-6">
                 <div class="bg-gray-800 rounded-lg p-6">
                     <h3 class="text-xl font-bold mb-3">📋 What do I get after purchase?</h3>
-                    <p class="text-gray-300">After purchasing, you'll receive a license key via email within minutes. Enter this key in the Parcel Tools app to activate your lifetime license.</p>
+                    <p class="text-gray-300">After purchasing, you'll receive a license key via email within minutes.
+                        Enter this key in the Parcel Tools app to activate your lifetime license.</p>
                 </div>
 
                 <div class="bg-gray-800 rounded-lg p-6">
                     <h3 class="text-xl font-bold mb-3">💻 How many computers can I use it on?</h3>
-                    <p class="text-gray-300">Your license allows installation on up to 3 computers for your personal or business use.</p>
+                    <p class="text-gray-300">Your license allows installation on up to 3 computers for your personal or
+                        business use.</p>
                 </div>
 
                 <div class="bg-gray-800 rounded-lg p-6">
                     <h3 class="text-xl font-bold mb-3">🔄 Are updates included?</h3>
-                    <p class="text-gray-300">Yes! All future updates are included free of charge. We regularly release new features and improvements.</p>
+                    <p class="text-gray-300">Yes! All future updates are included free of charge. We regularly release
+                        new features and improvements.</p>
                 </div>
 
                 <div class="bg-gray-800 rounded-lg p-6">
                     <h3 class="text-xl font-bold mb-3">💰 What about refunds?</h3>
-                    <p class="text-gray-300">We offer a 30-day money-back guarantee. If you're not satisfied, email us for a full refund, no questions asked.</p>
+                    <p class="text-gray-300">We offer a 30-day money-back guarantee. If you're not satisfied, email us
+                        for a full refund, no questions asked.</p>
                 </div>
 
                 <div class="bg-gray-800 rounded-lg p-6">
                     <h3 class="text-xl font-bold mb-3">📧 How do I get support?</h3>
-                    <p class="text-gray-300">Email us at support@yourdomain.com - we typically respond within 24 hours. Licensed users get priority support.</p>
+                    <p class="text-gray-300">Email us at support@yourdomain.com - we typically respond within 24 hours.
+                        Licensed users get priority support.</p>
                 </div>
 
                 <div class="bg-gray-800 rounded-lg p-6">
                     <h3 class="text-xl font-bold mb-3">🌐 Does it require internet?</h3>
-                    <p class="text-gray-300">No! After activation, Parcel Tools works 100% offline. Only needed for initial activation and updates.</p>
+                    <p class="text-gray-300">No! After activation, Parcel Tools works 100% offline. Only needed for
+                        initial activation and updates.</p>
                 </div>
             </div>
         </div>
@@ -225,27 +264,7 @@
                 <a href="#" class="hover:text-white transition">Terms of Service</a>
             </div>
         </div>
-    </footer>
-
-    <script>
-        // IMPORTANT: Replace these URLs with your actual payment links
-        
-        function buyWithStripe() {
-            // Option 1: Stripe Payment Link (Recommended)
-            window.location.href = 'https://buy.stripe.com/YOUR_PAYMENT_LINK';
-            
-            // Option 2: Or use Gumroad
-            // window.location.href = 'https://youraccount.gumroad.com/l/parcel-tools';
-            
-            // Option 3: Or use LemonSqueezy
-            // window.location.href = 'https://youraccount.lemonsqueezy.com/checkout/buy/YOUR_PRODUCT_ID';
-        }
-        
-        function buyWithPayPal() {
-            // PayPal payment link
-            window.location.href = 'https://www.paypal.com/YOUR_PAYMENT_LINK';
-        }
-    </script>
+        </script>
 </body>
-</html>
 
+</html>
