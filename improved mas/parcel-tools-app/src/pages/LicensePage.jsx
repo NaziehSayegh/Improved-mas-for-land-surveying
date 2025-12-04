@@ -156,7 +156,7 @@ export default function LicensePage() {
       setError('');
       setSuccess('');
       
-      const response = await fetch('http://localhost:5000/api/license/activate', {
+      const response = await fetch('http://127.0.0.1:5000/api/license/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -194,7 +194,7 @@ export default function LicensePage() {
 
     try {
       setActivating(true);
-      const response = await fetch('http://localhost:5000/api/license/deactivate', {
+      const response = await fetch('http://127.0.0.1:5000/api/license/deactivate', {
         method: 'POST',
       });
       

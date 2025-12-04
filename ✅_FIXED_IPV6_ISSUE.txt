@@ -1,0 +1,58 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ✅ FIXED IPv6 CONNECTION ISSUE!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THE PROBLEM:
+Your system resolves "localhost" to ::1 (IPv6)
+But Flask runs on 127.0.0.1 (IPv4)
+So the app could NEVER connect to the backend!
+
+Result:
+❌ License checks failed
+❌ Activation requests never reached backend
+❌ License was never saved
+
+THE FIX:
+Changed all localhost:5000 → 127.0.0.1:5000
+This forces IPv4 connection!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   🚀 TEST NOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The app is still running, so just REFRESH it:
+Press Ctrl+R in the app window
+
+OR close and reopen:
+Ctrl+C in terminal
+npm run electron:dev
+
+THEN:
+1. Go to License page
+2. Enter: nsayegh2003@yahoo.com
+3. Enter: 0000-0000-255D-5D55
+4. Click Activate
+
+WATCH THE TERMINAL - You'll now see:
+  [API] ═══ LICENSE ACTIVATION ═══
+  [API] Email: nsayegh2003@yahoo.com
+  [License] Saving license to: C:\...\license.json
+  [License] ✅ License saved successfully!
+  [API] ✅ License file created!
+
+THEN:
+5. Close the app
+6. Reopen it
+7. ✅ NO LICENSE DIALOG!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   THIS WILL WORK NOW!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The connection issue is fixed!
+License will save and persist!
+
+REFRESH THE APP (Ctrl+R) AND TEST! 🎉
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+

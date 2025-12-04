@@ -1491,9 +1491,30 @@ def clear_recent_files():
 def get_license_status():
     """Get current license status"""
     try:
+        # Debug logging
+        license_file = license_manager.license_file
+        print(f'[API] ═══ LICENSE STATUS CHECK ═══')
+        print(f'[API] License file path: {license_file}')
+        print(f'[API] File exists: {os.path.exists(license_file)}')
+        if os.path.exists(license_file):
+            print(f'[API] File size: {os.path.getsize(license_file)} bytes')
+            try:
+                with open(license_file, 'r') as f:
+                    content = f.read()
+                    print(f'[API] File content (first 200 chars): {content[:200]}')
+            except Exception as e:
+                print(f'[API] Error reading file: {e}')
+        else:
+            print(f'[API] ❌ License file NOT FOUND!')
+        
         status = license_manager.get_license_info()
+        print(f'[API] Status result: {status}')
+        print(f'[API] ═══════════════════════════')
         return jsonify(status)
     except Exception as e:
+        print(f'[API] ERROR in get_license_status: {e}')
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e), 'is_valid': False}), 500
 
 
@@ -1508,6 +1529,10 @@ def activate_license():
         license_key = data.get('license_key', '').strip()
         email = data.get('email', '').strip()
         
+        print(f'[API] ═══ LICENSE ACTIVATION ═══')
+        print(f'[API] Email: {email}')
+        print(f'[API] Key: {license_key}')
+        
         if not license_key or not email:
             return jsonify({
                 'success': False,
@@ -1515,6 +1540,19 @@ def activate_license():
             }), 400
         
         result = license_manager.activate_license(license_key, email)
+        print(f'[API] Activation result: {result}')
+        
+        # Verify file was created
+        license_file = license_manager.license_file
+        if os.path.exists(license_file):
+            print(f'[API] ✅ License file created: {license_file}')
+            print(f'[API] File size: {os.path.getsize(license_file)} bytes')
+            # Test immediate readback
+            test = license_manager.get_license_info()
+            print(f'[API] Immediate readback: {test}')
+        else:
+            print(f'[API] ❌ WARNING: File NOT created at: {license_file}')
+        print(f'[API] ═══════════════════════════')
         
         if result.get('success'):
             return jsonify(result)

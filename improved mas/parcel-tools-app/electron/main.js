@@ -99,7 +99,7 @@ async function checkLicenseStatus(retries = 5, delay = 2000) {
       console.log(`[License] Checking license status (attempt ${attempts}/${retries})...`);
       
       try {
-        const request = http.get('http://localhost:5000/api/license/status', (res) => {
+        const request = http.get('http://127.0.0.1:5000/api/license/status', (res) => {
           let data = '';
           res.on('data', (chunk) => { data += chunk; });
           res.on('end', () => {
