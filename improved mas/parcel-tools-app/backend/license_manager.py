@@ -9,6 +9,8 @@ import hashlib
 import hmac
 from datetime import datetime, timedelta
 import base64
+import sys
+import subprocess
 
 # Secret key for license validation (CHANGE THIS TO YOUR OWN SECRET!)
 LICENSE_SECRET = "PARCELTOOLS_SECRET_KEY_CHANGE_ME_2024"  # TODO: Change this!
@@ -19,6 +21,10 @@ class LicenseManager:
         self.license_file = os.path.join(data_dir, 'license.json')
         print(f'[License] License file path: {self.license_file}')
         print(f'[License] Data directory: {self.data_dir}')
+        
+        # Supabase Credentials
+        self.supabase_url = "https://vhzgtdlcgdekczerzqfh.supabase.co"
+        self.supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZoemd0ZGxjZ2Rla2N6ZXJ6cWZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ4NDU2NzQsImV4cCI6MjA4MDQyMTY3NH0.cg6OfTJxPIWTeafNkz5RwqbVTjpaFTwwHzxkxRJsfDA"
         
     def get_license_info(self):
         """Get current license status"""
@@ -121,7 +127,19 @@ class LicenseManager:
         """Validate paid license key"""
         license_key = license_data.get('key', '')
         email = license_data.get('email', '')
+        provider = license_data.get('provider', 'legacy')
         
+        # If it's a Gumroad key, we trust the local file (verified at activation)
+        if provider == 'gumroad':
+            return {
+                'status': 'activated',
+                'is_valid': True,
+                'email': email,
+                'activated_date': license_data.get('activated_date'),
+                'message': 'Licensed version (Gumroad)'
+            }
+        
+        # Legacy keys: Check math
         if self.validate_license_key(license_key, email):
             return {
                 'status': 'activated',
@@ -160,20 +178,19 @@ class LicenseManager:
         Verify license with online database (Supabase)
         Returns: {'success': Bool, 'message': Str}
         """
-        # TODO: Replace with your actual Supabase/API URL and Key
-        API_URL = "https://vhzgtdlcgdekczerzqfh.supabase.co" 
-        API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZoemd0ZGxjZ2Rla2N6ZXJ6cWZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ4NDU2NzQsImV4cCI6MjA4MDQyMTY3NH0.cg6OfTJxPIWTeafNkz5RwqbVTjpaFTwwHzxkxRJsfDA"
-        
-        if API_URL == "YOUR_SUPABASE_URL":
+        if self.supabase_url == "YOUR_SUPABASE_URL":
             # Online check disabled/not configured
             # For now, allow it (fallback to offline)
             return {'success': True, 'message': 'Online check skipped'}
             
         try:
-            # Example Supabase RPC call
+            # Use standard library urllib instead of requests to avoid dependency issues
+            import urllib.request
+            import urllib.error
+            
             headers = {
-                "apikey": API_KEY,
-                "Authorization": f"Bearer {API_KEY}",
+                "apikey": self.supabase_key,
+                "Authorization": f"Bearer {self.supabase_key}",
                 "Content-Type": "application/json"
             }
             
@@ -183,53 +200,161 @@ class LicenseManager:
                 "p_machine_id": machine_id
             }
             
-            response = requests.post(
+            json_data = json.dumps(payload).encode('utf-8')
+            
+            req = urllib.request.Request(
                 f"{API_URL}/rest/v1/rpc/activate_license",
+                data=json_data,
                 headers=headers,
-                json=payload
+                method='POST'
             )
             
-            if response.status_code == 200:
-                result = response.json()
-                # result should be like: {"success": true, "message": "Activated"}
-                return result
-            else:
-                return {'success': False, 'message': f'Server error: {response.status_code}'}
+            with urllib.request.urlopen(req) as response:
+                if response.status == 200:
+                    result = json.loads(response.read().decode('utf-8'))
+                    return result
+                else:
+                    return {'success': False, 'message': f'Server error: {response.status}'}
                 
+        except urllib.error.HTTPError as e:
+            error_msg = e.read().decode('utf-8')
+            print(f"Online validation HTTP error: {e.code} - {error_msg}")
+            return {'success': False, 'message': f'Server Error ({e.code}): {error_msg}'}
         except Exception as e:
             print(f"Online validation failed: {e}")
-            # Decide: Fail open (allow) or Fail closed (deny)?
-            # Usually fail open if internet is down, but fail closed if we want strict security.
-            # For this demo, we'll return True to not break the app.
-            return {'success': True, 'message': 'Could not connect to server'}
+            # DEBUGGING: Return the actual error to the user so we know what's wrong
+            return {'success': False, 'message': f'Online Check Failed: {str(e)}'}
+
+    def verify_gumroad_key(self, license_key):
+        """
+        Verify key with Gumroad API
+        Returns: {'valid': Bool, 'email': Str, 'message': Str}
+        """
+        try:
+            import urllib.request
+            import urllib.parse
+            
+            # Gumroad Verify Endpoint
+            url = "https://api.gumroad.com/v2/licenses/verify"
+            
+            # Product ID (Required for new products)
+            product_id = "kk7iYfcvGdH3hYjxntwNIg=="
+            
+            data = urllib.parse.urlencode({
+                'product_id': product_id,
+                'license_key': license_key
+            }).encode('utf-8')
+            
+            req = urllib.request.Request(url, data=data, method='POST')
+            
+            with urllib.request.urlopen(req) as response:
+                if response.status == 200:
+                    result = json.loads(response.read().decode('utf-8'))
+                    if result.get('success') and not result.get('purchase', {}).get('refunded', False):
+                        return {
+                            'valid': True,
+                            'email': result['purchase']['email'],
+                            'message': 'Valid Gumroad License'
+                        }
+                    else:
+                        return {'valid': False, 'message': 'License refunded or invalid'}
+                else:
+                    return {'valid': False, 'message': 'Gumroad verification failed'}
+                    
+        except urllib.error.HTTPError as e:
+            # Gumroad returns 404 for invalid keys
+            return {'valid': False, 'message': 'Invalid Gumroad Key'}
+        except Exception as e:
+            print(f"Gumroad check error: {e}")
+            return {'valid': False, 'message': f'Gumroad Error: {str(e)}'}
 
     def activate_license(self, license_key, email):
-        """Activate a paid license"""
-        # 1. Validate the license key format (Offline)
-        if not self.validate_license_key(license_key, email):
-            return {
-                'success': False,
-                'error': 'Invalid license key or email'
-            }
+        """Activate a paid license (Hybrid: Supabase + Gumroad)"""
+        
+        # Clean inputs
+        clean_key = license_key.strip() # Gumroad keys might not have dashes or might be UUIDs
+        clean_email = email.lower().strip()
         
         # 2. Online Verification (Device Limit Check)
         machine_id = self.get_machine_id()
-        online_result = self.validate_online(license_key, email, machine_id)
         
-        if not online_result.get('success'):
-            return {
-                'success': False,
-                'error': online_result.get('message', 'Activation failed')
-            }
+        # Step A: Check Supabase (Is it already registered?)
+        online_result = self.validate_online(clean_key, clean_email, machine_id)
+        
+        if online_result.get('success'):
+            # It's in Supabase and valid!
+            pass
+            
+        elif "Invalid license key" in online_result.get('message', ''):
+            # Not in Supabase? Check Gumroad!
+            print("[License] Key not in DB, checking Gumroad...")
+            gumroad_result = self.verify_gumroad_key(clean_key)
+            
+            if gumroad_result['valid']:
+                # It's a valid new sale! Register it in Supabase.
+                print("[License] Valid Gumroad key, registering in Supabase...")
+                
+                # Call the register_new_license RPC
+                try:
+                    import urllib.request
+                    import json
+                    
+                    rpc_url = f"{self.supabase_url}/rest/v1/rpc/register_new_license"
+                    headers = {
+                        "apikey": self.supabase_key,
+                        "Authorization": f"Bearer {self.supabase_key}",
+                        "Content-Type": "application/json"
+                    }
+                    
+                    payload = {
+                        "p_license_key": clean_key,
+                        "p_email": gumroad_result['email'], # Use email from Gumroad to be safe
+                        "p_machine_id": machine_id
+                    }
+                    
+                    req = urllib.request.Request(rpc_url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+                    
+                    with urllib.request.urlopen(req) as response:
+                        if response.status == 200:
+                            reg_result = json.loads(response.read().decode('utf-8'))
+                            if not reg_result.get('success'):
+                                return {'success': False, 'error': reg_result.get('message', 'Device limit reached')}
+                        else:
+                            print(f"Failed to register license: {response.status}")
+                            # Fallback: Allow local activation but warn? 
+                            # No, let's be strict or lenient? Let's be lenient for now to avoid blocking paid users.
+                            pass 
+                            
+                except Exception as e:
+                    print(f"Error registering license in DB: {e}")
+                    # If DB fails but Gumroad is valid, we should probably still allow access?
+                    # Yes, let's allow access locally.
+                    pass
+
+                # Check if email matches (optional, but good security)
+                if gumroad_result['email'].lower() != clean_email:
+                     # If they typed a different email but key is valid, maybe we update the email?
+                     # For now, let's just warn or ignore. Gumroad email is the truth.
+                     pass
+                     
+                pass # Proceed to save local file
+            else:
+                 # Check Legacy Math Key (Fallback)
+                if not self.validate_license_key(clean_key, clean_email):
+                    return {'success': False, 'error': 'Invalid License Key (Gumroad & Legacy)'}
+        else:
+            # Some other error (Device limit reached, server error)
+            return {'success': False, 'error': online_result.get('message')}
         
         # 3. Save activated license locally
         license_data = {
             'type': 'paid',
-            'key': license_key,
-            'email': email,
+            'key': clean_key,
+            'email': clean_email,
             'machine_id': machine_id,
             'activated_date': datetime.now().isoformat(),
-            'version': '2.0.0'
+            'version': '2.0.0',
+            'provider': 'gumroad'
         }
         
         try:
@@ -295,8 +420,13 @@ class LicenseManager:
                                 return True
             
             # Fallback: Also check HMAC-generated keys
-            expected = self.generate_license_key(email)
-            if license_key.upper() == expected.upper():
+            # Use clean_email to ensure no whitespace issues
+            expected = self.generate_license_key(clean_email)
+            
+            # Compare clean keys (ignore dashes)
+            expected_clean = expected.replace('-', '').upper()
+            
+            if clean_key == expected_clean:
                 return True
             
             return False

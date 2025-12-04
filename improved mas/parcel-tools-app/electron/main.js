@@ -93,11 +93,11 @@ function startPythonBackend() {
 async function checkLicenseStatus(retries = 5, delay = 2000) {
   return new Promise((resolve) => {
     let attempts = 0;
-    
+
     const tryCheck = () => {
       attempts++;
       console.log(`[License] Checking license status (attempt ${attempts}/${retries})...`);
-      
+
       try {
         const request = http.get('http://127.0.0.1:5000/api/license/status', (res) => {
           let data = '';
@@ -111,7 +111,7 @@ async function checkLicenseStatus(retries = 5, delay = 2000) {
               console.error('[License] Failed to parse response:', err);
               // Backend not ready, retry
               if (attempts < retries) {
-                console.log(`[License] Retrying in ${delay/1000}s...`);
+                console.log(`[License] Retrying in ${delay / 1000}s...`);
                 setTimeout(tryCheck, delay);
               } else {
                 console.log('[License] Max retries reached, assuming valid');
@@ -120,25 +120,25 @@ async function checkLicenseStatus(retries = 5, delay = 2000) {
             }
           });
         });
-        
+
         request.on('error', (err) => {
           console.error('[License] Connection error:', err.message);
           // Backend not ready, retry
           if (attempts < retries) {
-            console.log(`[License] Retrying in ${delay/1000}s...`);
+            console.log(`[License] Retrying in ${delay / 1000}s...`);
             setTimeout(tryCheck, delay);
           } else {
             console.log('[License] Max retries reached, assuming valid');
             resolve({ is_valid: true, status: 'backend_unreachable' });
           }
         });
-        
+
         request.setTimeout(3000, () => {
           console.error('[License] Request timeout');
           request.destroy();
           // Timeout, retry
           if (attempts < retries) {
-            console.log(`[License] Retrying in ${delay/1000}s...`);
+            console.log(`[License] Retrying in ${delay / 1000}s...`);
             setTimeout(tryCheck, delay);
           } else {
             console.log('[License] Max retries reached, assuming valid');
@@ -149,7 +149,7 @@ async function checkLicenseStatus(retries = 5, delay = 2000) {
         console.error('[License] Unexpected error:', err);
         // Unexpected error, retry
         if (attempts < retries) {
-          console.log(`[License] Retrying in ${delay/1000}s...`);
+          console.log(`[License] Retrying in ${delay / 1000}s...`);
           setTimeout(tryCheck, delay);
         } else {
           console.log('[License] Max retries reached, assuming valid');
@@ -157,7 +157,7 @@ async function checkLicenseStatus(retries = 5, delay = 2000) {
         }
       }
     };
-    
+
     // Start first attempt after a delay
     setTimeout(tryCheck, delay);
   });
@@ -169,7 +169,7 @@ function createWindow() {
   const preloadPath = path.resolve(__dirname, 'preload.cjs');
   console.log('[Main] Preload script path:', preloadPath);
   console.log('[Main] __dirname:', __dirname);
-  
+
   // Verify preload file exists
   if (fs.existsSync(preloadPath)) {
     console.log('[Main] ✅ Preload script file exists');
@@ -180,7 +180,7 @@ function createWindow() {
     console.error('[Main] Current __dirname:', __dirname);
     console.error('[Main] Files in electron directory:', fs.readdirSync(__dirname).join(', '));
   }
-  
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -222,11 +222,11 @@ function createWindow() {
   mainWindow.once('ready-to-show', async () => {
     mainWindow.show();
     mainWindow.focus();
-    
+
     // Check license status (with retries to wait for backend)
     checkLicenseStatus(5, 2000).then(async (licenseInfo) => {
       console.log('[License] Final status:', licenseInfo);
-      
+
       // Only show dialog if we're SURE there's no license (not on timeout/error)
       if (licenseInfo && !licenseInfo.is_valid && licenseInfo.status === 'no_license') {
         console.log('[License] No valid license found, showing activation dialog');
@@ -238,9 +238,9 @@ function createWindow() {
           buttons: ['Buy License ($29.99)', 'Activate License', 'Later'],
           defaultId: 0
         };
-        
+
         const response = await dialog.showMessageBox(mainWindow, options);
-        
+
         if (response.response === 0 || response.response === 1) {
           // User wants to buy or activate - navigate to license page
           mainWindow.webContents.executeJavaScript(`
@@ -332,12 +332,12 @@ function createWindow() {
     // Use app.getAppPath() which works correctly with both ASAR and unpacked apps
     const appPath = app.getAppPath();
     const indexPath = path.join(appPath, 'dist', 'index.html');
-    
+
     console.log('[Production] App path:', appPath);
     console.log('[Production] Loading from:', indexPath);
     console.log('[Production] __dirname:', __dirname);
     console.log('[Production] process.resourcesPath:', process.resourcesPath);
-    
+
     mainWindow.loadFile(indexPath)
       .then(() => {
         console.log('[Production] Successfully loaded app');
@@ -345,14 +345,14 @@ function createWindow() {
       .catch(err => {
         console.error('[Production] Error loading file:', err);
         console.error('[Production] Attempted path:', indexPath);
-        
+
         // Try alternative path
         const altPath = path.join(__dirname, '..', 'dist', 'index.html');
         console.log('[Production] Trying alternative path:', altPath);
-        
+
         mainWindow.loadFile(altPath).catch(err2 => {
           console.error('[Production] Alternative path also failed:', err2);
-          
+
           mainWindow.show();
           mainWindow.webContents.loadHTML(`
             <html>
@@ -397,10 +397,10 @@ if (process.platform === 'win32' && process.argv.length >= 2) {
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
   console.log('[Main] open-file event:', filePath);
-  
+
   if (filePath.endsWith('.prcl')) {
     fileToOpen = filePath;
-    
+
     // If window is already created, send the file path to it
     if (mainWindow && mainWindow.webContents) {
       console.log('[Main] Sending file to existing window');
@@ -426,16 +426,16 @@ if (app.isPackaged) {
 
   autoUpdater.on('update-available', (info) => {
     console.log('[Auto-Update] Update available:', info.version);
-    
+
     if (mainWindow) {
       dialog.showMessageBox(mainWindow, {
         type: 'info',
         title: 'Update Available',
         message: `A new version (${info.version}) is available!`,
         detail: 'Would you like to download and install it now?\n\n' +
-                'Current version: ' + app.getVersion() + '\n' +
-                'New version: ' + info.version + '\n\n' +
-                'The app will restart after the update is installed.',
+          'Current version: ' + app.getVersion() + '\n' +
+          'New version: ' + info.version + '\n\n' +
+          'The app will restart after the update is installed.',
         buttons: ['Download & Install', 'Later'],
         defaultId: 0,
         cancelId: 1
@@ -458,15 +458,15 @@ if (app.isPackaged) {
 
   autoUpdater.on('update-downloaded', () => {
     console.log('[Auto-Update] Update downloaded');
-    
+
     if (mainWindow) {
       dialog.showMessageBox(mainWindow, {
         type: 'info',
         title: 'Update Ready',
         message: 'Update downloaded successfully!',
         detail: 'The update will be installed when you quit the app.\n\n' +
-                'Click "Restart Now" to install immediately, or\n' +
-                'Click "Later" to install next time you start the app.',
+          'Click "Restart Now" to install immediately, or\n' +
+          'Click "Later" to install next time you start the app.',
         buttons: ['Restart Now', 'Later'],
         defaultId: 0,
         cancelId: 1
@@ -491,10 +491,10 @@ app.whenReady().then(() => {
   if (process.platform === 'win32') {
     app.setAsDefaultProtocolClient('prcl');
   }
-  
+
   startPythonBackend();
   createWindow();
-  
+
   // Check for updates (only in production, after 5 seconds)
   if (app.isPackaged) {
     setTimeout(() => {
@@ -504,7 +504,7 @@ app.whenReady().then(() => {
       });
     }, 5000);
   }
-  
+
   // If there's a file to open, send it to the window after it's ready
   if (fileToOpen && mainWindow) {
     console.log('[Main] Sending initial file to window:', fileToOpen);
@@ -546,15 +546,15 @@ ipcMain.handle('get-app-version', () => {
 // Save file dialog
 ipcMain.handle('show-save-dialog', async (event, options) => {
   console.log('[Main] show-save-dialog called with options:', options);
-  
+
   // Use the window that sent the message if mainWindow is not available
   const windowToUse = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-  
+
   if (!windowToUse) {
     console.error('[Main] No window available for dialog');
     return { canceled: true, error: 'No window available' };
   }
-  
+
   try {
     const dialogOptions = {
       title: options.title || 'Save As',
@@ -565,24 +565,24 @@ ipcMain.handle('show-save-dialog', async (event, options) => {
       ],
       properties: ['createDirectory', 'showOverwriteConfirmation']
     };
-    
+
     console.log('[Main] Showing save dialog with options:', dialogOptions);
-    
+
     const result = await dialog.showSaveDialog(windowToUse, dialogOptions);
-    
+
     console.log('[Main] Dialog result:', result);
-    
+
     if (result.canceled) {
       return { canceled: true };
     }
-    
+
     if (result.filePath) {
       return {
         canceled: false,
         filePath: result.filePath
       };
     }
-    
+
     return { canceled: true, error: 'No file path returned' };
   } catch (error) {
     console.error('[Main] Dialog error:', error);
@@ -593,14 +593,14 @@ ipcMain.handle('show-save-dialog', async (event, options) => {
 // Open file dialog
 ipcMain.handle('show-open-dialog', async (event, options) => {
   console.log('[Main] show-open-dialog called with options:', options);
-  
+
   const windowToUse = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-  
+
   if (!windowToUse) {
     console.error('[Main] No window available for dialog');
     return { canceled: true, error: 'No window available' };
   }
-  
+
   try {
     const dialogOptions = {
       title: options.title || 'Open File',
@@ -610,17 +610,17 @@ ipcMain.handle('show-open-dialog', async (event, options) => {
       ],
       properties: options.properties || ['openFile']
     };
-    
+
     console.log('[Main] Showing open dialog with options:', dialogOptions);
-    
+
     const result = await dialog.showOpenDialog(windowToUse, dialogOptions);
-    
+
     console.log('[Main] Open dialog result:', result);
-    
+
     if (result.canceled) {
       return { canceled: true };
     }
-    
+
     if (result.filePaths && result.filePaths.length > 0) {
       return {
         canceled: false,
@@ -628,7 +628,7 @@ ipcMain.handle('show-open-dialog', async (event, options) => {
         filePath: result.filePaths[0]
       };
     }
-    
+
     return { canceled: true, error: 'No file selected' };
   } catch (error) {
     console.error('[Main] Open dialog error:', error);
@@ -636,23 +636,29 @@ ipcMain.handle('show-open-dialog', async (event, options) => {
   }
 });
 
+// Open external URL
+ipcMain.handle('open-external', async (event, url) => {
+  console.log('[Main] Opening external URL:', url);
+  await shell.openExternal(url);
+});
+
 // Save PDF and open it
 ipcMain.handle('save-and-open-pdf', async (event, pdfData, fileName) => {
   try {
     console.log('[Main] save-and-open-pdf called, fileName:', fileName);
-    
+
     if (!pdfData) {
       console.error('[Main] No PDF data provided');
       return { success: false, error: 'No PDF data provided' };
     }
-    
+
     const windowToUse = BrowserWindow.fromWebContents(event.sender) || mainWindow;
-    
+
     if (!windowToUse) {
       console.error('[Main] No window available');
       return { success: false, error: 'No window available' };
     }
-    
+
     // Show save dialog for PDF
     const dialogOptions = {
       title: 'Save PDF As',
@@ -663,53 +669,53 @@ ipcMain.handle('save-and-open-pdf', async (event, pdfData, fileName) => {
       ],
       properties: ['createDirectory', 'showOverwriteConfirmation']
     };
-    
+
     console.log('[Main] Showing save dialog...');
     const result = await dialog.showSaveDialog(windowToUse, dialogOptions);
-    
+
     if (result.canceled) {
       console.log('[Main] User canceled save dialog');
       return { success: false, canceled: true };
     }
-    
+
     if (!result.filePath) {
       console.error('[Main] No file path selected');
       return { success: false, error: 'No file path selected' };
     }
-    
+
     // Ensure file path has .pdf extension
     let filePath = result.filePath;
     if (!filePath.toLowerCase().endsWith('.pdf')) {
       filePath += '.pdf';
     }
-    
+
     console.log('[Main] Saving PDF to:', filePath);
-    
+
     // Convert base64 to buffer and write file
     const pdfBuffer = Buffer.from(pdfData, 'base64');
     fs.writeFileSync(filePath, pdfBuffer);
-    
+
     console.log('[Main] PDF saved successfully, file size:', pdfBuffer.length, 'bytes');
-    
+
     // Verify file exists before opening
     if (!fs.existsSync(filePath)) {
       console.error('[Main] File was not created:', filePath);
       return { success: false, error: 'File was not created' };
     }
-    
+
     console.log('[Main] Opening PDF with shell.openPath...');
-    
+
     // Open the PDF file
     // shell.openPath returns a promise that resolves with an error string if it fails
     const openError = await shell.openPath(filePath);
-    
+
     if (openError) {
       console.error('[Main] shell.openPath returned error:', openError);
       // Try alternative method on Windows
       if (process.platform === 'win32') {
         try {
           console.log('[Main] Trying Windows exec method...');
-          
+
           // Use Windows start command to open PDF
           exec(`start "" "${filePath}"`, (error, stdout, stderr) => {
             if (error) {
@@ -718,7 +724,7 @@ ipcMain.handle('save-and-open-pdf', async (event, pdfData, fileName) => {
               console.log('[Main] PDF opened with exec start successfully');
             }
           });
-          
+
           // Give it a moment to execute
           await new Promise(resolve => setTimeout(resolve, 500));
           console.log('[Main] PDF should be opening with exec method');
@@ -732,7 +738,7 @@ ipcMain.handle('save-and-open-pdf', async (event, pdfData, fileName) => {
     } else {
       console.log('[Main] PDF opened successfully with shell.openPath');
     }
-    
+
     return { success: true, filePath: filePath };
   } catch (error) {
     console.error('[Main] Error saving/opening PDF:', error);

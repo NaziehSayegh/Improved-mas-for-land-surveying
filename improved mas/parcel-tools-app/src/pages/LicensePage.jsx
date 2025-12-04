@@ -55,16 +55,15 @@ export default function LicensePage() {
   }, []);
 
   const handleBuyNow = () => {
-    // Open the buy.html page in browser
-    const buyPagePath = '/buy.html';
+    // Open Gumroad directly
+    const gumroadUrl = 'https://sayegh8.gumroad.com/l/uaupi';
 
     if (window.electronAPI && window.electronAPI.openExternal) {
       // In Electron, open in system browser
-      const fullPath = window.location.origin + buyPagePath;
-      window.electronAPI.openExternal(fullPath);
+      window.electronAPI.openExternal(gumroadUrl);
     } else {
       // In browser, open new tab
-      window.open(buyPagePath, '_blank');
+      window.open(gumroadUrl, '_blank');
     }
   };
 

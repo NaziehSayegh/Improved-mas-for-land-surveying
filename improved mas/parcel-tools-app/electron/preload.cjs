@@ -20,6 +20,9 @@ const electronAPI = {
     console.log('[Preload] showOpenDialog called with options:', options);
     return ipcRenderer.invoke('show-open-dialog', options);
   },
+  openExternal: (url) => {
+    return ipcRenderer.invoke('open-external', url);
+  },
   // Listen for project file to load (when double-clicked)
   onLoadProjectFile: (callback) => {
     console.log('[Preload] Setting up onLoadProjectFile listener');

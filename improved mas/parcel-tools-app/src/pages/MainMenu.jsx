@@ -19,6 +19,13 @@ const MainMenu = () => {
   ];
 
   const handleSelect = (path, num) => {
+    // Check for expiration
+    if (licenseStatus && licenseStatus.status === 'expired') {
+      alert('Trial Expired! Please purchase a license to continue using Parcel Tools.');
+      navigate('/license');
+      return;
+    }
+
     if (path !== '#') {
       navigate(path);
     } else {
