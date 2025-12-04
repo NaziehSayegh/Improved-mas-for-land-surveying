@@ -90,10 +90,14 @@ function startPythonBackend() {
   });
 }
 
-async function checkLicenseStatus() {
+async function checkLicenseStatus(retries = 5, delay = 2000) {
   return new Promise((resolve) => {
-    // Wait for backend to be ready
-    setTimeout(async () => {
+    let attempts = 0;
+    
+    const tryCheck = () => {
+      attempts++;
+      console.log(`[License] Checking license status (attempt ${attempts}/${retries})...`);
+      
       try {
         const request = http.get('http://localhost:5000/api/license/status', (res) => {
           let data = '';
@@ -101,23 +105,61 @@ async function checkLicenseStatus() {
           res.on('end', () => {
             try {
               const licenseInfo = JSON.parse(data);
+              console.log('[License] Status received:', licenseInfo);
               resolve(licenseInfo);
-            } catch {
-              resolve({ is_valid: true }); // Default to valid if error
+            } catch (err) {
+              console.error('[License] Failed to parse response:', err);
+              // Backend not ready, retry
+              if (attempts < retries) {
+                console.log(`[License] Retrying in ${delay/1000}s...`);
+                setTimeout(tryCheck, delay);
+              } else {
+                console.log('[License] Max retries reached, assuming valid');
+                resolve({ is_valid: true, status: 'backend_timeout' });
+              }
             }
           });
         });
-        request.on('error', () => {
-          resolve({ is_valid: true }); // Default to valid if backend not ready
+        
+        request.on('error', (err) => {
+          console.error('[License] Connection error:', err.message);
+          // Backend not ready, retry
+          if (attempts < retries) {
+            console.log(`[License] Retrying in ${delay/1000}s...`);
+            setTimeout(tryCheck, delay);
+          } else {
+            console.log('[License] Max retries reached, assuming valid');
+            resolve({ is_valid: true, status: 'backend_unreachable' });
+          }
         });
-        request.setTimeout(2000, () => {
+        
+        request.setTimeout(3000, () => {
+          console.error('[License] Request timeout');
           request.destroy();
-          resolve({ is_valid: true });
+          // Timeout, retry
+          if (attempts < retries) {
+            console.log(`[License] Retrying in ${delay/1000}s...`);
+            setTimeout(tryCheck, delay);
+          } else {
+            console.log('[License] Max retries reached, assuming valid');
+            resolve({ is_valid: true, status: 'timeout' });
+          }
         });
-      } catch {
-        resolve({ is_valid: true });
+      } catch (err) {
+        console.error('[License] Unexpected error:', err);
+        // Unexpected error, retry
+        if (attempts < retries) {
+          console.log(`[License] Retrying in ${delay/1000}s...`);
+          setTimeout(tryCheck, delay);
+        } else {
+          console.log('[License] Max retries reached, assuming valid');
+          resolve({ is_valid: true, status: 'error' });
+        }
       }
-    }, 1500); // Give backend time to start
+    };
+    
+    // Start first attempt after a delay
+    setTimeout(tryCheck, delay);
   });
 }
 
@@ -181,13 +223,13 @@ function createWindow() {
     mainWindow.show();
     mainWindow.focus();
     
-    // Check license status after a short delay (let backend fully start)
-    setTimeout(async () => {
-      const licenseInfo = await checkLicenseStatus();
-      console.log('[License] Status:', licenseInfo);
+    // Check license status (with retries to wait for backend)
+    checkLicenseStatus(5, 2000).then(async (licenseInfo) => {
+      console.log('[License] Final status:', licenseInfo);
       
-      // Show dialog if no license (no trial mode - must purchase)
-      if (licenseInfo && !licenseInfo.is_valid) {
+      // Only show dialog if we're SURE there's no license (not on timeout/error)
+      if (licenseInfo && !licenseInfo.is_valid && licenseInfo.status === 'no_license') {
+        console.log('[License] No valid license found, showing activation dialog');
         const options = {
           type: 'info',
           title: 'Parcel Tools License',
@@ -199,23 +241,20 @@ function createWindow() {
         
         const response = await dialog.showMessageBox(mainWindow, options);
         
-        if (response.response === 0) {
-          // User wants to buy - navigate to license page
-          mainWindow.webContents.executeJavaScript(`
-            if (window.location.hash !== '#/license') {
-              window.location.hash = '#/license';
-            }
-          `).catch(err => console.error('Failed to navigate to license page:', err));
-        } else if (response.response === 1) {
-          // User wants to activate - navigate to license page
+        if (response.response === 0 || response.response === 1) {
+          // User wants to buy or activate - navigate to license page
           mainWindow.webContents.executeJavaScript(`
             if (window.location.hash !== '#/license') {
               window.location.hash = '#/license';
             }
           `).catch(err => console.error('Failed to navigate to license page:', err));
         }
+      } else if (licenseInfo && licenseInfo.is_valid) {
+        console.log('[License] ✅ Valid license found!');
+      } else {
+        console.log('[License] Could not verify license (backend issue), allowing access');
       }
-    }, 3000);
+    });
   });
 
   // Load app
