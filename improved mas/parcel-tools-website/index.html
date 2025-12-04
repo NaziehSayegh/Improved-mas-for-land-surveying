@@ -1,158 +1,415 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Parcel Tools - Professional Surveying Software</title>
+    <title>Parcel Tools - Professional Surveying & Mapping Software</title>
+    <meta name="description" content="Professional surveying and land mapping software for calculating parcel areas, managing survey projects, and processing survey data.">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon.png">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
         }
-
-        .hero-bg {
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        .float-animation {
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(96, 165, 250, 0.5); }
+            50% { box-shadow: 0 0 40px rgba(96, 165, 250, 0.8); }
+        }
+        .glow-button {
+            animation: glow 2s ease-in-out infinite;
+        }
+        .gradient-text {
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
     </style>
 </head>
-
-<body class="bg-slate-900 text-white">
-
-    <!-- Navbar -->
-    <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
-        <div class="flex items-center gap-2">
-            <span class="text-2xl">📐</span>
-            <span class="text-xl font-bold">Parcel Tools</span>
+<body class="bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white min-h-screen">
+    
+    <!-- Navigation -->
+    <nav class="bg-gray-900/50 backdrop-blur-lg border-b border-blue-500/20 sticky top-0 z-50">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <img src="favicon.png" alt="Parcel Tools" class="w-10 h-10 rounded-lg">
+                    <div>
+                        <span class="text-2xl font-bold gradient-text">Parcel Tools</span>
+                        <div class="text-xs text-gray-400">by Nazieh Sayegh</div>
+                    </div>
+                </div>
+                <div class="flex gap-6">
+                    <a href="#features" class="hover:text-blue-400 transition">Features</a>
+                    <a href="#download" class="hover:text-blue-400 transition">Download</a>
+                    <a href="buy.html" class="hover:text-yellow-400 transition font-semibold">Buy ($29.99)</a>
+                    <a href="#about" class="hover:text-blue-400 transition">About</a>
+                </div>
+            </div>
         </div>
-        <div class="hidden md:flex gap-6">
-            <a href="#features" class="hover:text-blue-400 transition">Features</a>
-            <a href="#pricing" class="hover:text-blue-400 transition">Pricing</a>
-            <a href="#contact" class="hover:text-blue-400 transition">Contact</a>
-        </div>
-        <a href="#download" class="bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded-lg font-semibold transition">
-            Download
-        </a>
     </nav>
 
     <!-- Hero Section -->
-    <header class="hero-bg py-20 lg:py-32 relative overflow-hidden">
-        <div class="container mx-auto px-6 text-center relative z-10">
-            <h1 class="text-5xl lg:text-6xl font-bold mb-6">Professional Surveying Software</h1>
-            <p class="text-xl text-slate-300 mb-8 max-w-2xl mx-auto">
-                Calculate parcel areas with precision. Manage projects offline. Built for land surveyors.
-            </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank"
-                    class="bg-blue-600 hover:bg-blue-700 px-8 py-4 rounded-xl font-bold text-lg transition">
-                    Get Started - $29.99
-                </a>
-                <a href="#features"
-                    class="bg-slate-800 hover:bg-slate-700 px-8 py-4 rounded-xl font-bold text-lg transition border border-slate-700">
-                    Learn More
+    <section class="container mx-auto px-6 py-20 text-center">
+        <div class="float-animation mb-8">
+            <img src="favicon.png" alt="Parcel Tools Icon" class="w-48 h-48 mx-auto rounded-3xl shadow-2xl">
+        </div>
+        
+        <h1 class="text-7xl font-bold mb-6 gradient-text">
+            Parcel Tools
+        </h1>
+        
+        <p class="text-3xl text-gray-300 mb-4">
+            Professional Surveying & Mapping Desktop Software
+        </p>
+        
+        <div class="inline-block px-6 py-2 bg-green-500/20 border border-green-500 rounded-full mb-12">
+            <span class="text-green-400 font-semibold">v2.0.0 - Latest Release</span>
+            <span class="text-gray-400 ml-2">• November 2025</span>
+        </div>
+
+        <!-- Download Button -->
+        <div id="download" class="mb-8">
+            <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel-Tools-Setup-2.0.0.exe" id="downloadInstaller" class="glow-button inline-block bg-green-600 hover:bg-green-700 text-white font-bold text-2xl px-16 py-6 rounded-xl transition transform hover:scale-105 shadow-2xl mb-6" download="Parcel-Tools-Setup-2.0.0.exe">
+                ⬇️ Download Free Trial (7 Days)
+                <div class="text-sm font-normal opacity-80 mt-1">Windows Installer • 110 MB • Full Features</div>
+            </a>
+            
+            <div class="mt-4">
+                <a href="buy.html" class="inline-block bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold text-xl px-12 py-4 rounded-xl transition transform hover:scale-105 shadow-2xl">
+                    🔑 Buy License - $29.99
+                    <div class="text-sm font-normal opacity-80 mt-1">One-time payment • Lifetime access</div>
                 </a>
             </div>
-            <p class="text-sm text-slate-400 mt-4">Includes 7-day free trial • No credit card required</p>
+            
+            <!-- Important Notice -->
+            <div class="mt-6 max-w-2xl mx-auto bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                <p class="text-yellow-400 text-sm font-semibold mb-2">⚠️ Important Installation Note:</p>
+                <p class="text-gray-300 text-sm">
+                    If your browser shows a security warning or renames the file to .zip, simply <strong>right-click the download button → "Save link as..."</strong> and save it as <code class="bg-gray-700 px-2 py-1 rounded">.exe</code>
+                </p>
+            </div>
+            
+            <!-- Alternative Downloads -->
+            <div class="flex gap-4 justify-center mt-6">
+                <a href="#" id="viewReleases" class="text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-lg px-6 py-3 hover:bg-blue-500/10 transition">
+                    📋 View All Releases
+                </a>
+            </div>
+            
+            <p class="text-gray-400 text-sm mt-6">
+                Coming soon: 
+                <span class="text-gray-500">macOS</span> • 
+                <span class="text-gray-500">Linux</span>
+            </p>
         </div>
-    </header>
 
-    <!-- Features -->
-    <section id="features" class="py-20 bg-slate-900">
-        <div class="container mx-auto px-6">
-            <h2 class="text-3xl font-bold text-center mb-16">Everything You Need</h2>
+        <!-- Key Features Overview -->
+        <div class="grid grid-cols-3 gap-8 max-w-3xl mx-auto mt-16">
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-6 border border-blue-500/20">
+                <div class="text-4xl font-bold text-blue-400 mb-2">100%</div>
+                <div class="text-gray-400">Free & Open Source</div>
+            </div>
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-6 border border-blue-500/20">
+                <div class="text-4xl font-bold text-blue-400 mb-2">Windows</div>
+                <div class="text-gray-400">Desktop Application</div>
+            </div>
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-6 border border-blue-500/20">
+                <div class="text-4xl font-bold text-blue-400 mb-2">v2.0</div>
+                <div class="text-gray-400">Latest Version</div>
+            </div>
+        </div>
+    </section>
 
-            <div class="grid md:grid-cols-3 gap-8">
-                <!-- Feature 1 -->
-                <div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 hover:border-blue-500/50 transition">
-                    <div class="w-12 h-12 bg-blue-900/50 rounded-lg flex items-center justify-center text-2xl mb-6">📐
+    <!-- Features Section -->
+    <section id="features" class="container mx-auto px-6 py-20">
+        <h2 class="text-5xl font-bold text-center mb-16 gradient-text">
+            Powerful Features
+        </h2>
+
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+            <!-- Feature 1 -->
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-8 border border-blue-500/20 hover:border-blue-500/50 transition transform hover:scale-105">
+                <div class="text-5xl mb-4">🧮</div>
+                <h3 class="text-xl font-bold mb-3">Advanced Area Calculator</h3>
+                <p class="text-gray-400">Calculate parcel areas with professional precision. Supports curved boundaries, multiple coordinate systems, and automatic area computation</p>
+            </div>
+
+            <!-- Feature 2 -->
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-8 border border-blue-500/20 hover:border-blue-500/50 transition transform hover:scale-105">
+                <div class="text-5xl mb-4">📁</div>
+                <h3 class="text-xl font-bold mb-3">Project Management</h3>
+                <p class="text-gray-400">Save and organize multiple surveying projects. Auto-save feature ensures your work is never lost. Recent files for quick access</p>
+            </div>
+
+            <!-- Feature 3 -->
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-8 border border-blue-500/20 hover:border-blue-500/50 transition transform hover:scale-105">
+                <div class="text-5xl mb-4">📍</div>
+                <h3 class="text-xl font-bold mb-3">Survey Points Editor</h3>
+                <p class="text-gray-400">Import, edit, and export survey points. Supports .pnt, .txt, and .csv formats with live synchronization</p>
+            </div>
+
+            <!-- Feature 4 -->
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-8 border border-blue-500/20 hover:border-blue-500/50 transition transform hover:scale-105">
+                <div class="text-5xl mb-4">📊</div>
+                <h3 class="text-xl font-bold mb-3">Professional Plotting</h3>
+                <p class="text-gray-400">Visualize parcels with interactive plotting. Export high-quality diagrams for documentation and reports</p>
+            </div>
+
+            <!-- Feature 5 -->
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-8 border border-blue-500/20 hover:border-blue-500/50 transition transform hover:scale-105">
+                <div class="text-5xl mb-4">🤖</div>
+                <h3 class="text-xl font-bold mb-3">AI Assistant</h3>
+                <p class="text-gray-400">Get help with calculations and workflows. Built-in assistant guides you through complex surveying tasks</p>
+            </div>
+
+            <!-- Feature 6 -->
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-8 border border-blue-500/20 hover:border-blue-500/50 transition transform hover:scale-105">
+                <div class="text-5xl mb-4">⚙️</div>
+                <h3 class="text-xl font-bold mb-3">Flexible Configuration</h3>
+                <p class="text-gray-400">Configure units (metric/imperial), precision levels, coordinate systems, and display preferences to match your workflow</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Screenshots -->
+    <section class="container mx-auto px-6 py-20">
+        <h2 class="text-5xl font-bold text-center mb-16 gradient-text">
+            Beautiful Professional Interface
+        </h2>
+
+        <div class="grid md:grid-cols-2 gap-8 max-w-6xl mx-auto">
+            <!-- Dashboard Screenshot -->
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-4 border border-blue-500/20 hover:border-blue-500/50 transition transform hover:scale-105">
+                <img src="screenshot-dashboard.png" alt="Parcel Tools Dashboard - Modern dark theme interface" class="rounded-lg w-full shadow-2xl">
+                <p class="text-center mt-4 text-gray-300 font-semibold">Modern Dashboard</p>
+                <p class="text-center text-sm text-gray-500">Quick access to projects, recent files, and key functions</p>
+            </div>
+            
+            <!-- Calculator Screenshot -->
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-4 border border-blue-500/20 hover:border-blue-500/50 transition transform hover:scale-105">
+                <img src="screenshot-calculator.png" alt="Parcel Tools Area Calculator - Survey points input and plot visualization" class="rounded-lg w-full shadow-2xl">
+                <p class="text-center mt-4 text-gray-300 font-semibold">Area Calculator with Live Plot</p>
+                <p class="text-center text-sm text-gray-500">Calculate areas with real-time visualization and results</p>
+            </div>
+        </div>
+
+        <!-- Additional info -->
+        <div class="max-w-4xl mx-auto mt-12 text-center">
+            <p class="text-gray-400 text-lg">
+                Professional dark theme designed for extended use • Clean, modern interface • Real-time visualization
+            </p>
+        </div>
+    </section>
+
+    <!-- System Requirements & What's New -->
+    <section id="about" class="container mx-auto px-6 py-20">
+        <div class="max-w-4xl mx-auto space-y-8">
+            <!-- What's New -->
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-12 border border-blue-500/20">
+                <h2 class="text-4xl font-bold mb-8 gradient-text">What's New in v2.0</h2>
+                <div class="space-y-4 text-gray-300">
+                    <div class="flex gap-3">
+                        <span class="text-green-400 text-xl">✓</span>
+                        <div>
+                            <strong class="text-white">Professional Area Calculator</strong> - Calculate complex parcels with curved boundaries and multiple segments
+                        </div>
                     </div>
-                    <h3 class="text-xl font-bold mb-3">Area Calculation</h3>
-                    <p class="text-slate-400">
-                        Precise shoelace formula calculations with automatic curve adjustments and error propagation
-                        analysis.
-                    </p>
-                </div>
-
-                <!-- Feature 2 -->
-                <div
-                    class="bg-slate-800 p-8 rounded-2xl border border-slate-700 hover:border-blue-500/50 transition relative">
-                    <div class="w-12 h-12 bg-emerald-900/50 rounded-lg flex items-center justify-center text-2xl mb-6">
-                        📁</div>
-                    <div class="absolute top-4 right-4 text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded">
-                        Offline</div>
-                    <h3 class="text-xl font-bold mb-3">Project Management</h3>
-                    <p class="text-slate-400">
-                        Save and load projects locally. Your data never leaves your computer. Secure and private by
-                        default.
-                    </p>
-                </div>
-
-                <!-- Feature 3 -->
-                <div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 hover:border-blue-500/50 transition">
-                    <div class="w-12 h-12 bg-purple-900/50 rounded-lg flex items-center justify-center text-2xl mb-6">🤖
+                    <div class="flex gap-3">
+                        <span class="text-green-400 text-xl">✓</span>
+                        <div>
+                            <strong class="text-white">Smart Project Management</strong> - Auto-save functionality with recent files panel for quick access
+                        </div>
                     </div>
-                    <h3 class="text-xl font-bold mb-3">AI Assistant</h3>
-                    <p class="text-slate-400">
-                        Built-in AI helper to answer your questions about surveying calculations and app usage
-                        instantly.
-                    </p>
+                    <div class="flex gap-3">
+                        <span class="text-green-400 text-xl">✓</span>
+                        <div>
+                            <strong class="text-white">Live Points Editor</strong> - Edit survey points with real-time synchronization across the application
+                        </div>
+                    </div>
+                    <div class="flex gap-3">
+                        <span class="text-green-400 text-xl">✓</span>
+                        <div>
+                            <strong class="text-white">Modern Dark Theme UI</strong> - Professional interface designed for extended use
+                        </div>
+                    </div>
+                    <div class="flex gap-3">
+                        <span class="text-green-400 text-xl">✓</span>
+                        <div>
+                            <strong class="text-white">AI Assistant Integration</strong> - Get contextual help and guidance for surveying workflows
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Requirements -->
+            <div class="bg-gray-800/50 backdrop-blur rounded-xl p-12 border border-blue-500/20">
+                <h2 class="text-4xl font-bold mb-8 gradient-text">System Requirements</h2>
+                
+                <div class="grid md:grid-cols-2 gap-8">
+                    <div>
+                        <h3 class="text-xl font-bold mb-4 text-blue-400">Minimum Requirements</h3>
+                        <ul class="space-y-3 text-gray-300">
+                            <li class="flex gap-2"><span class="text-blue-400">•</span> Windows 10 (64-bit) or later</li>
+                            <li class="flex gap-2"><span class="text-blue-400">•</span> 4 GB RAM</li>
+                            <li class="flex gap-2"><span class="text-blue-400">•</span> 500 MB available disk space</li>
+                            <li class="flex gap-2"><span class="text-blue-400">•</span> 1280×720 display resolution</li>
+                            <li class="flex gap-2"><span class="text-blue-400">•</span> Internet connection for AI features</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold mb-4 text-blue-400">Recommended</h3>
+                        <ul class="space-y-3 text-gray-300">
+                            <li class="flex gap-2"><span class="text-blue-400">•</span> Windows 11 (64-bit)</li>
+                            <li class="flex gap-2"><span class="text-blue-400">•</span> 8 GB RAM or more</li>
+                            <li class="flex gap-2"><span class="text-blue-400">•</span> 1 GB available disk space</li>
+                            <li class="flex gap-2"><span class="text-blue-400">•</span> 1920×1080 or higher display</li>
+                            <li class="flex gap-2"><span class="text-blue-400">•</span> Stable internet connection</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Pricing -->
-    <section id="pricing" class="py-20">
-        <div class="container mx-auto px-6">
-            <div
-                class="max-w-lg mx-auto bg-gradient-to-b from-slate-800 to-slate-900 rounded-3xl p-8 border border-slate-700 relative overflow-hidden">
-                <div class="absolute top-0 right-0 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-bl-xl">
-                    POPULAR</div>
-
-                <div class="text-center mb-8">
-                    <h2 class="text-2xl font-bold mb-2">Lifetime License</h2>
-                    <div class="text-5xl font-bold text-white mb-2">$29.99</div>
-                    <p class="text-slate-400">One-time payment</p>
-                </div>
-
-                <ul class="space-y-4 mb-8">
-                    <li class="flex items-center gap-3 text-slate-300">
-                        <span class="text-green-400">✓</span> Unlimited Projects
-                    </li>
-                    <li class="flex items-center gap-3 text-slate-300">
-                        <span class="text-green-400">✓</span> Advanced PDF Reports
-                    </li>
-                    <li class="flex items-center gap-3 text-slate-300">
-                        <span class="text-green-400">✓</span> Priority Email Support
-                    </li>
-                    <li class="flex items-center gap-3 text-slate-300">
-                        <span class="text-green-400">✓</span> Free Updates Forever
-                    </li>
-                </ul>
-
-                <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank"
-                    class="block w-full bg-blue-600 hover:bg-blue-700 text-center py-4 rounded-xl font-bold transition">
-                    Get Started
-                </a>
-                <p class="text-center text-xs text-slate-500 mt-4">Includes 7-day free trial. No payment needed to
-                    start.</p>
-            </div>
-        </div>
+    <!-- CTA Section -->
+    <section class="container mx-auto px-6 py-20 text-center">
+        <h2 class="text-5xl font-bold mb-8 gradient-text">
+            Start Using Parcel Tools Today
+        </h2>
+        <p class="text-xl text-gray-300 mb-4">
+            Professional surveying software for land measurement and parcel calculations
+        </p>
+        <p class="text-lg text-gray-400 mb-12">
+            Free, open source, and ready to use • No registration required • No hidden fees
+        </p>
+        <a href="#download" class="glow-button inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold text-xl px-12 py-5 rounded-xl transition transform hover:scale-105">
+            Download Free Windows Version
+        </a>
     </section>
 
     <!-- Footer -->
-    <footer class="bg-slate-950 py-12 border-t border-slate-800">
-        <div class="container mx-auto px-6 text-center">
-            <p class="text-slate-500 mb-4">© 2024 Nazieh Sayegh. All rights reserved.</p>
-            <div class="flex justify-center gap-6 text-sm text-slate-600">
-                <a href="#" class="hover:text-slate-400">Privacy Policy</a>
-                <a href="#" class="hover:text-slate-400">Terms of Service</a>
-                <a href="mailto:nsayegh2003@gmail.com" class="hover:text-slate-400">Contact Support</a>
+    <footer class="bg-gray-900/50 backdrop-blur border-t border-blue-500/20 py-12">
+        <div class="container mx-auto px-6">
+            <div class="grid md:grid-cols-3 gap-8 text-center md:text-left">
+                <div>
+                    <div class="flex items-center gap-2 justify-center md:justify-start mb-4">
+                        <img src="favicon.png" alt="Parcel Tools" class="w-8 h-8 rounded-lg">
+                        <span class="text-xl font-bold">Parcel Tools</span>
+                    </div>
+                    <p class="text-gray-400 mb-3">Professional Surveying & Mapping Software</p>
+                    <p class="text-gray-500 text-sm">Version 2.0.0</p>
+                    <p class="text-gray-500 text-sm">Free & Open Source</p>
+                </div>
+                <div>
+                    <h3 class="font-bold mb-4">Quick Links</h3>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="#download" class="hover:text-blue-400 transition">Download</a></li>
+                        <li><a href="#features" class="hover:text-blue-400 transition">Features</a></li>
+                        <li><a href="#about" class="hover:text-blue-400 transition">System Requirements</a></li>
+                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank" class="hover:text-blue-400 transition">Release Notes</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="font-bold mb-4">Open Source</h3>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying" target="_blank" class="hover:text-blue-400 transition flex items-center justify-center md:justify-start gap-2">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                            GitHub Repository
+                        </a></li>
+                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/issues" target="_blank" class="hover:text-blue-400 transition">Report Issues</a></li>
+                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/discussions" target="_blank" class="hover:text-blue-400 transition">Community Discussions</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="border-t border-blue-500/20 mt-8 pt-8 text-center text-gray-400">
+                <p class="mb-2 text-lg">© 2024-2025 <strong class="text-blue-400">Nazieh Sayegh</strong>. All Rights Reserved.</p>
+                <p class="text-sm text-gray-500">Parcel Tools™ - Professional Surveying Software</p>
+                <p class="text-xs text-gray-600 mt-2">Developed and maintained by Nazieh Sayegh</p>
+            </div>
+            <div class="text-center mt-8 pt-8 border-t border-gray-700">
+                <p class="text-gray-400 mb-2">© 2024 <strong class="text-blue-400">Nazieh Sayegh</strong>. All rights reserved.</p>
+                <p class="text-sm text-gray-500">Parcel Tools™ is a registered trademark of Nazieh Sayegh</p>
             </div>
         </div>
     </footer>
 
-</body>
+    <script>
+        // Download button functionality
+        // Download configuration
+        const DOWNLOAD_CONFIG = {
+            // GitHub Releases installer download
+            installer: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.0/Parcel-Tools-Setup-2.0.0.exe',
+            releases: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases',
+        };
 
+        // Installer download button
+        document.getElementById('downloadInstaller').addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Starting installer download...');
+            
+            // Direct download
+            window.location.href = DOWNLOAD_CONFIG.installer;
+            
+            setTimeout(() => {
+                alert('✅ Download Started!\n\n' +
+                      'INSTALLATION STEPS:\n' +
+                      '━━━━━━━━━━━━━━━━━━━\n\n' +
+                      '1️⃣ Locate the downloaded file:\n' +
+                      '   "Parcel.Tools.Setup.2.0.0.exe"\n\n' +
+                      '⚠️ If your browser renamed it to .zip:\n' +
+                      '   • Rename it back to .exe\n' +
+                      '   • Or right-click download button → "Save link as..."\n\n' +
+                      '2️⃣ Run the installer\n' +
+                      '3️⃣ Follow the setup wizard\n' +
+                      '4️⃣ Launch from Desktop shortcut\n\n' +
+                      '✨ Windows may show a SmartScreen warning.\n' +
+                      '   Click "More info" → "Run anyway"\n\n' +
+                      'System Requirements:\n' +
+                      '• Windows 10/11 (64-bit)\n' +
+                      '• 4GB RAM (8GB recommended)\n' +
+                      '• 500MB disk space');
+            }, 800);
+        });
+
+
+        // View releases button
+        document.getElementById('viewReleases').addEventListener('click', function(e) {
+            e.preventDefault();
+            if (!DOWNLOAD_CONFIG.releases.includes('YOUR_USERNAME')) {
+                window.open(DOWNLOAD_CONFIG.releases, '_blank');
+            } else {
+                alert('📋 Release Notes - Version 2.0.0\n\n' +
+                      '✅ Professional area calculator with curves\n' +
+                      '✅ Smart project management with auto-save\n' +
+                      '✅ Points file editor with live sync\n' +
+                      '✅ Professional PDF exports\n' +
+                      '✅ Modern dark theme UI\n\n' +
+                      'Full release notes available after setup.');
+            }
+        });
+
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                if (this.getAttribute('href') !== '#') {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth' });
+                    }
+                }
+            });
+        });
+    </script>
+</body>
 </html>
+
+
+
