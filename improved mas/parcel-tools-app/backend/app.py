@@ -1642,6 +1642,8 @@ def activate_license():
             return jsonify(result), 400
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

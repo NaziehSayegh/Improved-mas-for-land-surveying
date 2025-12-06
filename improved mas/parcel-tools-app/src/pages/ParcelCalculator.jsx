@@ -2421,7 +2421,7 @@ const ParcelCalculator = () => {
       {/* Curves Dialog */}
       {showCurvesDialog && createPortal(
         <div
-          className="fixed inset-0 bg-black/70 z-50"
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center"
           style={{
             position: 'fixed',
             top: 0,
@@ -2429,7 +2429,11 @@ const ParcelCalculator = () => {
             width: '100vw',
             height: '100vh',
             zIndex: 9999,
-            pointerEvents: 'auto'
+            pointerEvents: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflowY: 'auto'
           }}
           onClick={(e) => { if (e.target === e.currentTarget) { /* Don't close */ } }}
           onMouseDown={(e) => { if (e.target === e.currentTarget) e.stopPropagation(); }}
@@ -2437,13 +2441,9 @@ const ParcelCalculator = () => {
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-dark-800 border-2 border-primary rounded-2xl p-8 max-w-2xl w-full"
+            className="bg-dark-800 border-2 border-primary rounded-2xl p-8 max-w-2xl w-full my-8"
             onClick={(e) => e.stopPropagation()}
             style={{
-              position: 'fixed',
-              top: '50vh',
-              left: '50vw',
-              transform: 'translate(-50%, -50%)',
               maxWidth: '700px',
               maxHeight: '90vh',
               overflowY: 'auto',

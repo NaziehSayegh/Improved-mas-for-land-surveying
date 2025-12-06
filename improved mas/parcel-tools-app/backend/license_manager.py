@@ -3,7 +3,7 @@ License Management System for Parcel Tools
 Handles license validation, trial mode, and activation
 """
 
-import json
+import json as json_lib
 import os
 import hashlib
 import hmac
@@ -11,6 +11,9 @@ from datetime import datetime, timedelta
 import base64
 import sys
 import subprocess
+import urllib.request
+import urllib.parse
+import urllib.error
 
 # Secret key for license validation (CHANGE THIS TO YOUR OWN SECRET!)
 LICENSE_SECRET = "PARCELTOOLS_SECRET_KEY_CHANGE_ME_2024"  # TODO: Change this!
@@ -37,7 +40,7 @@ class LicenseManager:
         
         try:
             with open(self.license_file, 'r', encoding='utf-8') as f:
-                license_data = json.load(f)
+                license_data = json_lib.load(f)
             
             # Check if it's a paid license
             if license_data.get('type') == 'paid':
@@ -57,7 +60,7 @@ class LicenseManager:
         try:
             if os.path.exists(trial_file):
                 with open(trial_file, 'r', encoding='utf-8') as f:
-                    trial_data = json.load(f)
+                    trial_data = json_lib.load(f)
                 
                 start_date_str = trial_data.get('start_date')
                 if not start_date_str:
@@ -107,7 +110,7 @@ class LicenseManager:
             
             os.makedirs(self.data_dir, exist_ok=True)
             with open(trial_file, 'w', encoding='utf-8') as f:
-                json.dump(trial_data, f, indent=2)
+                json_lib.dump(trial_data, f, indent=2)
                 
             return {
                 'status': 'trial',
@@ -185,8 +188,7 @@ class LicenseManager:
             
         try:
             # Use standard library urllib instead of requests to avoid dependency issues
-            import urllib.request
-            import urllib.error
+            # Imports moved to global scope
             
             headers = {
                 "apikey": self.supabase_key,
@@ -200,7 +202,7 @@ class LicenseManager:
                 "p_machine_id": machine_id
             }
             
-            json_data = json.dumps(payload).encode('utf-8')
+            json_data = json_lib.dumps(payload).encode('utf-8')
             
             req = urllib.request.Request(
                 f"{self.supabase_url}/rest/v1/rpc/activate_license",
@@ -211,7 +213,7 @@ class LicenseManager:
             
             with urllib.request.urlopen(req) as response:
                 if response.status == 200:
-                    result = json.loads(response.read().decode('utf-8'))
+                    result = json_lib.loads(response.read().decode('utf-8'))
                     return result
                 else:
                     return {'success': False, 'message': f'Server error: {response.status}'}
@@ -231,8 +233,8 @@ class LicenseManager:
         Returns: {'valid': Bool, 'email': Str, 'message': Str}
         """
         try:
-            import urllib.request
-            import urllib.parse
+            # Imports moved to global scope
+            # import json - removed
             
             # Gumroad Verify Endpoint
             url = "https://api.gumroad.com/v2/licenses/verify"
@@ -249,7 +251,7 @@ class LicenseManager:
             
             with urllib.request.urlopen(req) as response:
                 if response.status == 200:
-                    result = json.loads(response.read().decode('utf-8'))
+                    result = json_lib.loads(response.read().decode('utf-8'))
                     if result.get('success') and not result.get('purchase', {}).get('refunded', False):
                         return {
                             'valid': True,
@@ -296,8 +298,8 @@ class LicenseManager:
                 
                 # Call the register_new_license RPC
                 try:
-                    import urllib.request
-                    import json
+                    # Imports moved to global scope
+                    # import json - removed to avoid shadowing global module
                     
                     rpc_url = f"{self.supabase_url}/rest/v1/rpc/register_new_license"
                     headers = {
@@ -312,11 +314,11 @@ class LicenseManager:
                         "p_machine_id": machine_id
                     }
                     
-                    req = urllib.request.Request(rpc_url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+                    req = urllib.request.Request(rpc_url, data=json_lib.dumps(payload).encode('utf-8'), headers=headers, method='POST')
                     
                     with urllib.request.urlopen(req) as response:
                         if response.status == 200:
-                            reg_result = json.loads(response.read().decode('utf-8'))
+                            reg_result = json_lib.loads(response.read().decode('utf-8'))
                             if not reg_result.get('success'):
                                 return {'success': False, 'error': reg_result.get('message', 'Device limit reached')}
                         else:
@@ -363,7 +365,7 @@ class LicenseManager:
             print(f'[License] Saving license to: {self.license_file}')
             
             with open(self.license_file, 'w', encoding='utf-8') as f:
-                json.dump(license_data, f, indent=2)
+                json_lib.dump(license_data, f, indent=2)
             
             # Verify the file was created
             if os.path.exists(self.license_file):
