@@ -31,12 +31,12 @@ function AppContent() {
     if (typeof window !== 'undefined' && window.electronAPI) {
       console.log('[App] ✅ Electron API is available');
       console.log('[App] Available methods:', Object.keys(window.electronAPI));
-      
+
       // Set up listener for file open events
       if (window.electronAPI.onLoadProjectFile) {
         window.electronAPI.onLoadProjectFile(async (filePath) => {
           console.log('[App] Loading project from file:', filePath);
-          
+
           try {
             // Load the project from the file path
             const response = await fetch('http://localhost:5000/api/project/load', {
@@ -86,11 +86,70 @@ function AppContent() {
             // Navigate to parcel calculator page
             navigate('/parcel-calculator');
 
-            // Show success message
-            alert(`✅ Opened project: ${projectData.projectName || 'Untitled'}`);
+            // Show success message using non-blocking toast
+            setTimeout(() => {
+              // Create success toast
+              const toast = document.createElement('div');
+              toast.innerHTML = `✅ Opened project: ${projectData.projectName || 'Untitled'}`;
+              toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                right: auto;
+                text-align: center;
+                background: #238636;
+                color: white;
+                padding: 16px 24px;
+                border-radius: 12px;
+                font-weight: bold;
+                z-index: 10000;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+                animation: slideIn 0.3s ease-out;
+              `;
+              document.body.appendChild(toast);
+              setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => toast.remove(), 300);
+              }, 3000);
+
+              // CRITICAL: Focus parcel number input after file loads
+              setTimeout(() => {
+                const parcelInput = document.querySelector('input[placeholder="Enter parcel number"]');
+                if (parcelInput) {
+                  parcelInput.focus();
+                  parcelInput.select();
+                }
+              }, 500);
+            }, 300);
           } catch (error) {
             console.error('[App] Error loading project:', error);
-            alert(`❌ Error loading project: ${error.message}`);
+            // Show error toast instead of blocking alert
+            setTimeout(() => {
+              const toast = document.createElement('div');
+              toast.innerHTML = `❌ Error loading project: ${error.message}`;
+              toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                right: auto;
+                text-align: center;
+                background: #da3633;
+                color: white;
+                padding: 16px 24px;
+                border-radius: 12px;
+                font-weight: bold;
+                z-index: 10000;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+                animation: slideIn 0.3s ease-out;
+              `;
+              document.body.appendChild(toast);
+              setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => toast.remove(), 300);
+              }, 4000);
+            }, 300);
           }
         });
       }

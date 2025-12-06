@@ -203,7 +203,7 @@ class LicenseManager:
             json_data = json.dumps(payload).encode('utf-8')
             
             req = urllib.request.Request(
-                f"{API_URL}/rest/v1/rpc/activate_license",
+                f"{self.supabase_url}/rest/v1/rpc/activate_license",
                 data=json_data,
                 headers=headers,
                 method='POST'

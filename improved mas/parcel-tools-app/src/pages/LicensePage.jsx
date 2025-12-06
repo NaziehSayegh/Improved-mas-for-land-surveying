@@ -204,6 +204,7 @@ export default function LicensePage() {
 
     try {
       setActivating(true);
+      setError('');
       const response = await fetch('http://127.0.0.1:5000/api/license/deactivate', {
         method: 'POST',
       });
@@ -212,7 +213,14 @@ export default function LicensePage() {
 
       if (data.success) {
         setSuccess('License deactivated');
-        await checkLicenseStatus();
+        // Update license status to reflect deactivation
+        setLicenseStatus({
+          status: 'no_license',
+          is_valid: false,
+          message: 'No active license'
+        });
+      } else {
+        setError(data.error || 'Deactivation failed');
       }
     } catch (err) {
       setError('Deactivation failed: ' + err.message);

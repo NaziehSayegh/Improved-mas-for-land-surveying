@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw } from 'lucide-react';
@@ -6,7 +7,7 @@ import { useProject } from '../context/ProjectContext';
 
 const ParcelCalculator = () => {
   const navigate = useNavigate();
-  
+
   // Use shared project context
   const {
     projectName: globalProjectName,
@@ -27,10 +28,10 @@ const ParcelCalculator = () => {
     fileHeading,
     setFileHeading
   } = useProject();
-  
+
   // Store the last saved file path locally
   const [lastSavedPath, setLastSavedPath] = useState(projectPath || null);
-  
+
   // Local state
   const [parcelNumber, setParcelNumber] = useState('');
   const [pointId, setPointId] = useState('');
@@ -38,7 +39,7 @@ const ParcelCalculator = () => {
   const [area, setArea] = useState(null);
   const [perimeter, setPerimeter] = useState(null);
   const [activeTab, setActiveTab] = useState('editor'); // 'editor', 'saved', 'all', or 'errors'
-  
+
   // Error calculations state
   const [selectedParcelsForError, setSelectedParcelsForError] = useState([]); // Array of parcel IDs
   const [totalRegisteredArea, setTotalRegisteredArea] = useState(''); // Single registered area for all selected parcels
@@ -46,6 +47,12 @@ const ParcelCalculator = () => {
   const [curves, setCurves] = useState([]); // { from: id, to: id, M: number, sign: +1/-1 }
   const [showAreaDialog, setShowAreaDialog] = useState(false);
   const [showCurvesDialog, setShowCurvesDialog] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  });
   const [tempArea, setTempArea] = useState(null);
   const [tempPerimeter, setTempPerimeter] = useState(null);
   const [curveFrom, setCurveFrom] = useState('');
@@ -53,12 +60,12 @@ const ParcelCalculator = () => {
   const [curveM, setCurveM] = useState('');
   const [curveSign, setCurveSign] = useState('+');
   const [liveAreaWithCurves, setLiveAreaWithCurves] = useState(null);
-  
+
   // Editing saved parcel state
   const [editingParcelId, setEditingParcelId] = useState(null); // ID of parcel being edited
   const [insertPointAfterIndex, setInsertPointAfterIndex] = useState(null); // Index to insert point after
   const [editingPointIndex, setEditingPointIndex] = useState(null); // Index of point being edited
-  
+
   // Duplicate parcel dialog state
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [duplicateParcel, setDuplicateParcel] = useState(null);
@@ -107,17 +114,17 @@ const ParcelCalculator = () => {
     // Only check if parcel number is not empty, not currently editing, and user is typing (not programmatically set)
     if (parcelNumber.trim() && !editingParcelId && savedParcels.length > 0) {
       // Check if this parcel number already exists (and it's not the one we're currently editing)
-      const existingParcels = savedParcels.filter(p => 
-        p.number.trim().toLowerCase() === parcelNumber.trim().toLowerCase() && 
+      const existingParcels = savedParcels.filter(p =>
+        p.number.trim().toLowerCase() === parcelNumber.trim().toLowerCase() &&
         p.id !== editingParcelId
       );
-      
+
       if (existingParcels.length > 0) {
         // Use a delay to avoid showing dialog while user is still typing
         const checkTimer = setTimeout(() => {
           // Double-check the parcel number still matches
-          const currentParcels = savedParcels.filter(p => 
-            p.number.trim().toLowerCase() === parcelNumber.trim().toLowerCase() && 
+          const currentParcels = savedParcels.filter(p =>
+            p.number.trim().toLowerCase() === parcelNumber.trim().toLowerCase() &&
             p.id !== editingParcelId
           );
           if (currentParcels.length > 0 && parcelNumber.trim() === currentParcels[0].number.trim() && !editingParcelId) {
@@ -129,7 +136,7 @@ const ParcelCalculator = () => {
             }
           }
         }, 1000); // Wait 1 second after user stops typing
-        
+
         return () => clearTimeout(checkTimer);
       } else {
         // No duplicate found, close dialog if it was open
@@ -163,7 +170,7 @@ const ParcelCalculator = () => {
     reader.onload = async (e) => {
       try {
         const textData = e.target.result;
-        
+
         const response = await fetch('http://localhost:5000/api/import-points', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -176,7 +183,7 @@ const ParcelCalculator = () => {
         }
 
         const result = await response.json();
-        
+
         if (result.points && result.points.length > 0) {
           // Convert array to object: { id: {x, y} }
           const pointsObj = {};
@@ -194,22 +201,62 @@ const ParcelCalculator = () => {
             setPointsFilePath('');
           }
           setHasUnsavedChanges(true);
-          alert(`✅ Loaded ${result.count} points from ${file.name}\n\n${file.path ? '🔄 File is now being watched for changes!' : '⚠️ File watching unavailable (no file path)'}`);
+          showSuccessToast(`✅ Loaded ${result.count} points from ${file.name}<br/><br/>${file.path ? '🔄 File is now being watched for changes!' : '⚠️ File watching unavailable (no file path)'}`);
+
+          // Focus the parcel number input after file loads
+          setTimeout(() => {
+            const parcelInput = document.querySelector('input[placeholder="Enter parcel number"]');
+            if (parcelInput) {
+              parcelInput.focus();
+            }
+          }, 100);
+
+          // FORCE Save As dialog if project hasn't been saved yet
+          setTimeout(async () => {
+            if (!lastSavedPath && !projectPath) {
+              showSuccessToast('📁 Please choose where to save your project...');
+
+              // Wait a moment for the toast to show
+              await new Promise(resolve => setTimeout(resolve, 1000));
+
+              // Trigger Save As dialog
+              const projectName = globalProjectName || 'New Project';
+              const saved = await handleSaveProject(true, {
+                projectNameOverride: projectName,
+                skipExistingPath: true
+              });
+
+              if (saved) {
+                showSuccessToast('✅ Project saved! All changes will now auto-save.');
+              } else {
+                showErrorToast('⚠️ Project not saved. Please save manually to enable auto-save.');
+              }
+
+              // CRITICAL: Restore focus to parcel number input after dialog
+              setTimeout(() => {
+                const parcelInput = document.querySelector('input[placeholder="Enter parcel number"]');
+                if (parcelInput) {
+                  parcelInput.focus();
+                  parcelInput.select();
+                }
+              }, 300);
+            }
+          }, 1500);
         } else {
-          alert('No valid points found in file');
+          showErrorToast('No valid points found in file');
         }
       } catch (error) {
         console.error('Error loading file:', error);
-        alert(`Error loading file: ${error.message}\n\nCheck format (.pnt, .txt, .csv)`);
+        showErrorToast(`Error loading file: ${error.message}<br/><br/>Check format (.pnt, .txt, .csv)`);
       }
     };
-    
+
     reader.onerror = () => {
       console.error('FileReader error');
-      alert('Error reading file. Please try again.');
+      showErrorToast('❌ Error reading file. Please try again.');
       event.target.value = ''; // Reset input
     };
-    
+
     reader.readAsText(file);
   };
 
@@ -220,7 +267,10 @@ const ParcelCalculator = () => {
     toast.style.cssText = `
       position: fixed;
       top: 20px;
-      right: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      right: auto;
+      text-align: center;
       background: #da3633;
       color: white;
       padding: 16px 24px;
@@ -233,11 +283,56 @@ const ParcelCalculator = () => {
       line-height: 1.5;
     `;
     document.body.appendChild(toast);
-    
+
     setTimeout(() => {
       toast.style.animation = 'slideOut 0.3s ease-out';
       setTimeout(() => toast.remove(), 300);
     }, 4000);
+  };
+
+  // Helper function to show success toast
+  const showSuccessToast = (message) => {
+    const toast = document.createElement('div');
+    toast.innerHTML = message;
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      right: auto;
+      text-align: center;
+      background: #238636;
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      font-weight: bold;
+      z-index: 10000;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+      line-height: 1.5;
+    `;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-out';
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  };
+
+  // Helper function to show confirmation dialog (non-blocking)
+  const showConfirmDialog = (title, message) => {
+    return new Promise((resolve) => {
+      setConfirmDialog({
+        isOpen: true,
+        title,
+        message,
+        onConfirm: (result) => {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+          resolve(result);
+        }
+      });
+    });
   };
 
   // Add point ID
@@ -247,7 +342,7 @@ const ParcelCalculator = () => {
       setShowAreaDialog(false);
       setShowCurvesDialog(false);
     }
-    
+
     if (!pointId.trim()) return;
     if (Object.keys(loadedPoints).length === 0) {
       showErrorToast('⚠️ Load points file first!');
@@ -291,7 +386,7 @@ const ParcelCalculator = () => {
       setPointId('');
       setArea(null); // Recalculate
       setPerimeter(null);
-      
+
       // Auto-focus back to point ID input
       setTimeout(() => {
         const pointInput = document.getElementById('point-id-input');
@@ -313,7 +408,7 @@ const ParcelCalculator = () => {
 
     setEnteredIds([...enteredIds, pointId]);
     setPointId('');
-    
+
     // Auto-focus back to point ID input for next entry
     setTimeout(() => {
       const pointInput = document.getElementById('point-id-input');
@@ -367,7 +462,7 @@ const ParcelCalculator = () => {
   // User done with curves - recalculate with curves and show confirmation
   const handleFinalizeCurves = async () => {
     setShowCurvesDialog(false);
-    
+
     // Recalculate area WITH curves
     try {
       const pointsData = enteredIds.map((id, index) => ({
@@ -389,7 +484,7 @@ const ParcelCalculator = () => {
       const response = await fetch('http://localhost:5000/api/calculate-area', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           points: pointsData,
           curves: curvesWithIndices
         }),
@@ -398,16 +493,21 @@ const ParcelCalculator = () => {
       if (!response.ok) throw new Error('Calculation failed');
 
       const data = await response.json();
-      
+
       const finalCalculatedArea = data.area;
       const finalPerimeter = data.perimeter;
-      
+
       // Show final confirmation
-      const curveAdjText = data.curveAdjustment !== 0 
-        ? `\nCurve Adjustment: ${data.curveAdjustment > 0 ? '+' : ''}${data.curveAdjustment.toFixed(4)} m²` 
+      const curveAdjText = data.curveAdjustment !== 0
+        ? `\nCurve Adjustment: ${data.curveAdjustment > 0 ? '+' : ''}${data.curveAdjustment.toFixed(4)} m²`
         : '';
-      
-      if (confirm(`✅ Area Calculated with ${curves.length} Curve(s)!\n\nBase Area: ${data.baseArea.toFixed(4)} m²${curveAdjText}\n━━━━━━━━━━━━━━━━━━━━━━\nFinal Area: ${finalCalculatedArea.toFixed(4)} m²\n\nIs this correct?\n\nOK = Save Parcel\nCancel = Go Back to Edit`)) {
+
+      const confirmed = await showConfirmDialog(
+        `✅ Area Calculated with ${curves.length} Curve(s)!`,
+        `Base Area: ${data.baseArea.toFixed(4)} m²${curveAdjText.replace(/\\n/g, '<br/>')}<br/>━━━━━━━━━━━━━━━━━━━━━━<br/>Final Area: ${finalCalculatedArea.toFixed(4)} m²<br/><br/>Is this correct?<br/><br/>OK = Save Parcel | Cancel = Go Back to Edit`
+      );
+
+      if (confirmed) {
         // User confirmed - save parcel with CURVE-ADJUSTED AREA
         setShowCurvesDialog(false);
         autoSaveCurrentParcelWithArea(finalCalculatedArea, finalPerimeter);
@@ -419,7 +519,7 @@ const ParcelCalculator = () => {
       }
     } catch (error) {
       console.error('Error calculating with curves:', error);
-      alert('Error calculating area with curves');
+      showErrorToast('❌ Error calculating area with curves');
     }
   };
 
@@ -453,7 +553,7 @@ const ParcelCalculator = () => {
       const response = await fetch('http://localhost:5000/api/calculate-area', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           points: pointsData,
           curves: curvesWithIndices
         }),
@@ -474,24 +574,28 @@ const ParcelCalculator = () => {
       alert('Fill all curve fields!');
       return;
     }
-    
+
     const newCurve = {
       from: curveFrom,
       to: curveTo,
       M: parseFloat(curveM),
       sign: curveSign === '+' ? 1 : -1
     };
-    
+
     setCurves([...curves, newCurve]);
     setCurveFrom('');
     setCurveTo('');
     setCurveM('');
   };
 
-  // Skip curves - show final confirmation
-  const handleSkipCurves = () => {
+  const handleSkipCurves = async () => {
     // Show final confirmation
-    if (confirm(`✅ Area Without Curves\n\nFinal Area: ${tempArea.toFixed(4)} m²\nPerimeter: ${tempPerimeter.toFixed(4)} m\nPoints: ${enteredIds.length}\n\nIs this correct?\n\nOK = Save Parcel\nCancel = Go Back to Edit`)) {
+    const confirmed = await showConfirmDialog(
+      '✅ Area Without Curves',
+      `Final Area: ${tempArea.toFixed(4)} m²<br/>Perimeter: ${tempPerimeter.toFixed(4)} m<br/>Points: ${enteredIds.length}<br/><br/>Is this correct?<br/><br/>OK = Save Parcel | Cancel = Go Back to Edit`
+    );
+
+    if (confirmed) {
       // User confirmed - auto-save and close dialog
       setShowCurvesDialog(false);
       autoSaveCurrentParcelWithArea(tempArea, tempPerimeter);
@@ -502,33 +606,109 @@ const ParcelCalculator = () => {
   // Auto-save current parcel with specific area value
   const autoSaveCurrentParcelWithArea = (finalArea, finalPerimeter) => {
     if (!parcelNumber.trim()) {
-      alert('⚠️ Enter a parcel number first!');
+      showErrorToast('⚠️ Enter a parcel number first!');
       return;
     }
     if (enteredIds.length < 3) {
-      alert('⚠️ Need at least 3 points!');
+      showErrorToast('⚠️ Need at least 3 points!');
       return;
     }
 
     const currentParcelNum = parcelNumber; // Save before resetting
 
-    const parcel = {
-      id: Date.now(),
-      number: currentParcelNum,
-      ids: [...enteredIds],
-      area: finalArea,  // Use the FINAL calculated area (with curves!)
-      perimeter: finalPerimeter,
-      curves: [...curves],
-      pointCount: enteredIds.length
-    };
+    // Check if we are updating an existing parcel
+    if (editingParcelId) {
+      const updatedParcels = savedParcels.map(p => {
+        if (p.id === editingParcelId) {
+          return {
+            ...p,
+            number: currentParcelNum,
+            ids: [...enteredIds],
+            area: finalArea,
+            perimeter: finalPerimeter,
+            curves: [...curves],
+            pointCount: enteredIds.length
+          };
+        }
+        return p;
+      });
 
-    setSavedParcels([...savedParcels, parcel]);
-    setHasUnsavedChanges(true);
-    
+      setSavedParcels(updatedParcels);
+      setHasUnsavedChanges(true);
+
+      // Show update toast
+      const toast = document.createElement('div');
+      toast.innerHTML = `✅ Updated Parcel #${currentParcelNum}! 💾`;
+      toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        right: auto;
+        text-align: center;
+        background: #238636;
+        color: white;
+        padding: 16px 24px;
+        border-radius: 12px;
+        font-weight: bold;
+        z-index: 10000;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        animation: slideIn 0.3s ease-out;
+      `;
+      document.body.appendChild(toast);
+      setTimeout(() => {
+        toast.style.animation = 'slideOut 0.3s ease-out';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+
+      // Clear editing state
+      setEditingParcelId(null);
+    } else {
+      // Create NEW parcel
+      const parcel = {
+        id: Date.now(),
+        number: currentParcelNum,
+        ids: [...enteredIds],
+        area: finalArea,  // Use the FINAL calculated area (with curves!)
+        perimeter: finalPerimeter,
+        curves: [...curves],
+        pointCount: enteredIds.length
+      };
+
+      setSavedParcels([...savedParcels, parcel]);
+      setHasUnsavedChanges(true);
+
+      // Show save toast
+      const toast = document.createElement('div');
+      const saveText = (lastSavedPath || projectPath) ? '💾 Auto-saving...' : '⚠️ Please Save Project!';
+      toast.innerHTML = `✅ Parcel ${currentParcelNum} saved! ${saveText}`;
+      toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        right: auto;
+        text-align: center;
+        background: #238636;
+        color: white;
+        padding: 16px 24px;
+        border-radius: 12px;
+        font-weight: bold;
+        z-index: 10000;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        animation: slideIn 0.3s ease-out;
+      `;
+      document.body.appendChild(toast);
+      setTimeout(() => {
+        toast.style.animation = 'slideOut 0.3s ease-out';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
     // Close all dialogs first
     setShowAreaDialog(false);
     setShowCurvesDialog(false);
-    
+
     // Reset ALL state for next parcel
     setParcelNumber('');
     setPointId(''); // Clear point ID input
@@ -539,39 +719,13 @@ const ParcelCalculator = () => {
     setTempArea(null);
     setTempPerimeter(null);
     setLiveAreaWithCurves(null);
-    
+
     // Reset curve form fields
     setCurveFrom('');
     setCurveTo('');
     setCurveM('');
     setCurveSign('+');
-    
-    // Show success message WITHOUT blocking
-    console.log(`✅ Parcel ${currentParcelNum} auto-saved! Project auto-saving...`);
-    
-    // Show toast-style notification (non-blocking)
-    const toast = document.createElement('div');
-    toast.innerHTML = `✅ Parcel ${currentParcelNum} saved! 💾 Ready for next parcel...`;
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #238636;
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      font-weight: bold;
-      z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-      animation: slideIn 0.3s ease-out;
-    `;
-    document.body.appendChild(toast);
-    
-    setTimeout(() => {
-      toast.style.animation = 'slideOut 0.3s ease-out';
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
-    
+
     // Re-focus to parcel number input (no alert blocking!)
     setTimeout(() => {
       const parcelInput = document.querySelector('input[placeholder="Enter parcel number"]');
@@ -585,15 +739,15 @@ const ParcelCalculator = () => {
   // Save parcel
   const handleSaveParcel = () => {
     if (!parcelNumber.trim()) {
-      alert('Enter parcel number!');
+      showErrorToast('⚠️ Enter parcel number!');
       return;
     }
     if (enteredIds.length < 3) {
-      alert('Need at least 3 points!');
+      showErrorToast('⚠️ Need at least 3 points!');
       return;
     }
     if (!area) {
-      alert('Calculate area first (close polygon by re-entering first ID)');
+      showErrorToast('⚠️ Calculate area first (close polygon by re-entering first ID)');
       return;
     }
 
@@ -609,15 +763,24 @@ const ParcelCalculator = () => {
 
     setSavedParcels([...savedParcels, parcel]);
     setHasUnsavedChanges(true);
-    
+
     // Reset for next parcel
     setParcelNumber('');
     setEnteredIds([]);
     setArea(null);
     setPerimeter(null);
     setCurves([]);
-    
-    alert(`✅ Saved parcel ${parcel.number}\n\n💾 Auto-saving project...`);
+
+    const saveText = (lastSavedPath || projectPath) ? '💾 Auto-saving project...' : '⚠️ Please Save Project!';
+    showSuccessToast(`✅ Saved parcel ${parcel.number}<br/><br/>${saveText}`);
+
+    // Focus parcel number input for next entry
+    setTimeout(() => {
+      const parcelInput = document.querySelector('input[placeholder="Enter parcel number"]');
+      if (parcelInput) {
+        parcelInput.focus();
+      }
+    }, 100);
   };
 
   // Delete last point
@@ -630,13 +793,15 @@ const ParcelCalculator = () => {
   };
 
   // Reset all
-  const handleReset = () => {
-    if (confirm('Reset all entered points?')) {
+  const handleReset = async () => {
+    const result = await showConfirmDialog('Reset all entered points?', 'This will clear all points, area, and curves for the current parcel.');
+    if (result) {
       setEnteredIds([]);
       setArea(null);
       setPerimeter(null);
       setCurves([]);
       setParcelNumber('');
+      showSuccessToast('✅ Points reset');
     }
   };
 
@@ -649,7 +814,8 @@ const ParcelCalculator = () => {
   };
 
   // Load saved parcel for editing
-  const handleLoadSavedParcel = (parcel) => {
+  // Load saved parcel for editing
+  const handleLoadSavedParcel = async (parcel) => {
     setParcelNumber(parcel.number);
     setEnteredIds([...parcel.ids]);
     setCurves([...parcel.curves]);
@@ -661,6 +827,38 @@ const ParcelCalculator = () => {
     setShowDuplicateDialog(false);
     setDuplicateParcel(null);
     setPendingParcelNumber('');
+
+    // Calculate base area (without curves) so we can edit curves correctly
+    try {
+      // We need loadedPoints to be available
+      if (loadedPoints && parcel.ids.length > 0) {
+        const pointsData = parcel.ids.map(id => {
+          if (!loadedPoints[id]) return { x: 0, y: 0 };
+          return {
+            x: loadedPoints[id].x,
+            y: loadedPoints[id].y
+          };
+        });
+
+        const response = await fetch('http://localhost:5000/api/calculate-area', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            points: pointsData
+            // No curves sent = base area
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setTempArea(data.area);
+          setTempPerimeter(data.perimeter);
+          console.log('Calculated base area for editing:', data.area);
+        }
+      }
+    } catch (error) {
+      console.error('Error calculating base area for editing:', error);
+    }
   };
 
   // Handle duplicate parcel dialog - Replace option
@@ -672,7 +870,7 @@ const ParcelCalculator = () => {
       setShowDuplicateDialog(false);
       setDuplicateParcel(null);
       setPendingParcelNumber('');
-      
+
       // Show toast notification
       const toast = document.createElement('div');
       toast.innerHTML = `📝 Loaded parcel "${duplicateParcel.number}" for editing`;
@@ -703,14 +901,17 @@ const ParcelCalculator = () => {
     setShowDuplicateDialog(false);
     setDuplicateParcel(null);
     setPendingParcelNumber('');
-    
+
     // Show info toast that duplicate will be saved separately
     const toast = document.createElement('div');
     toast.innerHTML = `✅ Duplicate allowed! This parcel will be saved separately.<br/>Check "All Parcels" tab to see all versions.`;
     toast.style.cssText = `
       position: fixed;
       top: 20px;
-      right: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      right: auto;
+      text-align: center;
       background: #1f6feb;
       color: white;
       padding: 16px 24px;
@@ -727,7 +928,7 @@ const ParcelCalculator = () => {
       toast.style.animation = 'slideOut 0.3s ease-out';
       setTimeout(() => toast.remove(), 300);
     }, 4000);
-    
+
     // Keep the parcel number as is, user can continue
     // Re-focus the input to ensure it's not stuck
     setTimeout(() => {
@@ -746,7 +947,7 @@ const ParcelCalculator = () => {
     setShowDuplicateDialog(false);
     setDuplicateParcel(null);
     setPendingParcelNumber('');
-    
+
     // Re-focus the input
     setTimeout(() => {
       const parcelInput = document.querySelector('input[placeholder="Enter parcel number"]');
@@ -759,7 +960,7 @@ const ParcelCalculator = () => {
   // Insert point between two points (in editor mode)
   const handleInsertPointAt = (afterIndex) => {
     if (afterIndex === null || afterIndex < 0 || afterIndex >= enteredIds.length) return;
-    
+
     setInsertPointAfterIndex(afterIndex);
     setPointId(''); // Clear point ID input
     // Focus on point ID input
@@ -818,7 +1019,7 @@ const ParcelCalculator = () => {
       }, 100);
       return;
     }
-    
+
     const newIds = [...enteredIds];
     newIds[index] = newId;
     setEnteredIds(newIds);
@@ -826,7 +1027,7 @@ const ParcelCalculator = () => {
     setPointId('');
     setArea(null); // Recalculate area
     setPerimeter(null);
-    
+
     // Re-focus input after successful update
     setTimeout(() => {
       const pointInput = document.getElementById('point-id-input');
@@ -840,12 +1041,12 @@ const ParcelCalculator = () => {
   // Update saved parcel with current editor state
   const handleUpdateSavedParcel = async () => {
     if (!editingParcelId) {
-      alert('No parcel selected for editing!');
+      showErrorToast('⚠️ No parcel selected for editing!');
       return;
     }
 
     if (enteredIds.length < 3) {
-      alert('Need at least 3 points!');
+      showErrorToast('⚠️ Need at least 3 points!');
       return;
     }
 
@@ -874,7 +1075,7 @@ const ParcelCalculator = () => {
         const response = await fetch('http://localhost:5000/api/calculate-area', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             points: pointsData,
             curves: curvesWithIndices
           }),
@@ -916,11 +1117,15 @@ const ParcelCalculator = () => {
 
     // Show success toast
     const toast = document.createElement('div');
-    toast.innerHTML = `✅ Parcel ${parcelNumber} updated! 💾 Auto-saving...`;
+    const saveText = (lastSavedPath || projectPath) ? '💾 Auto-saving...' : '⚠️ Remember to save!';
+    toast.innerHTML = `✅ Parcel ${parcelNumber} updated! ${saveText}`;
     toast.style.cssText = `
       position: fixed;
       top: 20px;
-      right: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      right: auto;
+      text-align: center;
       background: #238636;
       color: white;
       padding: 16px 24px;
@@ -937,10 +1142,16 @@ const ParcelCalculator = () => {
   };
 
   // Delete saved parcel
-  const handleDeleteSaved = (id) => {
-    if (confirm('Delete this parcel?')) {
+  const handleDeleteSaved = async (id) => {
+    const confirmed = await showConfirmDialog(
+      'Delete this parcel?',
+      'This action cannot be undone. The parcel will be permanently removed.'
+    );
+
+    if (confirmed) {
       setSavedParcels(savedParcels.filter(p => p.id !== id));
       setHasUnsavedChanges(true);
+      showSuccessToast('✅ Parcel deleted');
     }
   };
 
@@ -996,12 +1207,12 @@ const ParcelCalculator = () => {
       // ALWAYS show dialog if: user clicked "Save As", OR no saved path exists
       // Never save to app directory - user must always pick a location
       const shouldShowDialog = forceSaveAs || !savePath;
-      
+
       if (shouldShowDialog) {
         // Check if Electron API is available
         // Try multiple ways to access it (sometimes it takes a moment to load)
         let electronAPI = null;
-        
+
         // Check if available immediately
         if (window.electronAPI && typeof window.electronAPI.showSaveDialog === 'function') {
           electronAPI = window.electronAPI;
@@ -1016,7 +1227,7 @@ const ParcelCalculator = () => {
             }
           }
         }
-        
+
         if (!electronAPI || typeof electronAPI.showSaveDialog !== 'function') {
           // Electron dialog not available - provide helpful error message
           console.error('Electron API not available:', {
@@ -1042,7 +1253,7 @@ const ParcelCalculator = () => {
               defaultName = 'New_Project';
             }
           }
-          
+
           // Try to get user's home directory for better default location
           let defaultDir = '';
           try {
@@ -1056,9 +1267,9 @@ const ParcelCalculator = () => {
           } catch (e) {
             // Fallback to just filename in current directory
           }
-          
+
           const defaultPath = defaultDir ? `${defaultDir}${defaultName}.prcl` : `${defaultName}.prcl`;
-          
+
           const dialogResult = await electronAPI.showSaveDialog({
             title: 'Save Project As',
             defaultPath: defaultPath,
@@ -1073,7 +1284,7 @@ const ParcelCalculator = () => {
           }
 
           if (dialogResult.error) {
-            alert('Error opening save dialog: ' + dialogResult.error);
+            showErrorToast('❌ Error opening save dialog: ' + dialogResult.error);
             return false;
           }
 
@@ -1092,10 +1303,10 @@ const ParcelCalculator = () => {
           setProjectPath(savePath);
         }
       }
-      
+
       // If we still don't have a path after dialog, we can't save
       if (!savePath) {
-        alert('❌ Cannot save: No file location selected. Please choose a save location.');
+        showErrorToast('❌ Cannot save: No file location selected. Please choose a save location.');
         return false;
       }
 
@@ -1117,21 +1328,21 @@ const ParcelCalculator = () => {
       }
 
       const result = await response.json();
-      
+
       // Remember the save path for future "Save Now" operations
       if (result.filePath) {
         setLastSavedPath(result.filePath);
         setProjectPath(result.filePath);
       }
-      
+
       setHasUnsavedChanges(false);
-      
+
       // Show non-blocking toast notification
       const location = result.filePath || savePath || result.fileName;
       const parcelCount = savedParcels?.length || 0;
       const pointsCount = Object.keys(loadedPoints || {}).length;
       const isEmptyProject = parcelCount === 0 && pointsCount === 0;
-      
+
       const toast = document.createElement('div');
       toast.innerHTML = `
         <div style="font-weight: bold; margin-bottom: 8px;">✅ Project "${projectName}" saved!</div>
@@ -1139,17 +1350,20 @@ const ParcelCalculator = () => {
           <div>File: ${result.fileName}</div>
           <div style="margin-top: 4px;">Location: ${location}</div>
           <div style="margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;">
-            ${isEmptyProject 
-              ? '📝 Empty project saved - ready for data!' 
-              : `💾 Saved: ${parcelCount} Parcel(s) | ${pointsCount} Point(s)`
-            }
+            ${isEmptyProject
+          ? '📝 Empty project saved - ready for data!'
+          : `💾 Saved: ${parcelCount} Parcel(s) | ${pointsCount} Point(s)`
+        }
           </div>
         </div>
       `;
       toast.style.cssText = `
         position: fixed;
         top: 20px;
-        right: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        right: auto;
+        text-align: center;
         background: #238636;
         color: white;
         padding: 20px 24px;
@@ -1161,17 +1375,17 @@ const ParcelCalculator = () => {
         animation: slideIn 0.3s ease-out;
       `;
       document.body.appendChild(toast);
-      
+
       setTimeout(() => {
         toast.style.animation = 'slideOut 0.3s ease-out';
         setTimeout(() => toast.remove(), 300);
       }, 5000);
-      
+
       console.log(`✅ Project "${projectName}" saved to: ${location}`);
       return true;
     } catch (error) {
       console.error('Error saving project:', error);
-      
+
       // Show error toast instead of blocking alert
       const errorToast = document.createElement('div');
       errorToast.innerHTML = `❌ Error saving project: ${error.message}`;
@@ -1189,7 +1403,7 @@ const ParcelCalculator = () => {
         animation: slideIn 0.3s ease-out;
       `;
       document.body.appendChild(errorToast);
-      
+
       setTimeout(() => {
         errorToast.style.animation = 'slideOut 0.3s ease-out';
         setTimeout(() => errorToast.remove(), 300);
@@ -1198,26 +1412,58 @@ const ParcelCalculator = () => {
     }
   };
 
-  // Save As handler
+  // Smart Save handler - tries to auto-save to derived path, falls back to Save As
+  const handleSmartSave = async () => {
+    // If we already have a save path, regular save
+    if (lastSavedPath || projectPath) {
+      handleSaveProject(false);
+      return;
+    }
+
+    // If we have a points file path, try to derive project path from it
+    if (pointsFilePath) {
+      let newPath = pointsFilePath;
+      // Replace file extension
+      const lastDot = newPath.lastIndexOf('.');
+      if (lastDot > 0) {
+        newPath = newPath.substring(0, lastDot) + '.prcl';
+      } else {
+        newPath = newPath + '.prcl';
+      }
+
+      console.log('[Smart Save] Auto-deriving path:', newPath);
+
+      // Try to save to this path immediately (skip dialog)
+      const success = await handleSaveProject(false, {
+        preferredPath: newPath,
+        projectNameOverride: globalProjectName || pointsFileName?.replace(/\.[^/.]+$/, "") || 'New Project'
+      });
+
+      if (success) {
+        return;
+      }
+    }
+
+    // Fallback to Save As dialog
+    console.log('[Smart Save] Fallback to Save As dialog');
+    handleSaveAs();
+  };
+
+  // Save As handler (Explicit)
   const handleSaveAs = async () => {
     // First, check if API is available and log detailed info
     console.log('[Save As] Button clicked');
-    console.log('[Save As] window exists:', typeof window !== 'undefined');
-    console.log('[Save As] window.electronAPI exists:', typeof window !== 'undefined' && !!window.electronAPI);
     if (typeof window !== 'undefined' && window.electronAPI) {
-      console.log('[Save As] window.electronAPI methods:', Object.keys(window.electronAPI));
-      console.log('[Save As] showSaveDialog type:', typeof window.electronAPI.showSaveDialog);
+      // API check passed
     } else {
       console.error('[Save As] ❌ Electron API not available!');
-      console.error('[Save As] This means the preload script did not load properly.');
-      console.error('[Save As] Please check the console for preload script errors.');
     }
-    
+
     try {
       await handleSaveProject(true);
     } catch (error) {
       console.error('Error in Save As:', error);
-      alert(`Error saving project: ${error.message}`);
+      showErrorToast(`❌ Error saving project: ${error.message}`);
     }
   };
 
@@ -1233,7 +1479,7 @@ const ParcelCalculator = () => {
     reader.onload = async (e) => {
       try {
         const fileContent = e.target.result;
-        
+
         const response = await fetch('http://localhost:5000/api/project/load', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1275,7 +1521,7 @@ const ParcelCalculator = () => {
         setFileHeading(projectData.fileHeading || {
           block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
         });
-        
+
         // Load current parcel state if it exists
         if (projectData.currentParcel) {
           setParcelNumber(projectData.currentParcel.parcelNumber || '');
@@ -1289,11 +1535,20 @@ const ParcelCalculator = () => {
         }
 
         setHasUnsavedChanges(false);
-        
-        alert(`✅ Project "${projectData.projectName}" loaded successfully!\n\nParcels: ${projectData.savedParcels?.length || 0}\nPoints: ${Object.keys(projectData.loadedPoints || {}).length}\n\n🔄 Points file is being watched for changes!`);
+
+        showSuccessToast(`✅ Project "${projectData.projectName}" loaded successfully!<br/><br/>Parcels: ${projectData.savedParcels?.length || 0}<br/>Points: ${Object.keys(projectData.loadedPoints || {}).length}<br/><br/>🔄 Points file is being watched for changes!`);
+
+        // Focus the parcel number input after project loads
+        setTimeout(() => {
+          const parcelInput = document.querySelector('input[placeholder="Enter parcel number"]');
+          if (parcelInput) {
+            parcelInput.focus();
+            parcelInput.select(); // Also select the text for immediate typing
+          }
+        }, 500); // Increased timeout to ensure DOM is ready
       } catch (error) {
         console.error('Error loading project:', error);
-        alert('Error loading project. Check file format.');
+        showErrorToast('Error loading project. Check file format.');
       }
     };
     reader.readAsText(file);
@@ -1337,9 +1592,9 @@ const ParcelCalculator = () => {
     });
 
     if (saved) {
-      alert(`✅ New project "${sanitizedName}" created and saved!`);
+      showSuccessToast(`✅ New project "${sanitizedName}" created and saved!`);
     } else {
-      alert('✅ New project created. Remember to choose Save when you are ready.');
+      showSuccessToast('✅ New project created. Remember to choose Save when you are ready.');
     }
 
     return saved;
@@ -1348,15 +1603,15 @@ const ParcelCalculator = () => {
   // Close/Exit project - clears everything but STAYS on the page (doesn't navigate)
   const handleCloseProject = async () => {
     const currentProjectPath = lastSavedPath || projectPath;
-    
+
     // Check if there are unsaved changes
     if (hasUnsavedChanges) {
       const result = await showUnsavedChangesDialog(
-        globalProjectName 
+        globalProjectName
           ? `Save changes to "${globalProjectName}"?`
           : 'Save changes before closing project?'
       );
-      
+
       if (result === 'save') {
         try {
           // If we have a path, save to it; otherwise show Save As
@@ -1391,7 +1646,7 @@ const ParcelCalculator = () => {
         console.error('Error auto-saving:', saveError);
       }
     }
-    
+
     // Clear all project data but STAY on the calculator page
     // Clear pointsFilePath FIRST to stop file watching, then clear everything else
     setPointsFilePath('');
@@ -1409,12 +1664,12 @@ const ParcelCalculator = () => {
     setHasUnsavedChanges(false);
     setLastSavedPath(null);
     setProjectPath('');
-    
+
     // Clear project name LAST, after everything else is cleared
     setTimeout(() => {
       setGlobalProjectName('');
       // Show confirmation
-      alert('✅ Project closed. You can now start a new project or load an existing one.');
+      showSuccessToast('✅ Project closed. You can now start a new project or load an existing one.');
     }, 100);
   };
 
@@ -1441,9 +1696,12 @@ const ParcelCalculator = () => {
         border: 1px solid #30363d;
         border-radius: 12px;
         padding: 24px;
-        max-width: 450px;
-        width: 90%;
+        max-width: min(500px, 90vw);
+        width: 100%;
+        max-height: 90vh;
+        overflow-y: auto;
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        margin: 16px;
       `;
 
       dialog.innerHTML = `
@@ -1644,16 +1902,19 @@ const ParcelCalculator = () => {
       exceedsLimit: exceedsLimit,
       parcelResults: parcelResults
     });
-    
+
     const toast = document.createElement('div');
-    const statusText = exceedsLimit 
+    const statusText = exceedsLimit
       ? '⚠️ Error exceeds permissible limits - using original areas'
       : '✅ Within permissible limits - areas adjusted proportionally';
     toast.innerHTML = `✅ Error calculations completed!<br/>${statusText}`;
     toast.style.cssText = `
       position: fixed;
       top: 20px;
-      right: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      right: auto;
+      text-align: center;
       background: ${exceedsLimit ? '#da3633' : '#238636'};
       color: white;
       padding: 16px 24px;
@@ -1683,10 +1944,163 @@ const ParcelCalculator = () => {
     });
   };
 
+  // Export single parcel to PDF with optional heading
+  const handleExportSingle = async (parcel) => {
+    try {
+      // Create custom dialog for heading input
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.75);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+      `;
+
+      const dialog = document.createElement('div');
+      dialog.style.cssText = `
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 24px;
+        max-width: min(600px, 90vw);
+        width: 100%;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+      `;
+
+      dialog.innerHTML = `
+        <h2 style="color: #c9d1d9; font-size: 20px; font-weight: bold; margin-bottom: 16px;">
+          📄 Export Parcel #${parcel.number}
+        </h2>
+        <div style="margin-bottom: 20px;">
+          <label style="display: flex; align-items: center; color: #c9d1d9; cursor: pointer;">
+            <input type="checkbox" id="include-heading-check" style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;" />
+            <span style="font-weight: 500;">Include heading information</span>
+          </label>
+        </div>
+        <div id="heading-fields" style="display: none; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+          <div style="margin-bottom: 12px;">
+            <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Block</label>
+            <input type="text" id="heading-block" value="${fileHeading.block || ''}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Quarter</label>
+            <input type="text" id="heading-quarter" value="${fileHeading.quarter || ''}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Parcels</label>
+            <input type="text" id="heading-parcels" value="${fileHeading.parcels || ''}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Place</label>
+            <input type="text" id="heading-place" value="${fileHeading.place || ''}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+          </div>
+          <div>
+            <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Additional Info</label>
+            <input type="text" id="heading-additional" value="${fileHeading.additionalInfo || ''}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+          </div>
+        </div>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button id="export-cancel" style="background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500;">
+            Cancel
+          </button>
+          <button id="export-confirm" style="background: #238636; border: 1px solid #238636; color: white; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500;">
+            📄 Export PDF
+          </button>
+        </div>
+      `;
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      // Toggle heading fields visibility
+      const checkbox = document.getElementById('include-heading-check');
+      const headingFields = document.getElementById('heading-fields');
+      checkbox.addEventListener('change', () => {
+        headingFields.style.display = checkbox.checked ? 'block' : 'none';
+      });
+
+      // Wait for user action
+      const userChoice = await new Promise((resolve) => {
+        document.getElementById('export-confirm').onclick = () => {
+          const includeHeading = checkbox.checked;
+          const heading = includeHeading ? {
+            block: document.getElementById('heading-block').value,
+            quarter: document.getElementById('heading-quarter').value,
+            parcels: document.getElementById('heading-parcels').value,
+            place: document.getElementById('heading-place').value,
+            additionalInfo: document.getElementById('heading-additional').value
+          } : null;
+          document.body.removeChild(overlay);
+          resolve({ confirmed: true, heading });
+        };
+        document.getElementById('export-cancel').onclick = () => {
+          document.body.removeChild(overlay);
+          resolve({ confirmed: false });
+        };
+        overlay.onclick = (e) => {
+          if (e.target === overlay) {
+            document.body.removeChild(overlay);
+            resolve({ confirmed: false });
+          }
+        };
+      });
+
+      if (!userChoice.confirmed) return;
+
+      // Export the parcel
+      const response = await fetch('http://localhost:5000/api/export-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parcels: [parcel],
+          points: loadedPoints,
+          fileHeading: userChoice.heading,
+          errorResults: null
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        if (errorData.error && errorData.error.includes('ReportLab')) {
+          showErrorToast('❌ ReportLab not installed! Install it with: pip install reportlab');
+          return;
+        }
+        throw new Error('Export failed');
+      }
+
+      const result = await response.json();
+
+      if (result.error) {
+        showErrorToast(`❌ ${result.error}`);
+        return;
+      }
+
+      // Use Electron API to save and open PDF
+      if (window.electronAPI && window.electronAPI.saveAndOpenPDF) {
+        const saveResult = await window.electronAPI.saveAndOpenPDF(result.pdfData, `Parcel_${parcel.number}.pdf`);
+        if (saveResult && saveResult.success) {
+          showSuccessToast(`✅ Exported Parcel #${parcel.number} to PDF!`);
+        }
+      }
+    } catch (error) {
+      console.error('Error exporting parcel:', error);
+      showErrorToast(`❌ Error exporting parcel: ${error.message}`);
+    }
+  };
+
   // Export all parcels to PDF (including error calculations if available)
   const handleExportAll = async () => {
     if (savedParcels.length === 0) {
-      alert('No saved parcels to export!');
+      showErrorToast('⚠️ No saved parcels to export!');
       return;
     }
 
@@ -1705,19 +2119,19 @@ const ParcelCalculator = () => {
       if (!response.ok) {
         const errorData = await response.json();
         if (errorData.error && errorData.error.includes('ReportLab')) {
-          alert('ReportLab not installed! Install it with:\npip install reportlab\n\nThen restart the app.');
+          showErrorToast('❌ ReportLab not installed! Install it with: pip install reportlab<br/>Then restart the app.');
           return;
         }
         throw new Error('Export failed');
       }
 
       const result = await response.json();
-      
+
       if (result.error) {
-        alert(result.error);
+        showErrorToast(`❌ ${result.error}`);
         return;
       }
-      
+
       // Use Electron API to save and open PDF if available
       let electronAPI = null;
       if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.saveAndOpenPDF === 'function') {
@@ -1738,12 +2152,12 @@ const ParcelCalculator = () => {
           console.log('[Renderer] Calling saveAndOpenPDF...');
           const saveResult = await electronAPI.saveAndOpenPDF(result.pdfData, result.fileName);
           console.log('[Renderer] saveResult:', saveResult);
-          
+
           if (saveResult && saveResult.canceled) {
             console.log('[Renderer] User canceled save dialog');
             return; // User canceled the save dialog
           }
-          
+
           if (saveResult && saveResult.success) {
             // Show success toast
             const toast = document.createElement('div');
@@ -1783,14 +2197,14 @@ const ParcelCalculator = () => {
       } else {
         console.log('[Renderer] Electron API not available, using blob download');
       }
-      
+
       // Fallback: Download the PDF via blob (web browser)
       const pdfData = atob(result.pdfData);
       const bytes = new Uint8Array(pdfData.length);
       for (let i = 0; i < pdfData.length; i++) {
         bytes[i] = pdfData.charCodeAt(i);
       }
-      
+
       const blob = new Blob([bytes], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1800,35 +2214,44 @@ const ParcelCalculator = () => {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      
+
       const errorText = errorResults ? '\n📊 Error calculations included!' : '';
-      alert(`✅ Exported ${savedParcels.length} parcels to PDF successfully!${errorText}`);
+      showSuccessToast(`✅ Exported ${savedParcels.length} parcels to PDF successfully!${errorText}`);
     } catch (error) {
       console.error('Error exporting:', error);
-      alert('Error exporting parcels: ' + error.message);
+      showErrorToast(`❌ Error exporting parcels: ${error.message}`);
     }
   };
 
   return (
     <div className="min-h-screen p-6 relative z-10 bg-dark-900">
       {/* Duplicate Parcel Dialog - Non-blocking */}
-      {showDuplicateDialog && duplicateParcel && (
-        <div 
-          className="fixed inset-0 flex items-start justify-end z-50 p-4"
-          style={{ 
-            pointerEvents: 'none' // Don't block clicks - they pass through to inputs
+      {showDuplicateDialog && duplicateParcel && createPortal(
+        <div
+          className="fixed inset-0 z-50 p-4"
+          style={{
+            pointerEvents: 'none',
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 9999
           }}
         >
-          <motion.div 
+          <motion.div
             initial={{ scale: 0.9, opacity: 0, x: 20 }}
             animate={{ scale: 1, opacity: 1, x: 0 }}
             className="bg-dark-800 border-2 border-warning rounded-2xl p-8 max-w-md w-full shadow-2xl"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
-            style={{ 
-              pointerEvents: 'auto', // Allow clicks on dialog itself
+            style={{
+              position: 'fixed',
+              top: '20px',
+              right: '20px',
+              pointerEvents: 'auto',
               boxShadow: '0 20px 60px rgba(0, 0, 0, 0.8)',
-              marginTop: '80px' // Position below top bar
+              maxWidth: '450px'
             }}
           >
             <div className="flex items-center justify-between mb-4">
@@ -1848,13 +2271,13 @@ const ParcelCalculator = () => {
             <p className="text-dark-300 mb-6">
               Parcel number <strong className="text-primary">"{pendingParcelNumber}"</strong> already exists!
             </p>
-            
+
             <div className="bg-dark-700 rounded-xl p-4 mb-6 border border-dark-600">
               <p className="text-dark-400 text-sm mb-2">Existing Parcel Details:</p>
               <div className="text-dark-50">
                 <p><strong>Parcel #{duplicateParcel.number}</strong></p>
                 <p className="text-sm text-dark-300 mt-1">
-                  📐 Area: {duplicateParcel.area?.toFixed(4) || 'N/A'} m² | 
+                  📐 Area: {duplicateParcel.area?.toFixed(4) || 'N/A'} m² |
                   📍 Points: {duplicateParcel.pointCount || duplicateParcel.ids?.length || 0}
                 </p>
               </div>
@@ -1866,51 +2289,108 @@ const ParcelCalculator = () => {
             </p>
 
             <div className="flex flex-col gap-3">
-              <button 
-                onClick={handleReplaceDuplicate} 
+              <button
+                onClick={handleReplaceDuplicate}
                 className="btn-primary w-full py-3 flex items-center justify-center gap-2"
               >
                 ✏️ Replace & Edit Existing
               </button>
-              <button 
-                onClick={handleCreateNewDuplicate} 
+              <button
+                onClick={handleCreateNewDuplicate}
                 className="btn-success w-full py-3 flex items-center justify-center gap-2"
               >
                 ➕ Create New (Allow Duplicate)
               </button>
-              <button 
-                onClick={handleCancelDuplicate} 
+              <button
+                onClick={handleCancelDuplicate}
                 className="btn-secondary w-full py-3 flex items-center justify-center gap-2 border-danger/50 text-danger hover:bg-danger/20"
               >
                 ❌ Cancel
               </button>
             </div>
           </motion.div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Confirmation Dialog */}
+      {confirmDialog.isOpen && createPortal(
+        <div
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 10000,
+            pointerEvents: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && confirmDialog.onConfirm) confirmDialog.onConfirm(false);
+          }}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-dark-800 border-2 border-warning rounded-2xl p-8 max-w-md w-full shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+            style={{ margin: 0 }}
+          >
+            <h2 className="text-2xl font-bold text-white mb-4">⚠️ {confirmDialog.title}</h2>
+            <p className="text-dark-300 mb-6 font-medium">{confirmDialog.message}</p>
+            <div className="flex gap-4 justify-end">
+              <button
+                onClick={() => confirmDialog.onConfirm && confirmDialog.onConfirm(false)}
+                className="px-6 py-2 rounded-lg bg-dark-700 text-white hover:bg-dark-600 transition-colors font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => confirmDialog.onConfirm && confirmDialog.onConfirm(true)}
+                className="px-6 py-2 rounded-lg bg-success text-white hover:bg-success/90 transition-colors font-bold shadow-lg shadow-success/20"
+              >
+                Confirm
+              </button>
+            </div>
+          </motion.div>
+        </div>,
+        document.body
       )}
 
       {/* Area Confirmation Dialog */}
-      {showAreaDialog && (
-        <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
-          onMouseDown={(e) => {
-            // Prevent blocking input events
-            if (e.target === e.currentTarget) {
-              e.stopPropagation();
-            }
+      {showAreaDialog && createPortal(
+        <div
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 9999,
+            pointerEvents: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
           }}
-          style={{ pointerEvents: 'auto' }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) e.stopPropagation();
+          }}
         >
-          <motion.div 
+          <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-dark-800 border-2 border-primary rounded-2xl p-8 max-w-md w-full mx-4"
+            className="bg-dark-800 border-2 border-primary rounded-2xl p-8 max-w-md w-full"
             onClick={(e) => e.stopPropagation()}
             style={{ pointerEvents: 'auto' }}
           >
             <h2 className="text-3xl font-bold text-primary mb-4">✅ Polygon Closed!</h2>
             <p className="text-dark-300 mb-6">Area has been calculated:</p>
-            
+
             <div className="bg-dark-900 rounded-xl p-6 mb-6 border-2 border-success">
               <div className="text-center">
                 <p className="text-dark-400 text-sm mb-2">Area</p>
@@ -1934,33 +2414,41 @@ const ParcelCalculator = () => {
               </button>
             </div>
           </motion.div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Curves Dialog */}
-      {showCurvesDialog && (
-        <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 overflow-y-auto"
-          onClick={(e) => {
-            // Close dialog if clicking on backdrop (not on dialog content)
-            if (e.target === e.currentTarget) {
-              // Don't close on backdrop click - user must use buttons
-            }
+      {showCurvesDialog && createPortal(
+        <div
+          className="fixed inset-0 bg-black/70 z-50"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            zIndex: 9999,
+            pointerEvents: 'auto'
           }}
-          onMouseDown={(e) => {
-            // Prevent blocking input events
-            if (e.target === e.currentTarget) {
-              e.stopPropagation();
-            }
-          }}
-          style={{ pointerEvents: 'auto' }}
+          onClick={(e) => { if (e.target === e.currentTarget) { /* Don't close */ } }}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) e.stopPropagation(); }}
         >
-          <motion.div 
+          <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-dark-800 border-2 border-primary rounded-2xl p-8 max-w-2xl w-full mx-4 my-8"
+            className="bg-dark-800 border-2 border-primary rounded-2xl p-8 max-w-2xl w-full"
             onClick={(e) => e.stopPropagation()}
-            style={{ pointerEvents: 'auto' }}
+            style={{
+              position: 'fixed',
+              top: '50vh',
+              left: '50vw',
+              transform: 'translate(-50%, -50%)',
+              maxWidth: '700px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              pointerEvents: 'auto'
+            }}
           >
             <h2 className="text-3xl font-bold text-primary mb-4">📐 Curves Adjustment</h2>
             <p className="text-dark-300 mb-6">Do you want to add or subtract curves? (Middle Ordinate Method)</p>
@@ -2097,7 +2585,8 @@ const ParcelCalculator = () => {
               </button>
             </div>
           </motion.div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <div className="max-w-7xl mx-auto">
@@ -2121,7 +2610,7 @@ const ParcelCalculator = () => {
               </div>
               <div className="text-success font-bold">● Ready</div>
             </div>
-            
+
             {/* Toolbar */}
             <div className="flex gap-2 flex-wrap items-center">
               {(globalProjectName || (pointsFileName && Object.keys(loadedPoints).length > 0)) && (
@@ -2130,7 +2619,17 @@ const ParcelCalculator = () => {
                   {globalProjectName && (
                     <>
                       {hasUnsavedChanges ? (
-                        <span className="text-warning animate-pulse">💾 Saving...</span>
+                        (lastSavedPath || projectPath) ? (
+                          <span className="text-warning animate-pulse">💾 Saving...</span>
+                        ) : (
+                          <button
+                            onClick={handleSmartSave}
+                            className="text-warning hover:text-warning/80 hover:underline text-left font-bold"
+                            title="Click to save project (auto-saves to points file location if possible)"
+                          >
+                            ⚠️ Unsaved Setup (Click to Save)
+                          </button>
+                        )
                       ) : (
                         <span className="text-success">✓ Saved</span>
                       )}
@@ -2142,19 +2641,19 @@ const ParcelCalculator = () => {
                   )}
                 </div>
               )}
-              
+
               <button onClick={handleNewProject} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
                 <Plus className="w-4 h-4" />
                 New
               </button>
-              
+
               <input type="file" accept=".prcl" onChange={handleLoadProject} style={{ display: 'none' }} id="load-project" />
               <label htmlFor="load-project" className="btn-secondary py-2 px-4 text-sm cursor-pointer flex items-center gap-2">
                 <Upload className="w-4 h-4" />
                 Open Project
               </label>
-              
-              <button 
+
+              <button
                 onClick={handleSaveAs}
                 title="Save project"
                 className="btn-primary py-2 px-4 text-sm flex items-center gap-2"
@@ -2168,15 +2667,15 @@ const ParcelCalculator = () => {
                 <Save className="w-4 h-4" />
                 Save As... {hasUnsavedChanges && <span className="animate-pulse">💾</span>}
               </button>
-              
+
               <div className="mx-2 h-6 w-px bg-dark-600"></div>
-              
+
               <input type="file" accept=".pnt,.txt,.csv" onChange={handleLoadFile} style={{ display: 'none' }} id="load-points" />
               <label htmlFor="load-points" className="btn-secondary py-2 px-4 text-sm cursor-pointer flex items-center gap-2">
                 <Upload className="w-4 h-4" />
                 Load Points
               </label>
-              
+
               <button onClick={handleExportAll} disabled={savedParcels.length === 0} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
                 <FileDown className="w-4 h-4" />
                 Export PDF
@@ -2201,10 +2700,10 @@ const ParcelCalculator = () => {
         </motion.div>
 
         {/* Input Area */}
-        <motion.div 
-          initial={{ opacity: 0 }} 
-          animate={{ opacity: 1 }} 
-          transition={{ delay: 0.1 }} 
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1 }}
           className="card mb-6"
           style={{ pointerEvents: 'auto' }}
         >
@@ -2323,21 +2822,19 @@ const ParcelCalculator = () => {
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setActiveTab('editor')}
-            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${
-              activeTab === 'editor'
-                ? 'bg-dark-800 text-primary border-t-2 border-primary'
-                : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-            }`}
+            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'editor'
+              ? 'bg-dark-800 text-primary border-t-2 border-primary'
+              : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
+              }`}
           >
             Editor
           </button>
           <button
             onClick={() => setActiveTab('saved')}
-            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${
-              activeTab === 'saved'
-                ? 'bg-dark-800 text-primary border-t-2 border-primary'
-                : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-            }`}
+            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'saved'
+              ? 'bg-dark-800 text-primary border-t-2 border-primary'
+              : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
+              }`}
           >
             Saved Parcels ({(() => {
               // Count unique parcel numbers only
@@ -2347,21 +2844,19 @@ const ParcelCalculator = () => {
           </button>
           <button
             onClick={() => setActiveTab('all')}
-            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${
-              activeTab === 'all'
-                ? 'bg-dark-800 text-primary border-t-2 border-primary'
-                : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-            }`}
+            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'all'
+              ? 'bg-dark-800 text-primary border-t-2 border-primary'
+              : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
+              }`}
           >
             All Parcels ({savedParcels.length})
           </button>
           <button
             onClick={() => setActiveTab('errors')}
-            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${
-              activeTab === 'errors'
-                ? 'bg-dark-800 text-primary border-t-2 border-primary'
-                : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-            }`}
+            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'errors'
+              ? 'bg-dark-800 text-primary border-t-2 border-primary'
+              : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
+              }`}
           >
             Error Calculations
           </button>
@@ -2393,12 +2888,11 @@ const ParcelCalculator = () => {
                           <Plus className="w-4 h-4" />
                         </button>
                       )}
-                      
+
                       {/* Point display */}
                       <div
-                        className={`bg-dark-800 border-2 rounded-lg px-4 py-4 flex items-center justify-center hover:border-primary transition-all group aspect-square min-w-[60px] w-[60px] h-[60px] relative ${
-                          editingPointIndex === index ? 'border-warning' : 'border-primary/50'
-                        }`}
+                        className={`bg-dark-800 border-2 rounded-lg px-4 py-4 flex items-center justify-center hover:border-primary transition-all group aspect-square min-w-[60px] w-[60px] h-[60px] relative ${editingPointIndex === index ? 'border-warning' : 'border-primary/50'
+                          }`}
                       >
                         <span className="text-primary font-bold text-lg">{id}</span>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute top-1 right-1">
@@ -2554,7 +3048,7 @@ const ParcelCalculator = () => {
                 <div className="space-y-3">
                   {uniqueParcels.map((parcel) => {
                     // Count how many duplicates exist for this parcel number
-                    const duplicateCount = savedParcels.filter(p => 
+                    const duplicateCount = savedParcels.filter(p =>
                       p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
                     ).length;
 
@@ -2578,97 +3072,97 @@ const ParcelCalculator = () => {
                                 </span>
                               )}
                             </h3>
-                        <div className="flex gap-6 text-sm text-dark-300">
-                          <span>📐 Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong></span>
-                          <span>📍 Points: {parcel.pointCount}</span>
+                            <div className="flex gap-6 text-sm text-dark-300">
+                              <span>📐 Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong></span>
+                              <span>📍 Points: {parcel.pointCount}</span>
+                            </div>
+                            {parcel.curves && parcel.curves.length > 0 && (
+                              <div className="mt-2 text-xs text-warning">
+                                {parcel.curves.map((c, i) => (
+                                  <span key={i} className="mr-3">
+                                    {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                handleLoadSavedParcel(parcel);
+                                setActiveTab('editor');
+                              }}
+                              className="p-2 hover:bg-primary/20 rounded-lg text-primary"
+                              title="Load into editor"
+                            >
+                              <Edit className="w-5 h-5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteSaved(parcel.id);
+                              }}
+                              className="p-2 hover:bg-danger/20 rounded-lg text-danger"
+                              title="Delete parcel"
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          </div>
                         </div>
-                        {parcel.curves && parcel.curves.length > 0 && (
-                          <div className="mt-2 text-xs text-warning">
-                            {parcel.curves.map((c, i) => (
-                              <span key={i} className="mr-3">
-                                {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
-                              </span>
+
+                        {/* Points list with edit/insert options */}
+                        <div className="mt-3 pt-3 border-t border-dark-600">
+                          <div className="flex flex-wrap gap-2 items-center">
+                            {parcel.ids.map((id, index) => (
+                              <React.Fragment key={index}>
+                                {/* Insert button */}
+                                {index > 0 && (
+                                  <button
+                                    onClick={() => handleInsertPointInSavedParcel(parcel, index - 1)}
+                                    className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity text-primary hover:text-primary/80"
+                                    title={`Insert point between ${parcel.ids[index - 1]} and ${id}`}
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                  </button>
+                                )}
+
+                                {/* Point */}
+                                <div className="bg-dark-800 border border-primary/30 rounded-lg px-3 py-3 flex items-center justify-center gap-2 hover:border-primary transition-all aspect-square min-w-[50px] w-[50px] h-[50px] relative">
+                                  <span className="text-primary font-semibold">{id}</span>
+                                  <button
+                                    onClick={() => handleEditPointIdInSavedParcel(parcel, index)}
+                                    className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity text-warning hover:text-warning/80 absolute top-1 right-1"
+                                    title="Edit this point ID"
+                                  >
+                                    <Edit className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </React.Fragment>
                             ))}
                           </div>
-                        )}
+
+                          {/* Add curves button */}
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              onClick={() => {
+                                handleLoadSavedParcel(parcel);
+                                setActiveTab('editor');
+                                // Open curves dialog if parcel doesn't have curves
+                                if (!parcel.curves || parcel.curves.length === 0) {
+                                  setTimeout(() => {
+                                    setShowCurvesDialog(true);
+                                  }, 300);
+                                }
+                              }}
+                              className="btn-secondary py-1 px-3 text-xs flex items-center gap-1"
+                              title="Add/edit curves"
+                            >
+                              <Plus className="w-3 h-3" />
+                              {parcel.curves && parcel.curves.length > 0 ? 'Edit Curves' : 'Add Curves'}
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            handleLoadSavedParcel(parcel);
-                            setActiveTab('editor');
-                          }}
-                          className="p-2 hover:bg-primary/20 rounded-lg text-primary"
-                          title="Load into editor"
-                        >
-                          <Edit className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteSaved(parcel.id);
-                          }}
-                          className="p-2 hover:bg-danger/20 rounded-lg text-danger"
-                          title="Delete parcel"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {/* Points list with edit/insert options */}
-                    <div className="mt-3 pt-3 border-t border-dark-600">
-                      <div className="flex flex-wrap gap-2 items-center">
-                        {parcel.ids.map((id, index) => (
-                          <React.Fragment key={index}>
-                            {/* Insert button */}
-                            {index > 0 && (
-                              <button
-                                onClick={() => handleInsertPointInSavedParcel(parcel, index - 1)}
-                                className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity text-primary hover:text-primary/80"
-                                title={`Insert point between ${parcel.ids[index - 1]} and ${id}`}
-                              >
-                                <Plus className="w-4 h-4" />
-                              </button>
-                            )}
-                            
-                            {/* Point */}
-                            <div className="bg-dark-800 border border-primary/30 rounded-lg px-3 py-3 flex items-center justify-center gap-2 hover:border-primary transition-all aspect-square min-w-[50px] w-[50px] h-[50px] relative">
-                              <span className="text-primary font-semibold">{id}</span>
-                              <button
-                                onClick={() => handleEditPointIdInSavedParcel(parcel, index)}
-                                className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity text-warning hover:text-warning/80 absolute top-1 right-1"
-                                title="Edit this point ID"
-                              >
-                                <Edit className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </React.Fragment>
-                        ))}
-                      </div>
-                      
-                      {/* Add curves button */}
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={() => {
-                            handleLoadSavedParcel(parcel);
-                            setActiveTab('editor');
-                            // Open curves dialog if parcel doesn't have curves
-                            if (!parcel.curves || parcel.curves.length === 0) {
-                              setTimeout(() => {
-                                setShowCurvesDialog(true);
-                              }, 300);
-                            }
-                          }}
-                          className="btn-secondary py-1 px-3 text-xs flex items-center gap-1"
-                          title="Add/edit curves"
-                        >
-                          <Plus className="w-3 h-3" />
-                          {parcel.curves && parcel.curves.length > 0 ? 'Edit Curves' : 'Add Curves'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
                     );
                   })}
                 </div>
@@ -2700,19 +3194,18 @@ const ParcelCalculator = () => {
               <div className="space-y-3">
                 {savedParcels.map((parcel, index) => {
                   // Check if this parcel number has duplicates
-                  const duplicateCount = savedParcels.filter(p => 
+                  const duplicateCount = savedParcels.filter(p =>
                     p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
                   ).length;
-                  const isDuplicate = duplicateCount > 1 && savedParcels.findIndex(p => 
+                  const isDuplicate = duplicateCount > 1 && savedParcels.findIndex(p =>
                     p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
                   ) !== index;
 
                   return (
                     <div
                       key={parcel.id}
-                      className={`glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group ${
-                        isDuplicate ? 'border-l-4 border-blue-500' : ''
-                      }`}
+                      className={`glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group ${isDuplicate ? 'border-l-4 border-blue-500' : ''
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex-1">
@@ -2720,8 +3213,8 @@ const ParcelCalculator = () => {
                             Parcel #{parcel.number}
                             {isDuplicate && (
                               <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
-                                🔄 Duplicate #{savedParcels.filter(p => 
-                                  p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase() && 
+                                🔄 Duplicate #{savedParcels.filter(p =>
+                                  p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase() &&
                                   savedParcels.indexOf(p) <= index
                                 ).length} of {duplicateCount}
                               </span>
@@ -2760,6 +3253,16 @@ const ParcelCalculator = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              handleExportSingle(parcel);
+                            }}
+                            className="p-2 hover:bg-success/20 rounded-lg text-success"
+                            title="Export as PDF"
+                          >
+                            <FileDown className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
                               handleDeleteSaved(parcel.id);
                             }}
                             className="p-2 hover:bg-danger/20 rounded-lg text-danger"
@@ -2769,7 +3272,7 @@ const ParcelCalculator = () => {
                           </button>
                         </div>
                       </div>
-                      
+
                       {/* Points list with edit/insert options */}
                       <div className="mt-3 pt-3 border-t border-dark-600">
                         <div className="flex flex-wrap gap-2 items-center">
@@ -2785,7 +3288,7 @@ const ParcelCalculator = () => {
                                   <Plus className="w-4 h-4" />
                                 </button>
                               )}
-                              
+
                               {/* Point */}
                               <div className="bg-dark-800 border border-primary/30 rounded-lg px-3 py-3 flex items-center justify-center gap-2 hover:border-primary transition-all aspect-square min-w-[50px] w-[50px] h-[50px] relative">
                                 <span className="text-primary font-semibold">{id}</span>
@@ -2800,19 +3303,17 @@ const ParcelCalculator = () => {
                             </React.Fragment>
                           ))}
                         </div>
-                        
+
                         {/* Add curves button */}
                         <div className="mt-3 flex gap-2">
                           <button
-                            onClick={() => {
-                              handleLoadSavedParcel(parcel);
+                            onClick={async () => {
+                              await handleLoadSavedParcel(parcel);
                               setActiveTab('editor');
-                              // Open curves dialog if parcel doesn't have curves
-                              if (!parcel.curves || parcel.curves.length === 0) {
-                                setTimeout(() => {
-                                  setShowCurvesDialog(true);
-                                }, 300);
-                              }
+                              // Always open curves dialog to allow editing
+                              setTimeout(() => {
+                                setShowCurvesDialog(true);
+                              }, 300);
                             }}
                             className="btn-secondary py-1 px-3 text-xs flex items-center gap-1"
                             title="Add/edit curves"
@@ -2844,8 +3345,8 @@ const ParcelCalculator = () => {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card">
             <h2 className="text-xl font-bold text-dark-50 mb-4">📊 Error Calculations</h2>
             <p className="text-dark-400 text-sm mb-6">
-              Select multiple parcels, then enter ONE registered area for the total. Calculate error using surveying formula:<br/>
-              <strong className="text-primary">Permissible Error = 0.8 × √(Registered Area) + 0.002 × Registered Area</strong><br/>
+              Select multiple parcels, then enter ONE registered area for the total. Calculate error using surveying formula:<br />
+              <strong className="text-primary">Permissible Error = 0.8 × √(Registered Area) + 0.002 × Registered Area</strong><br />
               If within limits, areas are adjusted proportionally. If exceeds, original areas are used.
             </p>
 
@@ -2916,11 +3417,10 @@ const ParcelCalculator = () => {
                       <div
                         key={parcel.id}
                         onClick={() => toggleParcelSelection(parcel.id)}
-                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                          isSelected
-                            ? 'bg-primary/20 border-primary'
-                            : 'bg-dark-700 border-dark-600 hover:border-dark-500'
-                        }`}
+                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${isSelected
+                          ? 'bg-primary/20 border-primary'
+                          : 'bg-dark-700 border-dark-600 hover:border-dark-500'
+                          }`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex-1">
@@ -2944,7 +3444,7 @@ const ParcelCalculator = () => {
             {errorResults && (
               <div className="mt-6 pt-6 border-t border-dark-600">
                 <h3 className="text-lg font-bold text-dark-50 mb-4">Error Calculation Results</h3>
-                
+
                 {/* Overall Summary */}
                 <div className="mb-6 p-6 bg-dark-700 rounded-lg border-2 border-primary/50">
                   <h4 className="text-primary font-bold text-lg mb-4">📊 Overall Calculation Summary:</h4>
@@ -2968,7 +3468,7 @@ const ParcelCalculator = () => {
                   </div>
                   <div className="mt-4 pt-4 border-t border-dark-600">
                     <p className={`text-base font-bold mb-2 ${errorResults.exceedsLimit ? 'text-danger' : 'text-success'}`}>
-                      {errorResults.exceedsLimit 
+                      {errorResults.exceedsLimit
                         ? '⚠️ ERROR EXCEEDS PERMISSIBLE LIMITS - Using original calculated areas'
                         : '✅ WITHIN PERMISSIBLE LIMITS - Areas adjusted proportionally'}
                     </p>

@@ -1046,8 +1046,9 @@ def export_pdf():
         c = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
         
-        # Track if heading was added (only once)
+        # Track if heading was added (only once) and page count
         heading_added = False
+        page_count = 1
         
         for parcel_idx, parcel in enumerate(parcels):
             # Only add new page if we run out of space, not for each parcel
@@ -1056,7 +1057,14 @@ def export_pdf():
             else:
                 # Check if we need a new page (add spacing between parcels)
                 if y_position < 100:
+                    # Add page number before showing new page
+                    c.setFont("Courier-Bold", 10)
+                    page_text = f"Page {page_count}"
+                    text_width = c.stringWidth(page_text, "Courier-Bold", 10)
+                    c.drawString((width - text_width) / 2, 50, page_text)
+                    
                     c.showPage()
+                    page_count += 1
                     y_position = height - 40
                 else:
                     y_position -= 30  # Space between parcels
@@ -1159,10 +1167,23 @@ def export_pdf():
                     c.drawString(40, y_position, line)
                     y_position -= 12
                     
-                    if y_position < 50:
+                    if y_position < 100:
+                        # Add page number before showing new page
+                        c.setFont("Courier-Bold", 10)
+                        page_text = f"Page {page_count}"
+                        text_width = c.stringWidth(page_text, "Courier-Bold", 10)
+                        c.drawString((width - text_width) / 2, 50, page_text)
+                        
                         c.showPage()
+                        page_count += 1
                         y_position = height - 40
+                        
+                        # Redraw table header on new page
                         c.setFont("Courier", 9)
+                        c.drawString(40, y_position, header)
+                        y_position -= 12
+                        c.drawString(40, y_position, sep)
+                        y_position -= 12
             
             y_position -= 10
             
@@ -1191,11 +1212,29 @@ def export_pdf():
                         # F value (sagitta factor)
                         F = seg_area / (C * C) if C > 0 else 0
                         
-                        sign_text = "+" if sign == 1 else "-"
+                        sign_symbol = "(+)" if sign == 1 else "(-)"
                         
-                        curve_line = f"FROM PARCEL  {from_id} --> {to_id} = {C:.2f}   R = {R:.2f}   F = {F:.3f}   PARCEL AREA= {seg_area:.2f}"
+                        curve_line = f"FROM PARCEL  {from_id} --> {to_id} = {C:.2f}   R = {R:.2f}   F = {F:.3f}   {sign_symbol}   PARCEL AREA= {seg_area:.2f}"
                         c.drawString(40, y_position, curve_line)
                         y_position -= 12
+                        
+                        # Check for page break inside curves loop
+                        if y_position < 100:
+                            # Add page number before showing new page
+                            c.setFont("Courier-Bold", 10)
+                            page_text = f"Page {page_count}"
+                            text_width = c.stringWidth(page_text, "Courier-Bold", 10)
+                            c.drawString((width - text_width) / 2, 50, page_text)
+                            
+                            c.showPage()
+                            page_count += 1
+                            y_position = height - 40
+                            
+                            # Redraw curves header
+                            c.setFont("Courier-Bold", 10)
+                            c.drawString(40, y_position, "CURVES (continued):")
+                            y_position -= 15
+                            c.setFont("Courier", 9)
                 
                 y_position -= 10
             
@@ -1208,7 +1247,14 @@ def export_pdf():
         if error_results and error_results.get('parcelResults'):
             # Check if we need a new page
             if y_position < 200:
+                # Add page number before new page
+                c.setFont("Courier-Bold", 10)
+                page_text = f"Page {page_count}"
+                text_width = c.stringWidth(page_text, "Courier-Bold", 10)
+                c.drawString((width - text_width) / 2, 50, page_text)
+                
                 c.showPage()
+                page_count += 1
                 y_position = height - 40
             
             y_position -= 20
@@ -1299,6 +1345,12 @@ def export_pdf():
             total_line = f"{'TOTAL:':<12} {total_original:>15.4f} {total_adjusted:>15.4f} {total_rounded:>15} {total_points:>8}"
             c.drawString(40, y_position, total_line)
             y_position -= 20
+        
+        # Add final page number
+        c.setFont("Courier-Bold", 10)
+        page_text = f"Page {page_count}"
+        text_width = c.stringWidth(page_text, "Courier-Bold", 10)
+        c.drawString((width - text_width) / 2, 50, page_text)
         
         c.save()
         
