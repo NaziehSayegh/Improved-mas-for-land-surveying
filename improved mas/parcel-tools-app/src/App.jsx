@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { ProjectProvider, useProject } from './context/ProjectContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import MainMenu from './pages/MainMenu';
 import ParcelCalculator from './pages/ParcelCalculator';
 import DataFiles from './pages/DataFiles';
@@ -9,10 +11,14 @@ import Plotting from './pages/Plotting';
 import BackgroundEffects from './components/BackgroundEffects';
 import Assistant from './pages/Assistant';
 import LicensePage from './pages/LicensePage';
+import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
 
 // Inner component to handle file loading with access to context and navigation
 function AppContent() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user, loading } = useAuth();
   const {
     setProjectName,
     setPointsFileName,
@@ -23,6 +29,16 @@ function AppContent() {
     setHasUnsavedChanges,
     setProjectPath
   } = useProject();
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !user) {
+      const publicPaths = ['/login', '/signup'];
+      if (!publicPaths.includes(location.pathname)) {
+        navigate('/login');
+      }
+    }
+  }, [user, loading, location.pathname, navigate]);
 
   useEffect(() => {
     // Check if Electron API is available
@@ -170,6 +186,8 @@ function AppContent() {
     <>
       <BackgroundEffects />
       <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
         <Route path="/" element={<MainMenu />} />
         <Route path="/assistant" element={<Assistant />} />
         <Route path="/license" element={<LicensePage />} />
@@ -206,11 +224,15 @@ function App() {
   }
 
   return (
-    <ProjectProvider>
-      <RouterComponent>
-        <AppContent />
-      </RouterComponent>
-    </ProjectProvider>
+    <AuthProvider>
+      <ToastProvider>
+        <ProjectProvider>
+          <RouterComponent>
+            <AppContent />
+          </RouterComponent>
+        </ProjectProvider>
+      </ToastProvider>
+    </AuthProvider>
   );
 }
 

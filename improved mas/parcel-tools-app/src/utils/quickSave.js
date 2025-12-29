@@ -2,18 +2,52 @@
  * Quick Save As utility - can be called from anywhere in the app
  */
 
+// Helper function to show toast notifications
+function showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  toast.innerHTML = message;
+
+  const colors = {
+    success: 'linear-gradient(135deg, #22c55e, #16a34a)',
+    error: 'linear-gradient(135deg, #ef4444, #dc2626)',
+    warning: 'linear-gradient(135deg, #f59e0b, #d97706)',
+    info: 'linear-gradient(135deg, #3b82f6, #2563eb)'
+  };
+
+  toast.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: ${colors[type] || colors.info};
+    color: white;
+    padding: 16px 24px;
+    border-radius: 12px;
+    font-weight: bold;
+    z-index: 10000;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    animation: slideIn 0.3s ease-out;
+    max-width: 400px;
+  `;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.animation = 'slideOut 0.3s ease-out';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
 export async function handleQuickSaveAs() {
   try {
     // Check if Electron API is available
     if (!window.electronAPI || typeof window.electronAPI.showSaveDialog !== 'function') {
-      alert('⚠️ Save dialog not available. Please use the Parcel Calculator page to save projects.');
+      showToast('⚠️ Save dialog not available. Please use the Parcel Calculator page to save projects.', 'warning');
       return false;
     }
 
     // Get current project state from context
     const projectContext = window.__PROJECT_CONTEXT__;
     if (!projectContext) {
-      alert('⚠️ No project data available. Please create a project first in the Parcel Calculator.');
+      showToast('⚠️ No project data available. Please create a project first in the Parcel Calculator.', 'warning');
       return false;
     }
 
@@ -48,7 +82,7 @@ export async function handleQuickSaveAs() {
     }
 
     if (dialogResult.error) {
-      alert('❌ Error opening save dialog: ' + dialogResult.error);
+      showToast('❌ Error opening save dialog: ' + dialogResult.error, 'error');
       return false;
     }
 
@@ -120,7 +154,7 @@ export async function handleQuickSaveAs() {
     return true;
   } catch (error) {
     console.error('Quick save error:', error);
-    alert(`❌ Error saving project: ${error.message}`);
+    showToast(`❌ Error saving project: ${error.message}`, 'error');
     return false;
   }
 }

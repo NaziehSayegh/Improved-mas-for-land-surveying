@@ -441,7 +441,7 @@ const ParcelCalculator = () => {
       setShowAreaDialog(true); // Show dialog to user
     } catch (error) {
       console.error('Error calculating area:', error);
-      alert('Error calculating area');
+      showErrorToast('Error calculating area');
     }
   };
 
@@ -571,7 +571,7 @@ const ParcelCalculator = () => {
   // Add curve
   const handleAddCurve = () => {
     if (!curveFrom || !curveTo || !curveM) {
-      alert('Fill all curve fields!');
+      showErrorToast('Fill all curve fields!');
       return;
     }
 
@@ -1237,7 +1237,7 @@ const ParcelCalculator = () => {
             hasShowSaveDialog: !!(window.electronAPI && window.electronAPI.showSaveDialog),
             showSaveDialogType: window.electronAPI ? typeof window.electronAPI.showSaveDialog : 'N/A'
           });
-          alert('❌ Save dialog not available.\n\nPlease ensure:\n1. You are running the app in Electron (not a browser)\n2. The app has been restarted after the update\n3. Check the console for errors\n\nIf the problem persists, please restart the application.');
+          showErrorToast('❌ Save dialog not available. Please ensure you are running the app in Electron.');
           return false; // Don't save to wrong location
         } else {
           // Use Electron dialog - suggest Desktop or Documents, not backend folder

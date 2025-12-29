@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { useToast } from './ToastContext';
 
 const ProjectContext = createContext();
 
@@ -11,6 +12,7 @@ export const useProject = () => {
 };
 
 export const ProjectProvider = ({ children }) => {
+  const toast = useToast();
   const [projectName, setProjectName] = useState('');
   const [projectPath, setProjectPath] = useState('');
   const [pointsFileName, setPointsFileName] = useState('');
@@ -42,8 +44,8 @@ export const ProjectProvider = ({ children }) => {
 
     // Check if file path is valid (should be an absolute path, not just filename)
     // In Electron, file.path should be available, but if not, we can't watch it
-    const isValidPath = pointsFilePath && pointsFilePath.trim() !== '' && 
-                       (pointsFilePath.includes('\\') || pointsFilePath.includes('/') || pointsFilePath.startsWith('C:') || pointsFilePath.startsWith('/'));
+    const isValidPath = pointsFilePath && pointsFilePath.trim() !== '' &&
+      (pointsFilePath.includes('\\') || pointsFilePath.includes('/') || pointsFilePath.startsWith('C:') || pointsFilePath.startsWith('/'));
 
     if (!isValidPath) {
       // If it's just a filename, don't start watching (file might not be accessible)
@@ -58,7 +60,7 @@ export const ProjectProvider = ({ children }) => {
     const checkFileChanges = async () => {
       // Don't check if no file path or if already reloading
       if (!pointsFilePath || isReloading) return;
-      
+
       try {
         const response = await fetch('http://localhost:5000/api/check-file-modified', {
           method: 'POST',
@@ -68,12 +70,12 @@ export const ProjectProvider = ({ children }) => {
 
         if (response.ok) {
           const data = await response.json();
-          
+
           if (lastModified && data.modified > lastModified) {
             console.log('Points file changed! Reloading...');
             await reloadPointsFile();
           }
-          
+
           lastModified = data.modified;
         } else if (response.status === 404) {
           // File not found - stop watching silently
@@ -106,22 +108,22 @@ export const ProjectProvider = ({ children }) => {
 
         if (response.ok) {
           const result = await response.json();
-          
+
           if (result.points) {
             const pointsObj = {};
             result.points.forEach(p => {
               pointsObj[p.id] = { x: p.x, y: p.y };
             });
-            
+
             setLoadedPoints(pointsObj);
-            
+
             // Recalculate all parcel areas using ref to get latest value
             const currentParcels = savedParcelsRef.current;
             if (currentParcels.length > 0) {
               await recalculateAllParcels(pointsObj, currentParcels);
             }
-            
-            alert(`🔄 Points file updated!\n\nReloaded ${result.count} points.\n${currentParcels.length} parcels recalculated.`);
+
+            toast.success(`🔄 Points file updated! Reloaded ${result.count} points. ${currentParcels.length} parcels recalculated.`);
           }
         }
       } catch (error) {
@@ -147,7 +149,7 @@ export const ProjectProvider = ({ children }) => {
   const recalculateAllParcels = async (newPoints, parcelsToRecalculate) => {
     try {
       const parcels = parcelsToRecalculate || savedParcelsRef.current;
-      
+
       const updatedParcels = await Promise.all(
         parcels.map(async (parcel) => {
           const points = parcel.ids.map(id => ({

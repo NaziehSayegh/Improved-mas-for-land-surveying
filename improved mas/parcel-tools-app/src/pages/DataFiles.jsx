@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, FolderOpen, File, Plus, Trash2, Edit2, Upload, Save, FileText, RefreshCw } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
+import { useToast } from '../context/ToastContext';
 
 const DataFiles = () => {
   const navigate = useNavigate();
-  
+
   // Shared context
   const {
     pointsFileName,
@@ -29,13 +30,13 @@ const DataFiles = () => {
   const [newPointX, setNewPointX] = useState('');
   const [newPointY, setNewPointY] = useState('');
   const [editingPointId, setEditingPointId] = useState(null);
-  
+
   // File heading
   const [showHeadingDialog, setShowHeadingDialog] = useState(false);
   const [localHeading, setLocalHeading] = useState(globalFileHeading || {
     block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
   });
-  
+
   // Saved projects
   const [savedProjects, setSavedProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
@@ -48,7 +49,7 @@ const DataFiles = () => {
 
   // Track unsaved changes for points editing
   const hasUnsavedPoints = editMode && Object.keys(editingPoints).length > 0;
-  
+
   // Helper function to show unsaved changes dialog
   const showUnsavedChangesDialog = (message) => {
     return new Promise((resolve) => {
@@ -155,7 +156,7 @@ const DataFiles = () => {
         // Continue closing even if save fails
       }
     }
-    
+
     // Clear editing state but STAY on the data files page
     // Clear pointsFilePath FIRST to stop file watching
     setPointsFilePath('');
@@ -166,14 +167,14 @@ const DataFiles = () => {
     setNewPointX('');
     setNewPointY('');
     setEditingPointId(null);
-    
+
     // Also clear the loaded points from context
     setLoadedPoints({});
-    
+
     // Small delay to ensure all state updates are processed
     setTimeout(() => {
       // Show confirmation
-      alert('✅ Project closed. You can now load a new file or start editing.');
+      toast.success('✅ Project closed. You can now load a new file or start editing.');
     }, 100);
   };
 
@@ -191,7 +192,7 @@ const DataFiles = () => {
 
   // Track when points are first loaded to sync only on initial load
   const [pointsSynced, setPointsSynced] = useState(false);
-  
+
   // Sync loaded points to editing state (only on initial load, not when user is editing)
   useEffect(() => {
     // Only sync if we're on the points tab
@@ -199,7 +200,7 @@ const DataFiles = () => {
       if (Object.keys(loadedPoints).length > 0 && pointsFileName) {
         // Only sync on initial load - if editingPoints is empty or if points haven't been synced yet
         if (Object.keys(editingPoints).length === 0 || !pointsSynced) {
-          setEditingPoints({...loadedPoints});
+          setEditingPoints({ ...loadedPoints });
           setPointsSynced(true);
         }
         // Enable edit mode if we have points and it's not already enabled
@@ -217,7 +218,7 @@ const DataFiles = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedPoints, pointsFileName, activeTab]);
-  
+
   // Reset sync flag when a new file is loaded
   useEffect(() => {
     if (pointsFileName && Object.keys(loadedPoints).length > 0) {
@@ -251,9 +252,9 @@ const DataFiles = () => {
   const handleScanComputer = async () => {
     const confirmed = confirm('🔍 Scan your computer for .prcl files?\n\nThis will search in:\n• Documents\n• Desktop\n• Downloads\n• Home folder\n\nThis may take a minute...');
     if (!confirmed) return;
-    
+
     await loadSavedProjects(true);
-    
+
     // Show success toast
     const toast = document.createElement('div');
     toast.innerHTML = `✅ Scan complete! Found ${savedProjects.length} projects.`;
@@ -280,12 +281,12 @@ const DataFiles = () => {
       loadSavedProjects();
     }
   }, [activeTab]);
-  
+
   // Also load projects on mount and whenever we navigate back to this page
   useEffect(() => {
     console.log('[DataFiles] Component mounted/refreshed, loading projects...');
     loadSavedProjects();
-    
+
     // Set up interval to refresh every 3 seconds when on projects tab
     const refreshInterval = setInterval(() => {
       if (activeTab === 'projects') {
@@ -293,10 +294,10 @@ const DataFiles = () => {
         loadSavedProjects();
       }
     }, 3000);
-    
+
     return () => clearInterval(refreshInterval);
   }, []);
-  
+
   // Refresh projects when window gains focus
   useEffect(() => {
     const handleFocus = () => {
@@ -305,7 +306,7 @@ const DataFiles = () => {
         loadSavedProjects();
       }
     };
-    
+
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, [activeTab]);
@@ -329,7 +330,7 @@ const DataFiles = () => {
         reader.onload = async (event) => {
           try {
             const fileContent = event.target.result;
-            
+
             const loadResponse = await fetch('http://localhost:5000/api/project/load', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -350,7 +351,7 @@ const DataFiles = () => {
             setGlobalFileHeading({
               block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
             });
-            
+
             // Also clear local editing state
             setEditMode(false);
             setEditingPoints({});
@@ -373,7 +374,7 @@ const DataFiles = () => {
             navigate('/parcel-calculator');
           } catch (error) {
             console.error('Error loading project:', error);
-            alert('Error loading project: ' + error.message);
+            toast.error('Error loading project: ' + error.message);
           }
         };
         reader.readAsText(file);
@@ -381,7 +382,7 @@ const DataFiles = () => {
       input.click();
     } catch (error) {
       console.error('Error opening project:', error);
-      alert('Error opening project: ' + error.message);
+      toast.error('Error opening project: ' + error.message);
     }
   };
 
@@ -393,7 +394,7 @@ const DataFiles = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
-          projectItem.filePath 
+          projectItem.filePath
             ? { filePath: projectItem.filePath }
             : { fileName: projectItem.fileName }
         ),
@@ -417,7 +418,7 @@ const DataFiles = () => {
         block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
       });
       setHasUnsavedChanges(false);
-      
+
       // Also clear local editing state
       setEditMode(false);
       setEditingPoints({});
@@ -486,7 +487,7 @@ const DataFiles = () => {
   // Auto-save points file when changes made
   useEffect(() => {
     if (!pointsFileName || Object.keys(editingPoints).length === 0) return;
-    
+
     // Check if points actually changed
     const pointsChanged = JSON.stringify(editingPoints) !== JSON.stringify(loadedPoints);
     if (!pointsChanged) return;
@@ -510,13 +511,13 @@ const DataFiles = () => {
       lines.push(`# Auto-saved: ${new Date().toLocaleString()}`);
       lines.push('# Format: ID, X, Y');
       lines.push('');
-      
+
       const sortedIds = Object.keys(editingPoints).sort((a, b) => {
         const numA = parseInt(a) || 0;
         const numB = parseInt(b) || 0;
         return numA - numB;
       });
-      
+
       sortedIds.forEach(id => {
         const pt = editingPoints[id];
         lines.push(`${id}, ${pt.x.toFixed(2)}, ${pt.y.toFixed(2)}`);
@@ -535,7 +536,7 @@ const DataFiles = () => {
       });
 
       if (response.ok) {
-        setLoadedPoints({...editingPoints});
+        setLoadedPoints({ ...editingPoints });
         console.log('✅ Auto-saved points file:', pointsFileName);
       }
     } catch (error) {
@@ -554,7 +555,7 @@ const DataFiles = () => {
     reader.onload = async (e) => {
       try {
         const textData = e.target.result;
-        
+
         const response = await fetch('http://localhost:5000/api/import-points', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -564,35 +565,35 @@ const DataFiles = () => {
         if (!response.ok) throw new Error('Failed to import points');
 
         const result = await response.json();
-        
+
         if (result.points && result.points.length > 0) {
           const pointsObj = {};
           result.points.forEach(p => {
             pointsObj[p.id] = { x: p.x, y: p.y };
           });
-          
+
           // Set all state first, then enable edit mode
           setPointsFileName(file.name);
           setPointsFilePath(filePath);
           setLoadedPoints(pointsObj);
-          setEditingPoints({...pointsObj});
+          setEditingPoints({ ...pointsObj });
           setPointsSynced(true); // Mark as synced since we just loaded
-          
+
           // Switch to points tab and enable edit mode
           setActiveTab('points');
-          
+
           // Use setTimeout to ensure state updates complete before setting edit mode
           setTimeout(() => {
             setEditMode(true);
           }, 50);
-          
-          alert(`✅ Opened: ${file.name}\n\n${result.count} points loaded for editing`);
+
+          toast.success(`✅ Opened: ${file.name} - ${result.count} points loaded for editing`);
         } else {
-          alert('No valid points found in file');
+          toast.warning('No valid points found in file');
         }
       } catch (error) {
         console.error('Error loading file:', error);
-        alert('Error loading file');
+        toast.error('Error loading file');
       }
     };
     reader.readAsText(file);
@@ -601,7 +602,7 @@ const DataFiles = () => {
   // Add new point
   const handleAddPoint = () => {
     if (!newPointId || !newPointX || !newPointY) {
-      alert('Fill all fields: ID, X, Y');
+      toast.warning('Fill all fields: ID, X, Y');
       return;
     }
 
@@ -618,17 +619,17 @@ const DataFiles = () => {
         y: parseFloat(newPointY)
       }
     };
-    
+
     setEditingPoints(updatedPoints);
-    
+
     // Also update loadedPoints to keep them in sync
     setLoadedPoints(updatedPoints);
-    
+
     setNewPointId('');
     setNewPointX('');
     setNewPointY('');
-    
-    alert(`✅ Point added!\n\n💾 Auto-saving in 3 seconds...`);
+
+    toast.success('✅ Point added! 💾 Auto-saving in 3 seconds...');
   };
 
   // Edit point
@@ -642,17 +643,17 @@ const DataFiles = () => {
   // Update edited point
   const handleUpdatePoint = () => {
     if (!newPointId || !newPointX || !newPointY) {
-      alert('Fill all fields');
+      toast.warning('Fill all fields');
       return;
     }
 
-    const updated = {...editingPoints};
-    
+    const updated = { ...editingPoints };
+
     // If ID changed, delete old and add new
     if (editingPointId && editingPointId !== newPointId) {
       delete updated[editingPointId];
     }
-    
+
     updated[newPointId] = {
       x: parseFloat(newPointX),
       y: parseFloat(newPointY)
@@ -661,24 +662,24 @@ const DataFiles = () => {
     setEditingPoints(updated);
     // Also update loadedPoints to keep them in sync
     setLoadedPoints(updated);
-    
+
     setEditingPointId(null);
     setNewPointId('');
     setNewPointX('');
     setNewPointY('');
-    
-    alert(`✅ Point updated!\n\n💾 Auto-saving in 3 seconds...`);
+
+    toast.success('✅ Point updated! 💾 Auto-saving in 3 seconds...');
   };
 
   // Delete point
   const handleDeletePoint = (id) => {
     if (confirm(`Delete point ${id}?`)) {
-      const updated = {...editingPoints};
+      const updated = { ...editingPoints };
       delete updated[id];
       setEditingPoints(updated);
       // Also update loadedPoints to keep them in sync
       setLoadedPoints(updated);
-      alert(`✅ Point ${id} deleted!\n\n💾 Auto-saving in 3 seconds...`);
+      toast.success(`✅ Point ${id} deleted! 💾 Auto-saving in 3 seconds...`);
     }
   };
 
@@ -691,14 +692,14 @@ const DataFiles = () => {
       lines.push(`# Edited: ${new Date().toLocaleString()}`);
       lines.push('# Format: ID, X, Y');
       lines.push('');
-      
+
       // Sort by ID for consistency
       const sortedIds = Object.keys(editingPoints).sort((a, b) => {
         const numA = parseInt(a) || 0;
         const numB = parseInt(b) || 0;
         return numA - numB;
       });
-      
+
       sortedIds.forEach(id => {
         const pt = editingPoints[id];
         lines.push(`${id}, ${pt.x.toFixed(2)}, ${pt.y.toFixed(2)}`);
@@ -730,7 +731,7 @@ const DataFiles = () => {
           }
 
           if (dialogResult.error) {
-            alert('Error opening save dialog: ' + dialogResult.error);
+            toast.error('Error opening save dialog: ' + dialogResult.error);
             return;
           }
 
@@ -742,13 +743,13 @@ const DataFiles = () => {
             fileNameToUse += '.pnt';
           }
           filePathToUse = savePath;
-          
+
           // Update state
           setPointsFileName(fileNameToUse);
           setPointsFilePath(filePathToUse);
         } else {
           // Fallback: show error if Electron dialog not available
-          alert('⚠️ Save As dialog not available.\n\nPlease ensure you are running the app in Electron.\n\nUsing default filename...');
+          toast.warning('⚠️ Save As dialog not available. Please ensure you are running the app in Electron. Using default filename...');
           fileNameToUse = pointsFileName || 'points.pnt';
           if (!fileNameToUse.endsWith('.pnt') && !fileNameToUse.endsWith('.txt')) {
             fileNameToUse += '.pnt';
@@ -773,16 +774,16 @@ const DataFiles = () => {
       }
 
       const result = await response.json();
-      
+
       // Update shared context
-      setLoadedPoints({...editingPoints});
+      setLoadedPoints({ ...editingPoints });
       setHasUnsavedChanges(false);
-      
+
       const location = filePathToUse ? `\nLocation: ${filePathToUse}` : `\nLocation: backend/data/${result.fileName}`;
-      alert(`✅ Saved ${Object.keys(editingPoints).length} points to:\n\n${result.fileName}${location}\n\nFile is being watched for external changes!`);
+      toast.success(`✅ Saved ${Object.keys(editingPoints).length} points to ${result.fileName}. File is being watched for external changes!`);
     } catch (error) {
       console.error('Error saving file:', error);
-      alert('Error saving file: ' + error.message);
+      toast.error('Error saving file: ' + error.message);
     }
   };
 
@@ -796,7 +797,7 @@ const DataFiles = () => {
     setGlobalFileHeading(localHeading);
     setShowHeadingDialog(false);
     setHasUnsavedChanges(true);
-    alert('✅ File heading saved!\n\nIt will be included in PDF exports.\n\nDon\'t forget to save your project!');
+    toast.success('✅ File heading saved! It will be included in PDF exports. Don\'t forget to save your project!');
   };
 
   return (
@@ -804,7 +805,7 @@ const DataFiles = () => {
       {/* File Heading Dialog */}
       {showHeadingDialog && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <motion.div 
+          <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="bg-dark-800 border-2 border-primary rounded-2xl p-8 max-w-2xl w-full mx-4"
@@ -818,7 +819,7 @@ const DataFiles = () => {
                 <input
                   type="text"
                   value={localHeading.block}
-                  onChange={(e) => setLocalHeading({...localHeading, block: e.target.value})}
+                  onChange={(e) => setLocalHeading({ ...localHeading, block: e.target.value })}
                   className="bg-dark-700 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary w-full"
                   placeholder="e.g., 12345"
                   style={{ fontSize: '16px' }}
@@ -830,7 +831,7 @@ const DataFiles = () => {
                 <input
                   type="text"
                   value={localHeading.quarter}
-                  onChange={(e) => setLocalHeading({...localHeading, quarter: e.target.value})}
+                  onChange={(e) => setLocalHeading({ ...localHeading, quarter: e.target.value })}
                   className="bg-dark-700 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary w-full"
                   placeholder="e.g., Northwest"
                   style={{ fontSize: '16px' }}
@@ -842,7 +843,7 @@ const DataFiles = () => {
                 <input
                   type="text"
                   value={localHeading.parcels}
-                  onChange={(e) => setLocalHeading({...localHeading, parcels: e.target.value})}
+                  onChange={(e) => setLocalHeading({ ...localHeading, parcels: e.target.value })}
                   className="bg-dark-700 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary w-full"
                   placeholder="e.g., 101-110"
                   style={{ fontSize: '16px' }}
@@ -854,7 +855,7 @@ const DataFiles = () => {
                 <input
                   type="text"
                   value={localHeading.place}
-                  onChange={(e) => setLocalHeading({...localHeading, place: e.target.value})}
+                  onChange={(e) => setLocalHeading({ ...localHeading, place: e.target.value })}
                   className="bg-dark-700 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary w-full"
                   placeholder="e.g., Downtown District"
                   style={{ fontSize: '16px' }}
@@ -865,7 +866,7 @@ const DataFiles = () => {
                 <label className="block text-dark-300 font-semibold mb-2">Additional Info:</label>
                 <textarea
                   value={localHeading.additionalInfo}
-                  onChange={(e) => setLocalHeading({...localHeading, additionalInfo: e.target.value})}
+                  onChange={(e) => setLocalHeading({ ...localHeading, additionalInfo: e.target.value })}
                   className="bg-dark-700 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary w-full"
                   placeholder="Any additional information..."
                   rows="3"
@@ -912,21 +913,19 @@ const DataFiles = () => {
             <div className="flex gap-2 mb-4">
               <button
                 onClick={() => setActiveTab('points')}
-                className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${
-                  activeTab === 'points'
-                    ? 'bg-dark-800 text-primary border-t-2 border-primary'
-                    : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-                }`}
+                className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'points'
+                  ? 'bg-dark-800 text-primary border-t-2 border-primary'
+                  : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
+                  }`}
               >
                 📝 Points Files
               </button>
               <button
                 onClick={() => { setActiveTab('projects'); loadSavedProjects(); }}
-                className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${
-                  activeTab === 'projects'
-                    ? 'bg-dark-800 text-primary border-t-2 border-primary'
-                    : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-                }`}
+                className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'projects'
+                  ? 'bg-dark-800 text-primary border-t-2 border-primary'
+                  : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
+                  }`}
               >
                 📁 Saved Projects
               </button>
@@ -940,12 +939,12 @@ const DataFiles = () => {
                   <FolderOpen className="w-4 h-4" />
                   Open Points File
                 </label>
-                
+
                 <button onClick={() => handleSavePointsFile(false)} disabled={!editMode} className="btn-success py-2 px-4 text-sm flex items-center gap-2">
                   <Save className="w-4 h-4" />
                   Save Now (Auto-save: ON)
                 </button>
-                
+
                 <button onClick={handleSavePointsAs} disabled={!editMode} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
                   <Save className="w-4 h-4" />
                   Save As...
@@ -966,7 +965,7 @@ const DataFiles = () => {
                   <FolderOpen className="w-4 h-4" />
                   Open Project File
                 </label>
-                
+
                 <button onClick={loadSavedProjects} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
                   <RefreshCw className="w-4 h-4" />
                   Refresh List
@@ -1043,13 +1042,13 @@ const DataFiles = () => {
                     <Save className="w-5 h-5" />
                     Update Point
                   </button>
-                  <button 
+                  <button
                     onClick={() => {
                       setEditingPointId(null);
                       setNewPointId('');
                       setNewPointX('');
                       setNewPointY('');
-                    }} 
+                    }}
                     className="btn-secondary"
                   >
                     Cancel
@@ -1074,7 +1073,7 @@ const DataFiles = () => {
                 <Save className="w-5 h-5" />
                 Save All Changes
               </button>
-              
+
               <button onClick={handleSavePointsAs} className="btn-secondary flex items-center gap-2">
                 <Save className="w-5 h-5" />
                 Save As...
@@ -1167,11 +1166,11 @@ const DataFiles = () => {
               <div className="space-y-3">
                 {savedProjects.map((project, index) => {
                   // Show file path for custom locations, filename for DATA_DIR projects
-                  const displayPath = project.filePath && !project.filePath.includes('backend/data') 
-                    ? project.filePath 
+                  const displayPath = project.filePath && !project.filePath.includes('backend/data')
+                    ? project.filePath
                     : project.fileName;
                   const isEmpty = project.savedParcels === 0;
-                  
+
                   return (
                     <div
                       key={index}

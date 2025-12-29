@@ -2,10 +2,19 @@ import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useProject } from '../context/ProjectContext';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const MainMenu = () => {
   const navigate = useNavigate();
   const { savedParcels, projectName } = useProject();
+  const { user, logout } = useAuth();
+  const toast = useToast();
+
+  // Dialog states
+  const [showExitDialog, setShowExitDialog] = React.useState(false);
+  const [showLogoutDialog, setShowLogoutDialog] = React.useState(false);
 
   // Menu options - renumbered to 1-4 for better layout
   const menuOptionsLeft = [
@@ -21,7 +30,7 @@ const MainMenu = () => {
   const handleSelect = (path, num) => {
     // Check for expiration
     if (licenseStatus && licenseStatus.status === 'expired') {
-      alert('Trial Expired! Please purchase a license to continue using Parcel Tools.');
+      toast.error('Trial Expired! Please purchase a license to continue using Parcel Tools.');
       navigate('/license');
       return;
     }
@@ -29,7 +38,7 @@ const MainMenu = () => {
     if (path !== '#') {
       navigate(path);
     } else {
-      alert(`Feature ${num} coming soon!`);
+      toast.info(`Feature ${num} coming soon!`);
     }
   };
 
@@ -53,9 +62,7 @@ const MainMenu = () => {
       }
       // Ctrl+X to exit
       if (e.ctrlKey && e.key === 'x') {
-        if (window.confirm('Exit Parcel Tools?')) {
-          window.close();
-        }
+        setShowExitDialog(true);
         return;
       }
 
@@ -256,6 +263,21 @@ const MainMenu = () => {
                   <span className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-yellow-400">License</span>
                 </div>
               </button>
+
+              {user && (
+                <button
+                  onClick={() => setShowLogoutDialog(true)}
+                  className="w-full bg-red-600/20 hover:bg-red-600/30 border border-red-500/50 rounded-lg p-2.5 sm:p-3 text-left transition-all group"
+                >
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <span className="text-lg sm:text-xl md:text-2xl">🚪</span>
+                    <div className="flex-1">
+                      <div className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-red-400">Sign Out</div>
+                      <div className="text-dark-400 text-xs">{user.email}</div>
+                    </div>
+                  </div>
+                </button>
+              )}
             </div>
           </motion.div>
 
@@ -312,6 +334,32 @@ const MainMenu = () => {
           © 2024 Nazieh Sayegh • All Rights Reserved
         </p>
       </motion.div>
+
+      {/* Confirm Dialogs */}
+      <ConfirmDialog
+        isOpen={showExitDialog}
+        onClose={() => setShowExitDialog(false)}
+        onConfirm={() => window.close()}
+        title="Exit Parcel Tools?"
+        message="Are you sure you want to exit the application?"
+        type="warning"
+        confirmText="Exit"
+        cancelText="Cancel"
+      />
+
+      <ConfirmDialog
+        isOpen={showLogoutDialog}
+        onClose={() => setShowLogoutDialog(false)}
+        onConfirm={async () => {
+          await logout();
+          navigate('/login');
+        }}
+        title="Sign Out"
+        message={`Sign out from ${user?.email}?`}
+        type="warning"
+        confirmText="Sign Out"
+        cancelText="Cancel"
+      />
     </div>
   );
 };

@@ -4,9 +4,11 @@ import { FileText, MapPin, Clock, X, FolderOpen, Trash2 } from 'lucide-react';
 import { getRecentFiles, clearRecentFiles } from '../utils/api';
 import { useNavigate } from 'react-router-dom';
 import { useProject } from '../context/ProjectContext';
+import { useToast } from '../context/ToastContext';
 
 const RecentFiles = () => {
   const navigate = useNavigate();
+  const toast = useToast();
   const {
     setProjectName,
     setPointsFileName,
@@ -28,7 +30,7 @@ const RecentFiles = () => {
     try {
       setLoading(true);
       const data = await getRecentFiles();
-      
+
       // Filter out files that no longer exist
       const filteredProjects = (data.projects || []).filter(file => {
         // For recent files, we can't directly check file existence in browser,
@@ -36,11 +38,11 @@ const RecentFiles = () => {
         // The backend cleanup will handle removing non-existent files.
         return true; // Trust backend has cleaned up
       });
-      
+
       const filteredPoints = (data.points || []).filter(file => {
         return true; // Trust backend has cleaned up
       });
-      
+
       setRecentFiles({
         projects: filteredProjects,
         points: filteredPoints
@@ -67,7 +69,7 @@ const RecentFiles = () => {
         if (response.status === 404 || errorMessage.toLowerCase().includes('not found')) {
           // File was deleted - refresh recent files to remove it
           loadRecentFiles();
-          alert('❌ Project file not found. It may have been deleted. Refreshing list...');
+          toast.warning('❌ Project file not found. It may have been deleted. Refreshing list...');
           return;
         }
         throw new Error(errorMessage || 'Failed to load project');
@@ -100,12 +102,12 @@ const RecentFiles = () => {
 
       // Navigate to calculator
       navigate('/parcel-calculator');
-      
+
       // Refresh recent files list
       loadRecentFiles();
     } catch (error) {
       console.error('Error opening project:', error);
-      alert('Error opening project: ' + error.message);
+      toast.error('Error opening project: ' + error.message);
     }
   };
 
@@ -123,28 +125,28 @@ const RecentFiles = () => {
       }
 
       const result = await response.json();
-      
+
       // Convert points array to object format for context
       const pointsObj = {};
       result.points.forEach(p => {
         pointsObj[p.id] = { x: p.x, y: p.y };
       });
-      
+
       // Update context
       setPointsFilePath(file.path);
       setPointsFileName(file.name);
       setLoadedPoints(pointsObj);
-      
-      alert(`Loaded ${result.count} points from ${file.name}`);
-      
+
+      toast.success(`Loaded ${result.count} points from ${file.name}`);
+
       // Navigate to data files
       navigate('/data-files');
-      
+
       // Refresh recent files list
       loadRecentFiles();
     } catch (error) {
       console.error('Error opening points file:', error);
-      alert('Error opening points file: ' + error.message);
+      toast.error('Error opening points file: ' + error.message);
     }
   };
 
@@ -156,7 +158,7 @@ const RecentFiles = () => {
       loadRecentFiles();
     } catch (error) {
       console.error('Error clearing recent files:', error);
-      alert('Error clearing recent files');
+      toast.error('Error clearing recent files');
     }
   };
 
@@ -204,22 +206,20 @@ const RecentFiles = () => {
       <div className="flex gap-2 mb-4 border-b border-dark-700">
         <button
           onClick={() => setActiveTab('projects')}
-          className={`px-4 py-2 font-semibold transition-colors ${
-            activeTab === 'projects'
+          className={`px-4 py-2 font-semibold transition-colors ${activeTab === 'projects'
               ? 'text-primary border-b-2 border-primary'
               : 'text-dark-400 hover:text-dark-200'
-          }`}
+            }`}
         >
           <FileText className="w-4 h-4 inline mr-2" />
           Projects ({recentFiles.projects.length})
         </button>
         <button
           onClick={() => setActiveTab('points')}
-          className={`px-4 py-2 font-semibold transition-colors ${
-            activeTab === 'points'
+          className={`px-4 py-2 font-semibold transition-colors ${activeTab === 'points'
               ? 'text-primary border-b-2 border-primary'
               : 'text-dark-400 hover:text-dark-200'
-          }`}
+            }`}
         >
           <MapPin className="w-4 h-4 inline mr-2" />
           Points ({recentFiles.points.length})
@@ -256,7 +256,7 @@ const RecentFiles = () => {
                     )}
                     <span className="font-semibold text-dark-50 truncate">{file.name}</span>
                   </div>
-                  
+
                   {/* Metadata */}
                   {file.metadata && (
                     <div className="text-xs text-dark-400 ml-6 space-y-0.5">
@@ -271,7 +271,7 @@ const RecentFiles = () => {
                       )}
                     </div>
                   )}
-                  
+
                   <div className="flex items-center gap-3 mt-2 ml-6">
                     <div className="flex items-center gap-1 text-xs text-dark-500">
                       <Clock className="w-3 h-3" />
@@ -280,14 +280,14 @@ const RecentFiles = () => {
                     <div className="text-xs text-dark-600 truncate">{file.path}</div>
                   </div>
                 </div>
-                
+
                 <div className="text-primary opacity-0 group-hover:opacity-100 transition-opacity">
                   →
                 </div>
               </div>
             </motion.div>
           ))}
-          
+
           {files.length > maxDisplay && (
             <div className="text-center text-sm text-dark-500 pt-2">
               ... and {files.length - maxDisplay} more

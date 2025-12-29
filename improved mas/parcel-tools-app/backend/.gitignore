@@ -1,0 +1,30 @@
+# Firebase credentials
+serviceAccountKey.json
+*firebase*adminsdk*.json
+.env
+firebase-config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Data files
+data/*.json
+!data/.gitkeep
+*.prcl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

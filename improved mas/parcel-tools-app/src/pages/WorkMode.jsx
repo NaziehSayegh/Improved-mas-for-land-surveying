@@ -3,17 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Settings, Save, RotateCcw } from 'lucide-react';
 import { getAiConfig, saveAiConfig } from '../utils/api';
+import { useToast } from '../context/ToastContext';
 
 const WorkMode = () => {
   const navigate = useNavigate();
+  const toast = useToast();
   const [settings, setSettings] = useState({
     coordinateSystem: 'utm',
     units: 'metric',
     precision: 2,
-    autoSave: true,
-    showGrid: true,
-    darkMode: true,
-    notifications: true,
   });
   const [aiModel, setAiModel] = useState('gpt-4o-mini');
   const [aiKey, setAiKey] = useState('');
@@ -36,7 +34,7 @@ const WorkMode = () => {
         const cfg = await getAiConfig();
         setAiHasKey(!!cfg.hasKey);
         if (cfg.model) setAiModel(cfg.model);
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -46,7 +44,7 @@ const WorkMode = () => {
 
   const handleSave = () => {
     // Save settings
-    alert('Settings saved successfully!');
+    toast.success('Settings saved successfully!');
   };
 
   const handleSaveAi = async () => {
@@ -54,13 +52,13 @@ const WorkMode = () => {
       const res = await saveAiConfig({ openai_api_key: aiKey || undefined, model: aiModel });
       if (res.success) {
         setAiHasKey(!!aiKey || aiHasKey);
-        alert('Assistant settings saved.');
+        toast.success('Assistant settings saved.');
         setAiKey('');
       } else {
-        alert('Failed to save assistant settings.');
+        toast.error('Failed to save assistant settings.');
       }
     } catch (e) {
-      alert('Error saving assistant settings.');
+      toast.error('Error saving assistant settings.');
     }
   };
 
@@ -69,10 +67,6 @@ const WorkMode = () => {
       coordinateSystem: 'utm',
       units: 'metric',
       precision: 2,
-      autoSave: true,
-      showGrid: true,
-      darkMode: true,
-      notifications: true,
     });
   };
 
@@ -171,11 +165,10 @@ const WorkMode = () => {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => handleChange('units', 'metric')}
-                  className={`p-4 rounded-lg border-2 transition-all ${
-                    settings.units === 'metric'
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-dark-600 bg-dark-800 text-dark-300 hover:border-dark-500'
-                  }`}
+                  className={`p-4 rounded-lg border-2 transition-all ${settings.units === 'metric'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-dark-600 bg-dark-800 text-dark-300 hover:border-dark-500'
+                    }`}
                 >
                   <div className="text-2xl mb-2">📏</div>
                   <div className="font-semibold">Metric</div>
@@ -183,11 +176,10 @@ const WorkMode = () => {
                 </button>
                 <button
                   onClick={() => handleChange('units', 'imperial')}
-                  className={`p-4 rounded-lg border-2 transition-all ${
-                    settings.units === 'imperial'
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-dark-600 bg-dark-800 text-dark-300 hover:border-dark-500'
-                  }`}
+                  className={`p-4 rounded-lg border-2 transition-all ${settings.units === 'imperial'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-dark-600 bg-dark-800 text-dark-300 hover:border-dark-500'
+                    }`}
                 >
                   <div className="text-2xl mb-2">📐</div>
                   <div className="font-semibold">Imperial</div>
@@ -216,40 +208,6 @@ const WorkMode = () => {
                 <span>6</span>
                 <span>8</span>
               </div>
-            </div>
-
-            {/* Toggle Options */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-dark-50 mb-4">Display Options</h3>
-              
-              {[
-                { key: 'autoSave', label: 'Auto-save changes', icon: '💾' },
-                { key: 'showGrid', label: 'Show grid lines', icon: '📊' },
-                { key: 'darkMode', label: 'Dark mode', icon: '🌙' },
-                { key: 'notifications', label: 'Enable notifications', icon: '🔔' },
-              ].map((option) => (
-                <div
-                  key={option.key}
-                  className="glass-effect rounded-lg p-4 flex items-center justify-between hover:border-primary/30 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{option.icon}</span>
-                    <span className="text-dark-50 font-medium">{option.label}</span>
-                  </div>
-                  <button
-                    onClick={() => handleChange(option.key, !settings[option.key])}
-                    className={`relative w-14 h-7 rounded-full transition-colors ${
-                      settings[option.key] ? 'bg-primary' : 'bg-dark-600'
-                    }`}
-                  >
-                    <motion.div
-                      className="absolute top-1 w-5 h-5 bg-white rounded-full shadow"
-                      animate={{ left: settings[option.key] ? '32px' : '4px' }}
-                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                    />
-                  </button>
-                </div>
-              ))}
             </div>
           </div>
 

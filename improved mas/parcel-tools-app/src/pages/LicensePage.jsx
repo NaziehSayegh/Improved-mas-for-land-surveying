@@ -10,8 +10,10 @@ import {
   Mail,
   Loader
 } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 export default function LicensePage() {
+  const toast = useToast();
   const [licenseStatus, setLicenseStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState(false);
@@ -100,7 +102,7 @@ export default function LicensePage() {
       // 2. Generate license key
       // 3. Email it to customer
 
-      alert(`🎉 Payment Successful!\n\nTransaction ID: ${transactionId}\nPayment Method: ${paymentMethod}\n\nYour license key will be emailed to:\n${customerEmail}\n\nPlease check your inbox (and spam folder).`);
+      toast.success(`🎉 Payment Successful! Transaction ID: ${transactionId}. Your license key will be emailed to ${customerEmail}. Please check your inbox (and spam folder).`);
     };
 
     // Common error handler
@@ -232,7 +234,7 @@ export default function LicensePage() {
   const handlePayPalPayment = () => {
     // PayPal payment will be embedded in the app
     setError('');
-    alert('PayPal payment will open below. After payment, you\'ll receive your license key via email.');
+    toast.info('PayPal payment will open below. After payment, you\'ll receive your license key via email.');
   };
 
   if (loading) {

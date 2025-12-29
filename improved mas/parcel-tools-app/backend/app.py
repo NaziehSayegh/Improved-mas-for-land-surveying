@@ -17,6 +17,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from license_manager import LicenseManager
+from firebase_service import FirebaseService
+from firebase_config import is_firebase_available
 
 # Some environments (like packaged Windows apps) don't have a writable console.
 # Printing in those cases raises "OSError: [Errno 22] Invalid argument" and can
@@ -75,6 +77,10 @@ RECENT_FILES_FILE = os.path.join(DATA_DIR, 'recent_files.json')
 
 # Initialize License Manager
 license_manager = LicenseManager(DATA_DIR)
+
+# Initialize Firebase Service
+firebase_service = FirebaseService(DATA_DIR)
+print(f'[Backend] Firebase available: {is_firebase_available()}')
 
 # Ensure data directories exist
 print(f'[Backend] Data directory: {DATA_DIR}')
@@ -203,6 +209,179 @@ def health_check():
     """Health check endpoint"""
     return jsonify({'status': 'ok', 'message': 'Parcel Tools API is running'})
 
+
+# ============================================================================
+# AUTHENTICATION ENDPOINTS
+# ============================================================================
+
+@app.route('/api/auth/signup', methods=['POST'])
+def auth_signup():
+    """
+    Create a new user account with email, password, and license key
+    Expected JSON: { "email": "user@example.com", "password": "password123", "licenseKey": "XXXX-XXXX-XXXX-XXXX" }
+    """
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        license_key = data.get('licenseKey', '').strip()
+        
+        print(f'[Auth] Signup attempt for: {email}')
+        
+        # Validate inputs
+        if not email or not password or not license_key:
+            return jsonify({'error': 'Email, password, and license key are required'}), 400
+        
+        # Validate license key first
+        if not license_manager.validate_license_key(license_key, email):
+            # Try Gumroad validation
+            gumroad_result = license_manager.verify_gumroad_key(license_key)
+            if not gumroad_result.get('valid'):
+                return jsonify({'error': 'Invalid license key'}), 400
+        
+        # Create user in Firebase
+        result = firebase_service.create_user(email, password, license_key)
+        
+        if result['success']:
+            # Save license information
+            license_data = {
+                'key': license_key,
+                'email': email,
+                'activated_date': datetime.now().isoformat(),
+                'type': 'paid'
+            }
+            firebase_service.save_license(result['user_id'], license_data)
+            
+            print(f'[Auth] User created successfully: {email}')
+            return jsonify({
+                'success': True,
+                'message': 'Account created successfully',
+                'userId': result['user_id']
+            })
+        else:
+            return jsonify({'error': result.get('error', 'Failed to create account')}), 400
+            
+    except Exception as e:
+        print(f'[Auth ERROR] Signup failed: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    """
+    Login with email and password
+    Expected JSON: { "email": "user@example.com", "password": "password123" }
+    """
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        
+        print(f'[Auth] Login attempt for: {email}')
+        
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        # Verify credentials
+        result = firebase_service.verify_user_credentials(email, password)
+        
+        if result['success']:
+            # Get user data
+            user_data = firebase_service.get_user(result['user_id'])
+            
+            # Track device activation
+            machine_id = license_manager.get_machine_id()
+            device_result = firebase_service.add_device(
+                result['user_id'], 
+                machine_id, 
+                "Windows PC"  # Could be made dynamic
+            )
+            
+            if not device_result.get('success'):
+                # Device limit reached
+                return jsonify({
+                    'error': device_result.get('error', 'Device limit reached'),
+                    'device_count': device_result.get('device_count', 0)
+                }), 403
+            
+            print(f'[Auth] Login successful: {email} (Device {device_result.get("device_count", 0)}/2)')
+            return jsonify({
+                'success': True,
+                'message': 'Login successful',
+                'userId': result['user_id'],
+                'email': email,
+                'licenseKey': user_data.get('license_key') if user_data else None,
+                'deviceCount': device_result.get('device_count', 0)
+            })
+        else:
+            return jsonify({'error': result.get('error', 'Invalid credentials')}), 401
+            
+    except Exception as e:
+        print(f'[Auth ERROR] Login failed: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/auth/verify', methods=['POST'])
+def auth_verify():
+    """
+    Verify user session
+    Expected JSON: { "userId": "user_id_here" }
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('userId')
+        
+        if not user_id:
+            return jsonify({'valid': False, 'error': 'User ID required'}), 400
+        
+        # Get user data
+        user_data = firebase_service.get_user(user_id)
+        
+        if user_data:
+            return jsonify({
+                'valid': True,
+                'email': user_data.get('email'),
+                'licenseKey': user_data.get('license_key')
+            })
+        else:
+            return jsonify({'valid': False, 'error': 'User not found'}), 404
+            
+    except Exception as e:
+        print(f'[Auth ERROR] Verification failed: {e}')
+        return jsonify({'valid': False, 'error': str(e)}), 500
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    """
+    Logout and deactivate device
+    Expected JSON: { "userId": "user_id_here" }
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('userId')
+        
+        print(f'[Auth] Logout request for user: {user_id}')
+        
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+        
+        # Get machine ID and remove device
+        machine_id = license_manager.get_machine_id()
+        result = firebase_service.remove_device(user_id, machine_id)
+        
+        if result.get('success'):
+            print(f'[Auth] Device deactivated for user: {user_id}')
+            return jsonify({
+                'success': True,
+                'message': 'Logged out successfully'
+            })
+        else:
+            return jsonify({'error': result.get('error', 'Logout failed')}), 500
+            
+    except Exception as e:
+        print(f'[Auth ERROR] Logout failed: {e}')
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calculate-area', methods=['POST'])
 def calculate_area():
@@ -1465,8 +1644,18 @@ def ai_ask():
 @app.route('/api/ai/config', methods=['GET', 'POST'])
 def ai_config():
     try:
+        # Get user ID from query params or headers
+        user_id = request.args.get('userId') or request.headers.get('X-User-ID')
+        
         if request.method == 'GET':
-            cfg = load_ai_config()
+            if user_id:
+                # Get from Firebase
+                print(f'[AI Config] Getting from Firebase for user: {user_id}')
+                cfg = firebase_service.get_ai_config(user_id)
+            else:
+                # Fallback to local
+                cfg = load_ai_config()
+            
             safe_cfg = {
                 'hasKey': bool(cfg.get('openai_api_key') or os.environ.get('OPENAI_API_KEY')),
                 'model': cfg.get('model', 'gpt-4o-mini')
@@ -1474,14 +1663,31 @@ def ai_config():
             return jsonify(safe_cfg)
         else:
             data = request.get_json() or {}
-            cfg = load_ai_config()
+            
+            if user_id:
+                # Get from Firebase
+                cfg = firebase_service.get_ai_config(user_id)
+            else:
+                # Get from local
+                cfg = load_ai_config()
+            
             if 'openai_api_key' in data and data['openai_api_key']:
                 cfg['openai_api_key'] = data['openai_api_key']
             if 'model' in data and data['model']:
                 cfg['model'] = data['model']
-            ok = save_ai_config(cfg)
+            
+            if user_id:
+                # Save to Firebase
+                print(f'[AI Config] Saving to Firebase for user: {user_id}')
+                result = firebase_service.save_ai_config(user_id, cfg)
+                ok = result.get('success', False)
+            else:
+                # Save to local
+                ok = save_ai_config(cfg)
+            
             return jsonify({ 'success': ok })
     except Exception as e:
+        print(f'[AI Config ERROR] {e}')
         return jsonify({ 'success': False, 'error': str(e) }), 500
 
 
@@ -1489,7 +1695,17 @@ def ai_config():
 def get_recent_files():
     """Get recent files history - with automatic cleanup of deleted files"""
     try:
-        recent = load_recent_files()
+        # Get user ID from query params or headers
+        user_id = request.args.get('userId') or request.headers.get('X-User-ID')
+        
+        if user_id:
+            # Try Firebase first
+            print(f'[Recent Files] Getting from Firebase for user: {user_id}')
+            recent = firebase_service.get_recent_files(user_id)
+        else:
+            # Fallback to local JSON
+            print('[Recent Files] No user ID, using local storage')
+            recent = load_recent_files()
         
         # Clean up deleted files from recent files
         cleaned_projects = []
@@ -1516,10 +1732,14 @@ def get_recent_files():
         if needs_save:
             recent['projects'] = cleaned_projects
             recent['points'] = cleaned_points
-            save_recent_files(recent)
+            if user_id:
+                firebase_service.save_recent_files(user_id, recent)
+            else:
+                save_recent_files(recent)
         
         return jsonify(recent)
     except Exception as e:
+        print(f'[Recent Files ERROR] {e}')
         return jsonify({'error': str(e)}), 500
 
 
@@ -1532,6 +1752,7 @@ def add_recent_file():
         file_path = data.get('path', '')
         file_name = data.get('name', '')
         metadata = data.get('metadata', {})
+        user_id = data.get('userId')  # Optional user ID
         
         if not file_type or not file_path or not file_name:
             return jsonify({'error': 'Missing required fields: type, path, name'}), 400
@@ -1539,9 +1760,34 @@ def add_recent_file():
         if file_type not in ['projects', 'points']:
             return jsonify({'error': 'Type must be "projects" or "points"'}), 400
         
-        add_to_recent_files(file_type, file_path, file_name, metadata)
+        if user_id:
+            # Sync to Firebase
+            print(f'[Recent Files] Syncing to Firebase for user: {user_id}')
+            recent = firebase_service.get_recent_files(user_id)
+            file_list = recent.get(file_type, [])
+            
+            # Remove if already exists
+            file_list = [f for f in file_list if f.get('path') != file_path]
+            
+            # Add to beginning
+            file_entry = {
+                'path': file_path,
+                'name': file_name,
+                'lastAccessed': datetime.now().isoformat(),
+                'metadata': metadata
+            }
+            file_list.insert(0, file_entry)
+            file_list = file_list[:50]  # Keep last 50
+            
+            recent[file_type] = file_list
+            firebase_service.save_recent_files(user_id, recent)
+        else:
+            # Use local storage
+            add_to_recent_files(file_type, file_path, file_name, metadata)
+        
         return jsonify({'success': True})
     except Exception as e:
+        print(f'[Recent Files ERROR] {e}')
         return jsonify({'error': str(e)}), 500
 
 
