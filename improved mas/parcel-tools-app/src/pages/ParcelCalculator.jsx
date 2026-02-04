@@ -60,6 +60,7 @@ const ParcelCalculator = () => {
   const [curveM, setCurveM] = useState('');
   const [curveSign, setCurveSign] = useState('+');
   const [liveAreaWithCurves, setLiveAreaWithCurves] = useState(null);
+  const [editingCurveIndex, setEditingCurveIndex] = useState(null); // Index of curve being edited
 
   // Editing saved parcel state
   const [editingParcelId, setEditingParcelId] = useState(null); // ID of parcel being edited
@@ -575,6 +576,12 @@ const ParcelCalculator = () => {
       return;
     }
 
+    // If editing, update instead
+    if (editingCurveIndex !== null) {
+      handleUpdateCurve();
+      return;
+    }
+
     const newCurve = {
       from: curveFrom,
       to: curveTo,
@@ -586,6 +593,79 @@ const ParcelCalculator = () => {
     setCurveFrom('');
     setCurveTo('');
     setCurveM('');
+
+    // Auto-focus back to "From" for rapid entry
+    setTimeout(() => {
+      const fromInput = document.getElementById('curve-from');
+      if (fromInput) fromInput.focus();
+    }, 50);
+  };
+
+  // Start editing a curve
+  const handleStartEditCurve = (index) => {
+    const curve = curves[index];
+    setCurveFrom(curve.from);
+    setCurveTo(curve.to);
+    setCurveM(curve.M.toString());
+    setCurveSign(curve.sign === 1 ? '+' : '-');
+    setEditingCurveIndex(index);
+
+    // Focus "From" input
+    setTimeout(() => {
+      const fromInput = document.getElementById('curve-from');
+      if (fromInput) {
+        fromInput.focus();
+        fromInput.select();
+      }
+    }, 50);
+  };
+
+  // Update existing curve
+  const handleUpdateCurve = () => {
+    if (editingCurveIndex === null) return;
+
+    if (!curveFrom || !curveTo || !curveM) {
+      showErrorToast('Fill all curve fields!');
+      return;
+    }
+
+    const updatedCurves = [...curves];
+    updatedCurves[editingCurveIndex] = {
+      from: curveFrom,
+      to: curveTo,
+      M: parseFloat(curveM),
+      sign: curveSign === '+' ? 1 : -1
+    };
+
+    setCurves(updatedCurves);
+    handleCancelEdit(); // Reset form
+    showSuccessToast('✅ Curve updated');
+  };
+
+  // Cancel edit
+  const handleCancelEdit = () => {
+    setEditingCurveIndex(null);
+    setCurveFrom('');
+    setCurveTo('');
+    setCurveM('');
+    setCurveSign('+');
+  };
+
+  // Handle Enter key navigation
+  const handleCurveInputKeyDown = (e, nextFieldId) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (nextFieldId) {
+        const nextInput = document.getElementById(nextFieldId);
+        if (nextInput) {
+          nextInput.focus();
+          if (nextInput.select) nextInput.select();
+        }
+      } else {
+        // If no next field, it means we are submitting (M input)
+        handleAddCurve();
+      }
+    }
   };
 
   const handleSkipCurves = async () => {
@@ -2484,9 +2564,11 @@ const ParcelCalculator = () => {
                 <div>
                   <label className="block text-dark-300 text-sm mb-2">From Point ID:</label>
                   <input
+                    id="curve-from"
                     type="text"
                     value={curveFrom}
                     onChange={(e) => setCurveFrom(e.target.value)}
+                    onKeyDown={(e) => handleCurveInputKeyDown(e, 'curve-to')}
                     onFocus={(e) => e.target.select()}
                     className="input-field w-full"
                     placeholder="e.g. 1"
@@ -2499,9 +2581,11 @@ const ParcelCalculator = () => {
                 <div>
                   <label className="block text-dark-300 text-sm mb-2">To Point ID:</label>
                   <input
+                    id="curve-to"
                     type="text"
                     value={curveTo}
                     onChange={(e) => setCurveTo(e.target.value)}
+                    onKeyDown={(e) => handleCurveInputKeyDown(e, 'curve-m')}
                     onFocus={(e) => e.target.select()}
                     className="input-field w-full"
                     placeholder="e.g. 2"
@@ -2516,17 +2600,12 @@ const ParcelCalculator = () => {
                 <div>
                   <label className="block text-dark-300 text-sm mb-2">Middle Ordinate (M):</label>
                   <input
+                    id="curve-m"
                     type="number"
                     step="0.01"
                     value={curveM}
                     onChange={(e) => setCurveM(e.target.value)}
-                    onKeyDown={(e) => {
-                      // Allow all number input keys
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddCurve();
-                      }
-                    }}
+                    onKeyDown={(e) => handleCurveInputKeyDown(e)}
                     onFocus={(e) => e.target.select()}
                     className="input-field w-full"
                     placeholder="0.00"
@@ -2549,9 +2628,16 @@ const ParcelCalculator = () => {
                   </select>
                 </div>
               </div>
-              <button onClick={handleAddCurve} className="btn-primary w-full">
-                ➕ Add Curve
-              </button>
+              <div className="flex gap-2">
+                {editingCurveIndex !== null && (
+                  <button onClick={handleCancelEdit} className="btn-secondary w-1/3 border-danger/50 text-danger hover:bg-danger/20">
+                    ✖ Cancel
+                  </button>
+                )}
+                <button onClick={handleAddCurve} className={`btn-primary w-full ${editingCurveIndex !== null ? 'bg-warning border-warning text-dark-900 hover:bg-warning/90' : ''}`}>
+                  {editingCurveIndex !== null ? '🖊️ Update Curve' : '➕ Add Curve'}
+                </button>
+              </div>
             </div>
 
             {/* List of added curves */}
@@ -2564,12 +2650,22 @@ const ParcelCalculator = () => {
                       <span className={curve.sign === 1 ? 'text-success' : 'text-danger'}>
                         {curve.from} → {curve.to}: M = {curve.M} <strong>{curve.sign === 1 ? '(+Add Area)' : '(−Subtract Area)'}</strong>
                       </span>
-                      <button
-                        onClick={() => setCurves(curves.filter((_, i) => i !== index))}
-                        className="text-danger hover:text-danger-light"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleStartEditCurve(index)}
+                          className="text-warning hover:text-warning-light"
+                          title="Edit Curve"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setCurves(curves.filter((_, i) => i !== index))}
+                          className="text-danger hover:text-danger-light"
+                          title="Delete Curve"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

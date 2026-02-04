@@ -50,11 +50,11 @@ def initialize_firebase():
         
         # Initialize Firestore
         db = firestore.client()
-        print("[Firebase] ✅ Firebase initialized successfully!")
+        print("[Firebase] Firebase initialized successfully!")
         return db
         
     except Exception as e:
-        print(f"[Firebase] ❌ Failed to initialize Firebase: {e}")
+        print(f"[Firebase] Failed to initialize Firebase: {e}")
         print("[Firebase] App will run in offline mode with JSON fallback")
         return None
 

@@ -56,6 +56,54 @@ print = safe_print  # noqa: A001
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Electron frontend
 
+# ----------------------------------------------------------------------------
+# DEBUG LOGGING SETUP
+# ----------------------------------------------------------------------------
+log_file = os.path.join(os.path.expanduser('~'), 'parcel_tools_backend_debug.log')
+try:
+    # Open log file in append mode
+    log_f = open(log_file, 'w', encoding='utf-8', buffering=1)
+    
+    def log_message(msg):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        formatted = f"[{timestamp}] {msg}\n"
+        try:
+            log_f.write(formatted)
+            log_f.flush()
+        except:
+            pass
+        # Also print to original stdout/stderr for dev console
+        try:
+            _original_print(msg)
+        except:
+            pass
+
+    # Redirect print
+    builtins.print = log_message
+    
+    # Redirect stderr
+    class LoggerWriter:
+        def __init__(self, writer):
+            self.writer = writer
+        def write(self, message):
+            if message.strip():
+                log_message(f"[STDERR] {message.strip()}")
+        def flush(self):
+            pass
+            
+    sys.stderr = LoggerWriter(sys.stderr)
+    
+    print("========== BACKEND STARTING ==========")
+    print(f"Executable: {sys.executable}")
+    print(f"CWD: {os.getcwd()}")
+    print(f"Python Version: {sys.version}")
+    
+except Exception as e:
+    _original_print(f"Failed to setup file logging: {e}")
+
+# ----------------------------------------------------------------------------
+
+
 # Data storage paths
 # In packaged app, use user's AppData folder instead of app directory (which might be read-only)
 if os.environ.get('PORTABLE_EXECUTABLE_DIR'):
@@ -450,7 +498,7 @@ def calculate_area():
                         curve_adjustments.append({
                             'C': C,
                             'R': R,
-                            'F': seg_area / (C * C) if C > 0 else 0,
+                            'F': M,
                             'segmentArea': seg_area,
                             'adjustment': adjustment
                         })
@@ -1389,7 +1437,8 @@ def export_pdf():
                         seg_area = 0.5 * R * R * (theta - math.sin(theta)) if R > 0 else 0
                         
                         # F value (sagitta factor)
-                        F = seg_area / (C * C) if C > 0 else 0
+                        # F value (sagitta factor)
+                        F = M
                         
                         sign_symbol = "(+)" if sign == 1 else "(-)"
                         

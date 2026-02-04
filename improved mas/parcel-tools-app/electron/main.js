@@ -12,8 +12,32 @@ const { autoUpdater } = require('electron-updater');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ----------------------------------------------------------------------------
+// DEBUG LOGGING SETUP
+// ----------------------------------------------------------------------------
+const logPath = path.join(app.getPath('home'), 'parcel_tools_frontend_debug.log');
+const logStream = fs.createWriteStream(logPath, { flags: 'w' });
+
+function log(msg) {
+  const timestamp = new Date().toISOString();
+  const formatted = `[${timestamp}] ${msg}\n`;
+  try {
+    logStream.write(formatted);
+    console.log(msg);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+log('========== ELECTRON MAIN STARTING ==========');
+log(`Node: ${process.version}`);
+log(`Electron: ${process.versions.electron}`);
+log(`App Path: ${app.getAppPath()}`);
+log(`Is Packaged: ${app.isPackaged}`);
+
 let mainWindow;
 let pythonProcess;
+
 
 function getBackendRoot() {
   if (app.isPackaged) {
@@ -68,15 +92,24 @@ function startPythonBackend() {
     windowsHide: true
   });
 
+  log(`[Backend] Spawned python process with PID: ${pythonProcess.pid}`);
+
   pythonProcess.stdout.on('data', (data) => {
-    console.log(`[Python] ${data}`.trim());
+    const msg = `[Python] ${data}`.trim();
+    // console.log(msg); // Don't log all stdout to file to avoid noise, unless needed
+    if (msg.includes('ERROR') || msg.includes('Exception') || msg.includes('Traceback')) {
+      log(msg);
+    }
   });
 
   pythonProcess.stderr.on('data', (data) => {
-    console.error(`[Python Error] ${data}`.trim());
+    const msg = `[Python Error] ${data}`.trim();
+    console.error(msg);
+    log(msg);
   });
 
   pythonProcess.on('error', (error) => {
+    log(`[Backend] Failed to start Python process: ${error.message}`);
     console.error('[Backend] Failed to start Python process:', error);
     dialog.showErrorBox(
       'Parcel Tools Backend Error',
@@ -86,6 +119,7 @@ function startPythonBackend() {
   });
 
   pythonProcess.on('exit', (code, signal) => {
+    log(`[Backend] Python process exited (code: ${code}, signal: ${signal})`);
     console.warn(`[Backend] Python process exited (code: ${code}, signal: ${signal})`);
   });
 }
