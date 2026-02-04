@@ -619,6 +619,97 @@ def calculate_area_error():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/calculate-batch-areas', methods=['POST'])
+def calculate_batch_areas():
+    """
+    Calculate area for multiple parcels in one request.
+    Expected JSON: {
+        "parcels": [{ "id": "uuid", "ids": ["1", "2", "3", "1"], "curves": [...] }],
+        "points": { "1": {"x": 0, "y": 0}, ... }
+    }
+    """
+    try:
+        data = request.get_json()
+        parcels = data.get('parcels', [])
+        points_map = data.get('points', {})
+        
+        results = []
+        
+        for parcel in parcels:
+            point_ids = parcel.get('ids', [])
+            curves = parcel.get('curves', [])
+            
+            # Prepare points for this parcel
+            parcel_points = []
+            for pid in point_ids:
+                if str(pid) in points_map:
+                    parcel_points.append(points_map[str(pid)])
+                else:
+                    # Point not found, use default or skip
+                    parcel_points.append({'x': 0, 'y': 0})
+            
+            # Calculate area (logic duplicated from calculate_area for speed/independence)
+            area = 0.0
+            perimeter = 0.0
+            
+            if len(parcel_points) >= 3:
+                # Shoelace formula
+                n = len(parcel_points)
+                sum1 = 0.0
+                sum2 = 0.0
+                
+                for i in range(n - 1):
+                    sum1 += parcel_points[i]['x'] * parcel_points[i+1]['y']
+                    sum2 += parcel_points[i]['y'] * parcel_points[i+1]['x']
+                
+                # Close the loop if last point != first point (though logic assumes closed)
+                # If the IDs list closes itself (1,2,3,4,1), the loop above handles it if n includes the last point
+                # The frontend sends closed loops (first ID repeated).
+                
+                area = 0.5 * abs(sum1 - sum2)
+                
+                # Perimeter
+                for i in range(n - 1):
+                    dx = parcel_points[i+1]['x'] - parcel_points[i]['x']
+                    dy = parcel_points[i+1]['y'] - parcel_points[i]['y']
+                    perimeter += math.sqrt(dx*dx + dy*dy)
+            
+            # Apply curves
+            for curve in curves:
+                try:
+                    m = float(curve.get('M', 0))
+                    sign = 1 if curve.get('sign', 1) == 1 else -1
+                    from_id = str(curve.get('from'))
+                    to_id = str(curve.get('to'))
+                    
+                    if from_id in points_map and to_id in points_map:
+                        p1 = points_map[from_id]
+                        p2 = points_map[to_id]
+                        
+                        dx = p2['x'] - p1['x']
+                        dy = p2['y'] - p1['y']
+                        chord = math.sqrt(dx*dx + dy*dy)
+                        
+                        if m > 0 and chord > 0:
+                            R = (chord**2)/(8*m) + (m/2)
+                            theta = 2 * math.asin(min(1.0, chord/(2*R)))
+                            segment_area = 0.5 * R**2 * (theta - math.sin(theta))
+                            area += sign * segment_area
+                except Exception:
+                    pass # Ignore curve errors in batch
+            
+            results.append({
+                'id': parcel.get('id'),
+                'area': area,
+                'perimeter': perimeter
+            })
+            
+        return jsonify({'results': results})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/project/save', methods=['POST'])
 def save_project_file():
     """Save complete project state to file - REQUIRES user-selected filePath"""
@@ -1266,7 +1357,8 @@ def export_pdf():
         parcels = data.get('parcels', [])
         points_by_id = data.get('points', {})
         file_heading = data.get('fileHeading', {})
-        error_results = data.get('errorResults', None)  # Error calculation results
+        error_results = data.get('errorResults', None)  # Current/Unsaved calculation
+        saved_error_calculations = data.get('savedErrorCalculations', []) # List of saved calculations
         
         # Create PDF in memory
         buffer = io.BytesIO()
@@ -1471,108 +1563,163 @@ def export_pdf():
             c.drawString(40, y_position, f"AREA = {area:.3f}")
             y_position -= 30
         
-        # Add Error Calculations section if available
-        if error_results and error_results.get('parcelResults'):
-            # Check if we need a new page
-            if y_position < 200:
-                # Add page number before new page
+        
+        # Combine all error calculations to print
+        # Prefer saved calculations, but include current if provided and list is empty, 
+        # or just append current if it's not saved?
+        # Let's simple combine them.
+        all_calculations = []
+        if saved_error_calculations:
+            all_calculations.extend(saved_error_calculations)
+        
+        # Check if current error_results should be added (if not already in saved by ID logic? 
+        # Current result usually doesn't have ID unless saved... logic is loose)
+        # For now, if we have saved calculations, we assume the user manages what they want via "Save".
+        # If saved list is empty, we fall back to showing the current one (legacy behavior).
+        if not all_calculations and error_results:
+            all_calculations.append(error_results)
+            
+        # If we have any calculations to show
+        if all_calculations:
+            
+            # Start on a new page if we are near the bottom
+            if y_position < 100:
                 c.setFont("Courier-Bold", 10)
                 page_text = f"Page {page_count}"
                 text_width = c.stringWidth(page_text, "Courier-Bold", 10)
                 c.drawString((width - text_width) / 2, 50, page_text)
-                
                 c.showPage()
                 page_count += 1
                 y_position = height - 40
+            else:
+                 y_position -= 20
             
-            y_position -= 20
-            
-            # Error Calculations Header
-            c.setFont("Courier-Bold", 12)
-            c.drawString(40, y_position, "=" * 60)
-            y_position -= 20
-            c.drawString(40, y_position, "ERROR CALCULATIONS")
-            y_position -= 15
-            c.drawString(40, y_position, "=" * 60)
+            # Main Header for Error Section
+            c.setFont("Courier-Bold", 14)
+            c.drawString(40, y_position, "ERROR CALCULATIONS REPORT")
             y_position -= 25
             
-            # Overall Summary
-            c.setFont("Courier-Bold", 10)
-            c.drawString(40, y_position, "OVERALL CALCULATION SUMMARY:")
-            y_position -= 20
-            
-            c.setFont("Courier", 9)
-            c.drawString(40, y_position, f"Total Registered Area:    {error_results['totalRegisteredArea']:.4f} m²")
-            y_position -= 15
-            c.drawString(40, y_position, f"Total Calculated Area:    {error_results['totalCalculatedArea']:.4f} m²")
-            y_position -= 15
-            c.drawString(40, y_position, f"Absolute Difference:      {error_results['absoluteDifference']:.4f} m²")
-            y_position -= 15
-            c.drawString(40, y_position, f"Permissible Error:        {error_results['permissibleError']:.4f} m²")
-            y_position -= 20
-            
-            # Formula
-            c.setFont("Courier", 8)
-            formula_text = f"Formula: Permissible Error = 0.8 × √({error_results['totalRegisteredArea']:.2f}) + 0.002 × {error_results['totalRegisteredArea']:.2f}"
-            c.drawString(40, y_position, formula_text)
-            y_position -= 20
-            
-            # Status
-            c.setFont("Courier-Bold", 10)
-            if error_results['exceedsLimit']:
-                c.drawString(40, y_position, "WARNING: ERROR EXCEEDS PERMISSIBLE LIMITS - Using original calculated areas")
-            else:
-                c.drawString(40, y_position, "OK: WITHIN PERMISSIBLE LIMITS - Areas adjusted proportionally")
-            y_position -= 30
-            
-            # Parcel Results Table Header
-            c.setFont("Courier-Bold", 10)
-            c.drawString(40, y_position, "PARCEL RESULTS:")
-            y_position -= 20
-            
-            # Table header
-            c.setFont("Courier", 8)
-            header_line = f"{'Parcel #':<12} {'Original (m²)':>15} {'Adjusted (m²)':>15} {'Rounded (m²)':>15} {'Points':>8}"
-            c.drawString(40, y_position, header_line)
-            y_position -= 12
-            
-            sep_line = f"{'-'*12:<12} {'-'*15:>15} {'-'*15:>15} {'-'*15:>15} {'-'*8:>8}"
-            c.drawString(40, y_position, sep_line)
-            y_position -= 15
-            
-            # Parcel rows
-            c.setFont("Courier", 8)
-            for parcel_result in error_results['parcelResults']:
-                if y_position < 60:
+            for index, calc in enumerate(all_calculations):
+                # Check for space for header
+                if y_position < 150:
+                    c.setFont("Courier-Bold", 10)
+                    page_text = f"Page {page_count}"
+                    text_width = c.stringWidth(page_text, "Courier-Bold", 10)
+                    c.drawString((width - text_width) / 2, 50, page_text)
                     c.showPage()
+                    page_count += 1
                     y_position = height - 40
-                    c.setFont("Courier", 8)
                 
-                parcel_num = str(parcel_result['parcelNumber'])
-                original = parcel_result['calculatedArea']
-                adjusted = parcel_result['adjustedArea']
-                rounded = parcel_result['roundedArea']
-                points = parcel_result['pointCount']
+                # Calculation Header
+                name = calc.get('name', f'Calculation #{index + 1}')
+                timestamp = calc.get('timestamp', '')
+                if timestamp:
+                    try:
+                        # Simple format cleanup if it's ISO
+                        date_part = timestamp.split('T')[0]
+                        time_part = timestamp.split('T')[1][:8]
+                        timestamp = f"{date_part} {time_part}"
+                    except:
+                        pass
                 
-                row_line = f"{parcel_num:<12} {original:>15.4f} {adjusted:>15.4f} {rounded:>15} {points:>8}"
-                c.drawString(40, y_position, row_line)
+                c.setFont("Courier-Bold", 12)
+                c.drawString(40, y_position, "=" * 60)
+                y_position -= 15
+                c.drawString(40, y_position, f"{name}  {timestamp}")
+                y_position -= 15
+                c.drawString(40, y_position, "=" * 60)
+                y_position -= 25
+                
+                # Overall Summary
+                c.setFont("Courier-Bold", 10)
+                c.drawString(40, y_position, "SUMMARY:")
+                y_position -= 20
+                
+                c.setFont("Courier", 9)
+                c.drawString(40, y_position, f"Total Registered Area:    {calc['totalRegisteredArea']:.4f} m²")
+                y_position -= 15
+                c.drawString(40, y_position, f"Total Calculated Area:    {calc['totalCalculatedArea']:.4f} m²")
+                y_position -= 15
+                c.drawString(40, y_position, f"Absolute Difference:      {calc['absoluteDifference']:.4f} m²")
+                y_position -= 15
+                c.drawString(40, y_position, f"Permissible Error:        {calc['permissibleError']:.4f} m²")
+                y_position -= 20
+                
+                # Formula
+                c.setFont("Courier", 8)
+                formula_text = f"Formula: Permissible Error = 0.8 * sqrt({calc['totalRegisteredArea']:.2f}) + 0.002 * {calc['totalRegisteredArea']:.2f}"
+                c.drawString(40, y_position, formula_text)
+                y_position -= 20
+                
+                # Status
+                c.setFont("Courier-Bold", 10)
+                if calc['exceedsLimit']:
+                    c.drawString(40, y_position, "WARNING: ERROR EXCEEDS PERMISSIBLE LIMITS - Using original areas")
+                else:
+                    c.drawString(40, y_position, "OK: WITHIN PERMISSIBLE LIMITS - Areas adjusted proportionally")
+                y_position -= 30
+                
+                # Parcel Results Table Header
+                c.setFont("Courier-Bold", 10)
+                c.drawString(40, y_position, "PARCEL BREAKDOWN:")
+                y_position -= 20
+                
+                # Table header
+                c.setFont("Courier", 8)
+                header_line = f"{'Parcel #':<12} {'Original (m²)':>15} {'Adjusted (m²)':>15} {'Rounded (m²)':>15} {'Points':>8}"
+                c.drawString(40, y_position, header_line)
                 y_position -= 12
-            
-            # Total row
-            if y_position < 60:
-                c.showPage()
-                y_position = height - 40
-            
-            y_position -= 5
-            c.setFont("Courier-Bold", 8)
-            total_original = sum(p['calculatedArea'] for p in error_results['parcelResults'])
-            total_adjusted = sum(p['adjustedArea'] for p in error_results['parcelResults'])
-            total_rounded = sum(p['roundedArea'] for p in error_results['parcelResults'])
-            total_points = sum(p['pointCount'] for p in error_results['parcelResults'])
-            
-            total_line = f"{'TOTAL:':<12} {total_original:>15.4f} {total_adjusted:>15.4f} {total_rounded:>15} {total_points:>8}"
-            c.drawString(40, y_position, total_line)
-            y_position -= 20
+                
+                sep_line = f"{'-'*12:<12} {'-'*15:>15} {'-'*15:>15} {'-'*15:>15} {'-'*8:>8}"
+                c.drawString(40, y_position, sep_line)
+                y_position -= 15
+                
+                # Parcel rows
+                c.setFont("Courier", 8)
+                for parcel_result in calc['parcelResults']:
+                    if y_position < 60:
+                        # FIX: Draw page number before new page
+                        c.setFont("Courier-Bold", 10)
+                        page_text = f"Page {page_count}"
+                        text_width = c.stringWidth(page_text, "Courier-Bold", 10)
+                        c.drawString((width - text_width) / 2, 50, page_text)
+                        
+                        c.showPage()
+                        page_count += 1
+                        y_position = height - 40
+                        c.setFont("Courier", 8)
+                    
+                    parcel_num = str(parcel_result['parcelNumber'])
+                    original = parcel_result['calculatedArea']
+                    adjusted = parcel_result['adjustedArea']
+                    rounded = parcel_result['roundedArea']
+                    points = parcel_result['pointCount']
+                    
+                    row_line = f"{parcel_num:<12} {original:>15.4f} {adjusted:>15.4f} {rounded:>15} {points:>8}"
+                    c.drawString(40, y_position, row_line)
+                    y_position -= 12
+                
+                # Total row
+                if y_position < 60:
+                    c.setFont("Courier-Bold", 10)
+                    page_text = f"Page {page_count}"
+                    text_width = c.stringWidth(page_text, "Courier-Bold", 10)
+                    c.drawString((width - text_width) / 2, 50, page_text)
+                    
+                    c.showPage()
+                    page_count += 1
+                    y_position = height - 40
+                
+                y_position -= 5
+                c.setFont("Courier-Bold", 8)
+                total_original = sum(p['calculatedArea'] for p in calc['parcelResults'])
+                total_adjusted = sum(p['adjustedArea'] for p in calc['parcelResults'])
+                total_rounded = sum(p['roundedArea'] for p in calc['parcelResults'])
+                total_points = sum(p['pointCount'] for p in calc['parcelResults'])
+                
+                total_line = f"{'TOTAL:':<12} {total_original:>15.4f} {total_adjusted:>15.4f} {total_rounded:>15} {total_points:>8}"
+                c.drawString(40, y_position, total_line)
+                y_position -= 40 # Space between calculations
         
         # Add final page number
         c.setFont("Courier-Bold", 10)

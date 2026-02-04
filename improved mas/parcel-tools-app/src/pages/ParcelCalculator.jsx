@@ -26,7 +26,9 @@ const ParcelCalculator = () => {
     setHasUnsavedChanges,
     isWatchingFile,
     fileHeading,
-    setFileHeading
+    setFileHeading,
+    savedErrorCalculations,
+    setSavedErrorCalculations
   } = useProject();
 
   // Store the last saved file path locally
@@ -1263,6 +1265,7 @@ const ParcelCalculator = () => {
         enteredIds: enteredIds || [],
         curves: curves || []
       },
+      savedErrorCalculations: savedErrorCalculations || [],
       savedAt: new Date().toISOString(),
       // Add metadata to indicate if project is empty
       isEmpty: !savedParcels || savedParcels.length === 0,
@@ -1580,6 +1583,7 @@ const ParcelCalculator = () => {
         setFileHeading({
           block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
         });
+        setSavedErrorCalculations([]);
         setParcelNumber('');
         setEnteredIds([]);
         setArea(null);
@@ -1601,6 +1605,7 @@ const ParcelCalculator = () => {
         setFileHeading(projectData.fileHeading || {
           block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
         });
+        setSavedErrorCalculations(projectData.savedErrorCalculations || []);
 
         // Load current parcel state if it exists
         if (projectData.currentParcel) {
@@ -1653,6 +1658,7 @@ const ParcelCalculator = () => {
     setFileHeading({
       block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
     });
+    setSavedErrorCalculations([]);
     setProjectPath('');
     setLastSavedPath(null);
 
@@ -1741,6 +1747,7 @@ const ParcelCalculator = () => {
     setFileHeading({
       block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
     });
+    setSavedErrorCalculations([]);
     setHasUnsavedChanges(false);
     setLastSavedPath(null);
     setProjectPath('');
@@ -1983,6 +1990,7 @@ const ParcelCalculator = () => {
       parcelResults: parcelResults
     });
 
+
     const toast = document.createElement('div');
     const statusText = exceedsLimit
       ? '⚠️ Error exceeds permissible limits - using original areas'
@@ -2011,6 +2019,50 @@ const ParcelCalculator = () => {
       toast.style.animation = 'slideOut 0.3s ease-out';
       setTimeout(() => toast.remove(), 300);
     }, 4000);
+  };
+
+  // Save current error calculation
+  const handleSaveErrorCalculation = () => {
+    if (!errorResults) return;
+
+    const newCalculation = {
+      id: Date.now().toString(),
+      timestamp: new Date().toISOString(),
+      name: `Calculation #${savedErrorCalculations.length + 1}`,
+      ...errorResults
+    };
+
+    setSavedErrorCalculations([...savedErrorCalculations, newCalculation]);
+    setHasUnsavedChanges(true);
+
+    // Create toast manually to avoid dependencies
+    const toast = document.createElement('div');
+    toast.innerHTML = `✅ Error calculation saved!`;
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #238636;
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      font-weight: bold;
+      z-index: 10000;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.remove();
+    }, 3000);
+  };
+
+  // Delete saved error calculation
+  const handleDeleteErrorCalculation = (id) => {
+    if (confirm('Are you sure you want to delete this saved calculation?')) {
+      const updatedCalculations = savedErrorCalculations.filter(c => c.id !== id);
+      setSavedErrorCalculations(updatedCalculations);
+      setHasUnsavedChanges(true);
+    }
   };
 
   // Toggle parcel selection for error calculations
@@ -2192,7 +2244,8 @@ const ParcelCalculator = () => {
           parcels: savedParcels,
           points: loadedPoints,
           fileHeading: fileHeading,
-          errorResults: errorResults  // Include error calculations if available
+          errorResults: errorResults,  // Keeping this for backward compatibility or current view
+          savedErrorCalculations: savedErrorCalculations // Sending all saved calculations
         }),
       });
 
@@ -3122,148 +3175,16 @@ const ParcelCalculator = () => {
               Showing one parcel per number. Check "All Parcels" tab to see duplicates.
             </p>
 
-            {savedParcels.length === 0 ? (
-              <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>
-            ) : (() => {
-              // Get unique parcels (first occurrence of each parcel number)
-              const seen = new Set();
-              const uniqueParcels = savedParcels.filter(parcel => {
-                const key = parcel.number.trim().toLowerCase();
-                if (seen.has(key)) {
-                  return false;
-                }
-                seen.add(key);
-                return true;
-              });
-
-              if (uniqueParcels.length === 0) {
-                return <p className="text-dark-400 text-center py-12">No unique parcels found.</p>;
-              }
-
-              return (
-                <div className="space-y-3">
-                  {uniqueParcels.map((parcel) => {
-                    // Count how many duplicates exist for this parcel number
-                    const duplicateCount = savedParcels.filter(p =>
-                      p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
-                    ).length;
-
-                    return (
-                      <div
-                        key={parcel.id}
-                        className="glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group"
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex-1">
-                            <h3 className="text-lg font-bold text-primary mb-2">
-                              Parcel #{parcel.number}
-                              {duplicateCount > 1 && (
-                                <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
-                                  📋 {duplicateCount} version(s)
-                                </span>
-                              )}
-                              {parcel.curves && parcel.curves.length > 0 && (
-                                <span className="ml-2 text-xs px-2 py-1 bg-warning/20 border border-warning rounded text-warning">
-                                  📐 {parcel.curves.length} Curve(s)
-                                </span>
-                              )}
-                            </h3>
-                            <div className="flex gap-6 text-sm text-dark-300">
-                              <span>📐 Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong></span>
-                              <span>📍 Points: {parcel.pointCount}</span>
-                            </div>
-                            {parcel.curves && parcel.curves.length > 0 && (
-                              <div className="mt-2 text-xs text-warning">
-                                {parcel.curves.map((c, i) => (
-                                  <span key={i} className="mr-3">
-                                    {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                handleLoadSavedParcel(parcel);
-                                setActiveTab('editor');
-                              }}
-                              className="p-2 hover:bg-primary/20 rounded-lg text-primary"
-                              title="Load into editor"
-                            >
-                              <Edit className="w-5 h-5" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteSaved(parcel.id);
-                              }}
-                              className="p-2 hover:bg-danger/20 rounded-lg text-danger"
-                              title="Delete parcel"
-                            >
-                              <Trash2 className="w-5 h-5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Points list with edit/insert options */}
-                        <div className="mt-3 pt-3 border-t border-dark-600">
-                          <div className="flex flex-wrap gap-2 items-center">
-                            {parcel.ids.map((id, index) => (
-                              <React.Fragment key={index}>
-                                {/* Insert button */}
-                                {index > 0 && (
-                                  <button
-                                    onClick={() => handleInsertPointInSavedParcel(parcel, index - 1)}
-                                    className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity text-primary hover:text-primary/80"
-                                    title={`Insert point between ${parcel.ids[index - 1]} and ${id}`}
-                                  >
-                                    <Plus className="w-4 h-4" />
-                                  </button>
-                                )}
-
-                                {/* Point */}
-                                <div className="bg-dark-800 border border-primary/30 rounded-lg px-3 py-3 flex items-center justify-center gap-2 hover:border-primary transition-all aspect-square min-w-[50px] w-[50px] h-[50px] relative">
-                                  <span className="text-primary font-semibold">{id}</span>
-                                  <button
-                                    onClick={() => handleEditPointIdInSavedParcel(parcel, index)}
-                                    className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity text-warning hover:text-warning/80 absolute top-1 right-1"
-                                    title="Edit this point ID"
-                                  >
-                                    <Edit className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </React.Fragment>
-                            ))}
-                          </div>
-
-                          {/* Add curves button */}
-                          <div className="mt-3 flex gap-2">
-                            <button
-                              onClick={() => {
-                                handleLoadSavedParcel(parcel);
-                                setActiveTab('editor');
-                                // Open curves dialog if parcel doesn't have curves
-                                if (!parcel.curves || parcel.curves.length === 0) {
-                                  setTimeout(() => {
-                                    setShowCurvesDialog(true);
-                                  }, 300);
-                                }
-                              }}
-                              className="btn-secondary py-1 px-3 text-xs flex items-center gap-1"
-                              title="Add/edit curves"
-                            >
-                              <Plus className="w-3 h-3" />
-                              {parcel.curves && parcel.curves.length > 0 ? 'Edit Curves' : 'Add Curves'}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+            {/* Memoized List for Unique Parcels */}
+            <UniqueParcelsList
+              savedParcels={savedParcels}
+              onEdit={(parcel) => {
+                handleLoadSavedParcel(parcel);
+                setActiveTab('editor');
+              }}
+              onDelete={handleDeleteSaved}
+              onExport={handleExportSingle} // Not used in unique view but consistent prop
+            />
 
             {savedParcels.length > 0 && (
               <div className="mt-6 pt-4 border-t border-dark-600">
@@ -3284,146 +3205,16 @@ const ParcelCalculator = () => {
               Showing all saved parcels. Duplicates are allowed and shown separately.
             </p>
 
-            {savedParcels.length === 0 ? (
-              <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {savedParcels.map((parcel, index) => {
-                  // Check if this parcel number has duplicates
-                  const duplicateCount = savedParcels.filter(p =>
-                    p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
-                  ).length;
-                  const isDuplicate = duplicateCount > 1 && savedParcels.findIndex(p =>
-                    p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
-                  ) !== index;
-
-                  return (
-                    <div
-                      key={parcel.id}
-                      className={`glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group ${isDuplicate ? 'border-l-4 border-blue-500' : ''
-                        }`}
-                    >
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex-1">
-                          <h3 className="text-lg font-bold text-primary mb-2">
-                            Parcel #{parcel.number}
-                            {isDuplicate && (
-                              <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
-                                🔄 Duplicate #{savedParcels.filter(p =>
-                                  p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase() &&
-                                  savedParcels.indexOf(p) <= index
-                                ).length} of {duplicateCount}
-                              </span>
-                            )}
-                            {parcel.curves && parcel.curves.length > 0 && (
-                              <span className="ml-2 text-xs px-2 py-1 bg-warning/20 border border-warning rounded text-warning">
-                                📐 {parcel.curves.length} Curve(s)
-                              </span>
-                            )}
-                          </h3>
-                          <div className="flex gap-6 text-sm text-dark-300">
-                            <span>📐 Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong></span>
-                            <span>📍 Points: {parcel.pointCount}</span>
-                          </div>
-                          {parcel.curves && parcel.curves.length > 0 && (
-                            <div className="mt-2 text-xs text-warning">
-                              {parcel.curves.map((c, i) => (
-                                <span key={i} className="mr-3">
-                                  {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              handleLoadSavedParcel(parcel);
-                              setActiveTab('editor');
-                            }}
-                            className="p-2 hover:bg-primary/20 rounded-lg text-primary"
-                            title="Load into editor"
-                          >
-                            <Edit className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleExportSingle(parcel);
-                            }}
-                            className="p-2 hover:bg-success/20 rounded-lg text-success"
-                            title="Export as PDF"
-                          >
-                            <FileDown className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteSaved(parcel.id);
-                            }}
-                            className="p-2 hover:bg-danger/20 rounded-lg text-danger"
-                            title="Delete parcel"
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Points list with edit/insert options */}
-                      <div className="mt-3 pt-3 border-t border-dark-600">
-                        <div className="flex flex-wrap gap-2 items-center">
-                          {parcel.ids.map((id, idx) => (
-                            <React.Fragment key={idx}>
-                              {/* Insert button */}
-                              {idx > 0 && (
-                                <button
-                                  onClick={() => handleInsertPointInSavedParcel(parcel, idx - 1)}
-                                  className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity text-primary hover:text-primary/80"
-                                  title={`Insert point between ${parcel.ids[idx - 1]} and ${id}`}
-                                >
-                                  <Plus className="w-4 h-4" />
-                                </button>
-                              )}
-
-                              {/* Point */}
-                              <div className="bg-dark-800 border border-primary/30 rounded-lg px-3 py-3 flex items-center justify-center gap-2 hover:border-primary transition-all aspect-square min-w-[50px] w-[50px] h-[50px] relative">
-                                <span className="text-primary font-semibold">{id}</span>
-                                <button
-                                  onClick={() => handleEditPointIdInSavedParcel(parcel, idx)}
-                                  className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity text-warning hover:text-warning/80 absolute top-1 right-1"
-                                  title="Edit this point ID"
-                                >
-                                  <Edit className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </React.Fragment>
-                          ))}
-                        </div>
-
-                        {/* Add curves button */}
-                        <div className="mt-3 flex gap-2">
-                          <button
-                            onClick={async () => {
-                              await handleLoadSavedParcel(parcel);
-                              setActiveTab('editor');
-                              // Always open curves dialog to allow editing
-                              setTimeout(() => {
-                                setShowCurvesDialog(true);
-                              }, 300);
-                            }}
-                            className="btn-secondary py-1 px-3 text-xs flex items-center gap-1"
-                            title="Add/edit curves"
-                          >
-                            <Plus className="w-3 h-3" />
-                            {parcel.curves && parcel.curves.length > 0 ? 'Edit Curves' : 'Add Curves'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            {/* Memoized List for All Parcels */}
+            <AllParcelsList
+              savedParcels={savedParcels}
+              onEdit={(parcel) => {
+                handleLoadSavedParcel(parcel);
+                setActiveTab('editor');
+              }}
+              onDelete={handleDeleteSaved}
+              onExport={handleExportSingle}
+            />
 
             {savedParcels.length > 0 && (
               <div className="mt-6 pt-4 border-t border-dark-600">
@@ -3539,7 +3330,16 @@ const ParcelCalculator = () => {
             {/* Error Results */}
             {errorResults && (
               <div className="mt-6 pt-6 border-t border-dark-600">
-                <h3 className="text-lg font-bold text-dark-50 mb-4">Error Calculation Results</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-dark-50">Current Calculation Results</h3>
+                  <button
+                    onClick={handleSaveErrorCalculation}
+                    className="btn-success py-2 px-4 text-sm flex items-center gap-2"
+                  >
+                    <Save className="w-4 h-4" />
+                    Save This Calculation
+                  </button>
+                </div>
 
                 {/* Overall Summary */}
                 <div className="mb-6 p-6 bg-dark-700 rounded-lg border-2 border-primary/50">
@@ -3624,6 +3424,64 @@ const ParcelCalculator = () => {
                 </div>
               </div>
             )}
+            {/* Saved Calculations History */}
+            {savedErrorCalculations.length > 0 && (
+              <div className="mt-8 pt-6 border-t-2 border-dark-600">
+                <h3 className="text-xl font-bold text-dark-50 mb-4">📜 Saved Calculations History ({savedErrorCalculations.length})</h3>
+                <div className="space-y-4">
+                  {savedErrorCalculations.map((calc, index) => (
+                    <div key={calc.id} className="bg-dark-800 rounded-lg p-6 border border-dark-600">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h4 className="text-lg font-bold text-primary">
+                            {calc.name} <span className="text-sm text-dark-400 font-normal">({new Date(calc.timestamp).toLocaleString()})</span>
+                          </h4>
+                          <p className="text-sm text-dark-300">
+                            Registered: {calc.totalRegisteredArea} m² | Calculated: {calc.totalCalculatedArea.toFixed(4)} m²
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <div className={`px-3 py-1 rounded-full text-xs font-bold border ${calc.exceedsLimit ? 'bg-danger/20 text-danger border-danger' : 'bg-success/20 text-success border-success'}`}>
+                            {calc.exceedsLimit ? 'Exceeds Limit' : 'Within Limit'}
+                          </div>
+                          <button
+                            onClick={() => handleDeleteErrorCalculation(calc.id)}
+                            className="p-2 hover:bg-danger/20 rounded-lg text-danger transition-colors"
+                            title="Delete Calculation"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Mini Results Table */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-dark-900 border-b border-dark-700">
+                              <th className="px-3 py-2 text-left text-dark-400">Parcel</th>
+                              <th className="px-3 py-2 text-right text-dark-400">Orig. Area</th>
+                              <th className="px-3 py-2 text-right text-dark-400">Adj. Area</th>
+                              <th className="px-3 py-2 text-right text-dark-400">Final</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {calc.parcelResults.map((p, i) => (
+                              <tr key={i} className="border-b border-dark-700/50">
+                                <td className="px-3 py-1 text-primary">{p.parcelNumber}</td>
+                                <td className="px-3 py-1 text-right text-dark-300">{p.calculatedArea.toFixed(3)}</td>
+                                <td className="px-3 py-1 text-right text-warning">{p.adjustedArea.toFixed(3)}</td>
+                                <td className="px-3 py-1 text-right text-success font-bold">{p.roundedArea}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -3645,5 +3503,198 @@ const ParcelCalculator = () => {
     </div>
   );
 };
+// Memoized list for unique parcels to prevent re-renders when typing
+const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport }) => {
+  if (savedParcels.length === 0) {
+    return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
+  }
 
+  // Get unique parcels (first occurrence of each parcel number)
+  const seen = new Set();
+  const uniqueParcels = savedParcels.filter(parcel => {
+    const key = parcel.number.trim().toLowerCase();
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+
+  if (uniqueParcels.length === 0) {
+    return <p className="text-dark-400 text-center py-12">No unique parcels found.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {uniqueParcels.map((parcel) => {
+        // Count how many duplicates exist for this parcel number
+        const duplicateCount = savedParcels.filter(p =>
+          p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
+        ).length;
+
+        return (
+          <div
+            key={parcel.id}
+            className="glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-primary mb-2">
+                  Parcel #{parcel.number}
+                  {duplicateCount > 1 && (
+                    <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
+                      📋 {duplicateCount} version(s)
+                    </span>
+                  )}
+                  {parcel.curves && parcel.curves.length > 0 && (
+                    <span className="ml-2 text-xs px-2 py-1 bg-warning/20 border border-warning rounded text-warning">
+                      📐 {parcel.curves.length} Curve(s)
+                    </span>
+                  )}
+                </h3>
+                <div className="flex gap-6 text-sm text-dark-300">
+                  <span>📐 Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong></span>
+                  <span>📍 Points: {parcel.pointCount}</span>
+                </div>
+                {parcel.curves && parcel.curves.length > 0 && (
+                  <div className="mt-2 text-xs text-warning">
+                    {parcel.curves.map((c, i) => (
+                      <span key={i} className="mr-3">
+                        {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onEdit(parcel)}
+                  className="p-2 hover:bg-primary/20 rounded-lg text-primary"
+                  title="Load into editor"
+                >
+                  <Edit className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(parcel.id);
+                  }}
+                  className="p-2 hover:bg-danger/20 rounded-lg text-danger"
+                  title="Delete parcel"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Points list - read only view */}
+            <div className="mt-3 pt-3 border-t border-dark-600">
+              <div className="flex flex-wrap gap-2 items-center">
+                {parcel.ids.map((id, idx) => (
+                  <div key={idx} className="bg-dark-800 border border-primary/30 rounded-lg px-3 py-2 text-primary font-semibold text-sm">
+                    {id}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
+// Memoized list for ALL parcels (including duplicates)
+const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport }) => {
+  if (savedParcels.length === 0) {
+    return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {savedParcels.map((parcel, index) => {
+        // Check if this parcel number has duplicates
+        const duplicateCount = savedParcels.filter(p =>
+          p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
+        ).length;
+        const isDuplicate = duplicateCount > 1 && savedParcels.findIndex(p =>
+          p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
+        ) !== index;
+
+        return (
+          <div
+            key={parcel.id}
+            className={`glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group ${isDuplicate ? 'border-l-4 border-blue-500' : ''
+              }`}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-primary mb-2">
+                  Parcel #{parcel.number}
+                  {isDuplicate && (
+                    <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
+                      🔄 Duplicate #{savedParcels.filter(p =>
+                        p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase() &&
+                        savedParcels.indexOf(p) <= index
+                      ).length} of {duplicateCount}
+                    </span>
+                  )}
+                  {parcel.curves && parcel.curves.length > 0 && (
+                    <span className="ml-2 text-xs px-2 py-1 bg-warning/20 border border-warning rounded text-warning">
+                      📐 {parcel.curves.length} Curve(s)
+                    </span>
+                  )}
+                </h3>
+                <div className="flex gap-6 text-sm text-dark-300">
+                  <span>📐 Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong></span>
+                  <span>📍 Points: {parcel.pointCount}</span>
+                </div>
+                {parcel.curves && parcel.curves.length > 0 && (
+                  <div className="mt-2 text-xs text-warning">
+                    {parcel.curves.map((c, i) => (
+                      <span key={i} className="mr-3">
+                        {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onEdit(parcel)}
+                  className="p-2 hover:bg-primary/20 rounded-lg text-primary"
+                  title="Load into editor"
+                >
+                  <Edit className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExport(parcel);
+                  }}
+                  className="p-2 hover:bg-success/20 rounded-lg text-success"
+                  title="Export as PDF"
+                >
+                  <FileDown className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(parcel.id);
+                  }}
+                  className="p-2 hover:bg-danger/20 rounded-lg text-danger"
+                  title="Delete parcel"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
+// Main Component Function End
 export default ParcelCalculator;

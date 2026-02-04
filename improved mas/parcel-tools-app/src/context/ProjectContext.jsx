@@ -28,6 +28,7 @@ export const ProjectProvider = ({ children }) => {
     place: '',
     additionalInfo: ''
   });
+  const [savedErrorCalculations, setSavedErrorCalculations] = useState([]);
 
   // Use ref to access latest savedParcels without triggering re-renders
   const savedParcelsRef = useRef(savedParcels);
@@ -145,44 +146,60 @@ export const ProjectProvider = ({ children }) => {
     };
   }, [pointsFilePath]); // Removed savedParcels from dependencies to prevent infinite loop
 
-  // Recalculate all parcel areas when points change
+  // Recalculate all parcel areas when points change - OPTIMIZED WITH BATCHING
   const recalculateAllParcels = async (newPoints, parcelsToRecalculate) => {
     try {
       const parcels = parcelsToRecalculate || savedParcelsRef.current;
 
-      const updatedParcels = await Promise.all(
-        parcels.map(async (parcel) => {
-          const points = parcel.ids.map(id => ({
-            x: newPoints[id]?.x || 0,
-            y: newPoints[id]?.y || 0
-          }));
+      if (parcels.length === 0) return;
 
-          const response = await fetch('http://localhost:5000/api/calculate-area', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ points }),
-          });
+      console.time('Batch Recalculation');
 
-          if (response.ok) {
-            const data = await response.json();
+      // Use the new batch endpoint to calculate all at once
+      const response = await fetch('http://localhost:5000/api/calculate-batch-areas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parcels: parcels,
+          points: newPoints
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+
+        // Map results back to parcels
+        // We create a map for O(1) lookup
+        const resultMap = new Map();
+        if (data.results) {
+          data.results.forEach(res => resultMap.set(res.id, res));
+        }
+
+        const updatedParcels = parcels.map(parcel => {
+          const result = resultMap.get(parcel.id);
+          if (result) {
             return {
               ...parcel,
-              area: data.area,
-              perimeter: data.perimeter
+              area: result.area,
+              perimeter: result.perimeter
             };
           }
           return parcel;
-        })
-      );
+        });
 
-      setSavedParcels(updatedParcels);
-      setHasUnsavedChanges(true);
+        setSavedParcels(updatedParcels);
+        setHasUnsavedChanges(true);
+      }
+
+      console.timeEnd('Batch Recalculation');
+
     } catch (error) {
       console.error('Error recalculating parcels:', error);
     }
   };
 
-  const value = {
+  // Memoize context value to prevent unnecessary re-renders in consumers
+  const value = React.useMemo(() => ({
     projectName,
     setProjectName,
     projectPath,
@@ -200,7 +217,20 @@ export const ProjectProvider = ({ children }) => {
     isWatchingFile,
     fileHeading,
     setFileHeading,
-  };
+    savedErrorCalculations,
+    setSavedErrorCalculations
+  }), [
+    projectName,
+    projectPath,
+    pointsFileName,
+    pointsFilePath,
+    loadedPoints,
+    savedParcels,
+    hasUnsavedChanges,
+    isWatchingFile,
+    fileHeading,
+    savedErrorCalculations
+  ]);
 
   // Expose context globally for quick save utility
   useEffect(() => {
