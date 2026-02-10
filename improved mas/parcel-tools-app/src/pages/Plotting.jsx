@@ -8,7 +8,7 @@ const Plotting = () => {
   const navigate = useNavigate();
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
-  
+
   const {
     loadedPoints,
     savedParcels,
@@ -24,6 +24,7 @@ const Plotting = () => {
   const [showPointLabels, setShowPointLabels] = useState(true);
   const [showCoordinates, setShowCoordinates] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState(null);
+  const [filterParcelId, setFilterParcelId] = useState('all'); // 'all' or specific parcel ID
 
   // Check if we have points loaded
   const hasPoints = Object.keys(loadedPoints).length > 0;
@@ -45,8 +46,8 @@ const Plotting = () => {
 
     const points = Object.entries(loadedPoints).map(([id, pt]) => ({
       id,
-      x: pt.x,
-      y: pt.y
+      x: pt.y, // SWAP: Use Y as Easting (Canvas X)
+      y: pt.x  // SWAP: Use X as Northing (Canvas Y)
     }));
 
     if (points.length === 0) return null;
@@ -87,7 +88,7 @@ const Plotting = () => {
     // Center the plot
     const centerScreenX = canvasWidth / 2;
     const centerScreenY = canvasHeight / 2;
-    
+
     const panX = centerScreenX - bounds.centerX * scale;
     const panY = centerScreenY - bounds.centerY * scale;
 
@@ -118,7 +119,7 @@ const Plotting = () => {
 
     const ctx = canvas.getContext('2d');
     const bounds = getBounds();
-    
+
     if (!bounds || bounds.points.length === 0) {
       // Clear and show message
       ctx.fillStyle = '#161b22';
@@ -139,8 +140,12 @@ const Plotting = () => {
 
     // Draw parcels if enabled
     if (showParcels && savedParcels.length > 0) {
-      savedParcels.forEach((parcel, index) => {
-        drawParcel(ctx, parcel, index);
+      const parcelsToDraw = filterParcelId === 'all'
+        ? savedParcels
+        : savedParcels.filter(p => p.id === filterParcelId);
+
+      parcelsToDraw.forEach((parcel, index) => {
+        drawParcel(ctx, parcel, savedParcels.indexOf(parcel)); // Maintain original color index
       });
     }
 
@@ -200,7 +205,8 @@ const Plotting = () => {
       const pointId = ids[i];
       if (loadedPoints[pointId]) {
         const pt = loadedPoints[pointId];
-        const screen = worldToScreen(pt.x, pt.y);
+        // SWAP: Use Y as Easting (Canvas X), X as Northing (Canvas Y)
+        const screen = worldToScreen(pt.y, pt.x);
         if (i === 0) {
           ctx.moveTo(screen.x, screen.y);
         } else {
@@ -232,8 +238,8 @@ const Plotting = () => {
     let sumX = 0, sumY = 0, count = 0;
     parcel.ids.forEach(id => {
       if (loadedPoints[id]) {
-        sumX += loadedPoints[id].x;
-        sumY += loadedPoints[id].y;
+        sumX += loadedPoints[id].y; // SWAP for center calc
+        sumY += loadedPoints[id].x; // SWAP for center calc
         count++;
       }
     });
@@ -262,7 +268,7 @@ const Plotting = () => {
       ctx.textAlign = 'center';
       ctx.fillText(point.id, screen.x, screen.y - 12);
     }
-    
+
     // Draw coordinates (separate option)
     if (showCoordinates) {
       ctx.font = '10px monospace';
@@ -379,7 +385,7 @@ const Plotting = () => {
   // Redraw when dependencies change
   useEffect(() => {
     draw();
-  }, [loadedPoints, savedParcels, zoom, pan, showParcels, showPointLabels, showCoordinates, selectedPoint, hasPoints]);
+  }, [loadedPoints, savedParcels, zoom, pan, showParcels, showPointLabels, showCoordinates, selectedPoint, hasPoints, filterParcelId]);
 
   // Reset view when points change
   useEffect(() => {
@@ -466,6 +472,23 @@ const Plotting = () => {
                 <RotateCcw className="w-4 h-4 inline mr-1" />
                 Fit All
               </button>
+
+              <div className="h-6 w-px bg-dark-600 mx-2"></div>
+
+              {/* Filter Dropdown */}
+              <select
+                value={filterParcelId}
+                onChange={(e) => setFilterParcelId(e.target.value)}
+                className="bg-dark-800 border border-dark-600 text-dark-300 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2"
+              >
+                <option value="all">View All Parcels</option>
+                {savedParcels.map((p, idx) => (
+                  <option key={p.id} value={p.id}>
+                    Parcel {p.number} {savedParcels.filter(sp => sp.number === p.number).length > 1 ? `(${idx + 1})` : ''}
+                  </option>
+                ))}
+              </select>
+
               <div className="h-6 w-px bg-dark-600 mx-2"></div>
               <label className="flex items-center gap-2 text-sm text-dark-300 cursor-pointer">
                 <input
