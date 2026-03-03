@@ -3,3 +3,4 @@ flask-cors==4.0.0
 reportlab==4.0.7
 requests==2.31.0
 firebase-admin>=6.0.0
+ezdxf>=1.2.0

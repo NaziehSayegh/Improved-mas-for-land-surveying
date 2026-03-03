@@ -2119,6 +2119,170 @@ def generate_license_key():
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================================================
+# DXF / DWG FILE IMPORT
+# ============================================================================
+
+def _convert_dwg_to_dxf(dwg_path: str) -> str:
+    """
+    Convert a DWG file to DXF using the ODA File Converter (if installed).
+    Returns the path to the generated DXF file, or raises RuntimeError.
+    """
+    import subprocess, tempfile, shutil
+
+    # Common ODA File Converter install locations on Windows
+    oda_candidates = [
+        r"C:\Program Files\ODA\ODAFileConverter\ODAFileConverter.exe",
+        r"C:\Program Files (x86)\ODA\ODAFileConverter\ODAFileConverter.exe",
+        shutil.which("ODAFileConverter"),
+    ]
+    oda_exe = next((p for p in oda_candidates if p and os.path.isfile(p)), None)
+
+    if not oda_exe:
+        raise RuntimeError(
+            "DWG support requires the ODA File Converter. "
+            "Please download it for free from https://www.opendesign.com/guestfiles/oda_file_converter"
+        )
+
+    out_dir = tempfile.mkdtemp(prefix="parcel_tools_dwg_")
+    in_dir = os.path.dirname(dwg_path)
+    fname = os.path.basename(dwg_path)
+
+    # ODA converter args: input_dir output_dir version type recurse audit file
+    try:
+        subprocess.run(
+            [oda_exe, in_dir, out_dir, "ACAD2018", "DXF", "0", "1", fname],
+            check=True, capture_output=True, timeout=60
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"ODA conversion failed: {e.stderr.decode(errors='replace')}")
+
+    dxf_name = os.path.splitext(fname)[0] + ".dxf"
+    dxf_path = os.path.join(out_dir, dxf_name)
+    if not os.path.isfile(dxf_path):
+        raise RuntimeError("ODA converter ran but no DXF output was produced.")
+    return dxf_path
+
+
+def _parse_dxf_file(dxf_path: str) -> dict:
+    """Parse a DXF file and return entities + raw points."""
+    try:
+        import ezdxf
+    except ImportError:
+        raise RuntimeError("ezdxf library not installed. Run: pip install ezdxf")
+
+    try:
+        doc = ezdxf.readfile(dxf_path)
+    except Exception as e:
+        raise RuntimeError(f"Could not read DXF file: {e}")
+
+    msp = doc.modelspace()
+    entities = []
+    raw_points = []
+    point_counter = [1]
+
+    def add_raw_point(x, y, z=0):
+        pid = f"DXF_{point_counter[0]}"
+        point_counter[0] += 1
+        raw_points.append({"id": pid, "x": round(float(y), 4), "y": round(float(x), 4)})
+        return pid
+
+    for entity in msp:
+        etype = entity.dxftype()
+
+        if etype == "LWPOLYLINE":
+            try:
+                pts = [{"x": round(float(p[1]), 4), "y": round(float(p[0]), 4)} for p in entity.get_points("xy")]
+                if len(pts) >= 2:
+                    entities.append({
+                        "type": "LWPOLYLINE",
+                        "closed": bool(entity.closed),
+                        "points": pts,
+                        "layer": entity.dxf.layer
+                    })
+            except Exception:
+                pass
+
+        elif etype == "POLYLINE":
+            try:
+                pts = [{"x": round(float(v.dxf.location.y), 4), "y": round(float(v.dxf.location.x), 4)}
+                       for v in entity.vertices]
+                if len(pts) >= 2:
+                    entities.append({
+                        "type": "POLYLINE",
+                        "closed": bool(entity.is_closed),
+                        "points": pts,
+                        "layer": entity.dxf.layer
+                    })
+            except Exception:
+                pass
+
+        elif etype == "LINE":
+            try:
+                s, e = entity.dxf.start, entity.dxf.end
+                entities.append({
+                    "type": "LINE",
+                    "closed": False,
+                    "points": [
+                        {"x": round(float(s.y), 4), "y": round(float(s.x), 4)},
+                        {"x": round(float(e.y), 4), "y": round(float(e.x), 4)},
+                    ],
+                    "layer": entity.dxf.layer
+                })
+            except Exception:
+                pass
+
+        elif etype == "POINT":
+            try:
+                loc = entity.dxf.location
+                add_raw_point(loc.x, loc.y)
+            except Exception:
+                pass
+
+    return {"entities": entities, "raw_points": raw_points}
+
+
+@app.route('/api/parse-cad', methods=['POST'])
+def parse_cad():
+    """
+    Parse a DXF or DWG file and return drawable entities.
+    Body: { "filePath": "C:\\path\\to\\file.dxf" }
+    """
+    try:
+        data = request.get_json()
+        file_path = data.get('filePath', '').strip()
+
+        if not file_path:
+            return jsonify({"error": "filePath is required"}), 400
+
+        if not os.path.isfile(file_path):
+            return jsonify({"error": f"File not found: {file_path}"}), 404
+
+        ext = os.path.splitext(file_path)[1].lower()
+
+        if ext == ".dwg":
+            try:
+                dxf_path = _convert_dwg_to_dxf(file_path)
+            except RuntimeError as e:
+                return jsonify({"error": str(e), "oda_required": True}), 422
+        elif ext == ".dxf":
+            dxf_path = file_path
+        else:
+            return jsonify({"error": "Only .dxf and .dwg files are supported"}), 400
+
+        result = _parse_dxf_file(dxf_path)
+        result["fileName"] = os.path.basename(file_path)
+        result["fileType"] = ext.lstrip(".")
+
+        return jsonify(result)
+
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 422
+    except Exception as e:
+        print(f"[parse-cad ERROR] {e}")
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+
 if __name__ == '__main__':
     print("==> Starting Parcel Tools Backend API...")
     print("==> API running on http://localhost:5000")
