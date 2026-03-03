@@ -5,6 +5,7 @@ import { getRecentFiles, clearRecentFiles } from '../utils/api';
 import { useNavigate } from 'react-router-dom';
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
+import { customConfirm } from '../utils/dialogs';
 
 const RecentFiles = () => {
   const navigate = useNavigate();
@@ -151,7 +152,7 @@ const RecentFiles = () => {
   };
 
   const handleClear = async (type = null) => {
-    if (!confirm(`Clear all recent ${type || 'files'}?`)) return;
+    if (!(await customConfirm(`Clear all recent ${type || 'files'}?`))) return;
 
     try {
       await clearRecentFiles(type);
@@ -207,8 +208,8 @@ const RecentFiles = () => {
         <button
           onClick={() => setActiveTab('projects')}
           className={`px-4 py-2 font-semibold transition-colors ${activeTab === 'projects'
-              ? 'text-primary border-b-2 border-primary'
-              : 'text-dark-400 hover:text-dark-200'
+            ? 'text-primary border-b-2 border-primary'
+            : 'text-dark-400 hover:text-dark-200'
             }`}
         >
           <FileText className="w-4 h-4 inline mr-2" />
@@ -217,8 +218,8 @@ const RecentFiles = () => {
         <button
           onClick={() => setActiveTab('points')}
           className={`px-4 py-2 font-semibold transition-colors ${activeTab === 'points'
-              ? 'text-primary border-b-2 border-primary'
-              : 'text-dark-400 hover:text-dark-200'
+            ? 'text-primary border-b-2 border-primary'
+            : 'text-dark-400 hover:text-dark-200'
             }`}
         >
           <MapPin className="w-4 h-4 inline mr-2" />

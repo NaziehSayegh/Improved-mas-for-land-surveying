@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, FolderOpen, File, Plus, Trash2, Edit2, Upload, Save, FileText, RefreshCw } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
+import { customConfirm } from '../utils/dialogs';
 
 const DataFiles = () => {
   const navigate = useNavigate();
@@ -250,7 +251,7 @@ const DataFiles = () => {
 
   // Scan computer for all .prcl files
   const handleScanComputer = async () => {
-    const confirmed = confirm('🔍 Scan your computer for .prcl files?\n\nThis will search in:\n• Documents\n• Desktop\n• Downloads\n• Home folder\n\nThis may take a minute...');
+    const confirmed = await customConfirm('🔍 Scan your computer for .prcl files?\n\nThis will search in:\n• Documents\n• Desktop\n• Downloads\n• Home folder\n\nThis may take a minute...');
     if (!confirmed) return;
 
     await loadSavedProjects(true);
@@ -600,14 +601,14 @@ const DataFiles = () => {
   };
 
   // Add new point
-  const handleAddPoint = () => {
+  const handleAddPoint = async () => {
     if (!newPointId || !newPointX || !newPointY) {
       toast.warning('Fill all fields: ID, X, Y');
       return;
     }
 
     if (editingPoints[newPointId]) {
-      if (!confirm(`Point ID "${newPointId}" already exists. Replace it?`)) {
+      if (!(await customConfirm(`Point ID "${newPointId}" already exists. Replace it?`))) {
         return;
       }
     }
@@ -672,8 +673,8 @@ const DataFiles = () => {
   };
 
   // Delete point
-  const handleDeletePoint = (id) => {
-    if (confirm(`Delete point ${id}?`)) {
+  const handleDeletePoint = async (id) => {
+    if (await customConfirm(`Delete point ${id}?`)) {
       const updated = { ...editingPoints };
       delete updated[id];
       setEditingPoints(updated);

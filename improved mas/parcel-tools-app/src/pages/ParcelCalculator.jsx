@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
+import { customConfirm, customPrompt } from '../utils/dialogs';
 
 const ParcelCalculator = () => {
   const navigate = useNavigate();
@@ -1641,7 +1642,7 @@ const ParcelCalculator = () => {
 
   // New project
   const handleNewProject = async () => {
-    if (hasUnsavedChanges && !confirm('You have unsaved changes. Create new project?')) {
+    if (hasUnsavedChanges && !(await customConfirm('You have unsaved changes. Create new project?'))) {
       return false;
     }
 
@@ -1666,7 +1667,7 @@ const ParcelCalculator = () => {
     const defaultSuggestion = globalProjectName
       ? `${globalProjectName}-copy`
       : 'New Project';
-    const nameInput = prompt('Name your new project:', defaultSuggestion) ?? '';
+    const nameInput = (await customPrompt('Name your new project:', defaultSuggestion)) ?? '';
     const sanitizedName = nameInput.trim() || 'Untitled Project';
 
     setGlobalProjectName(sanitizedName);
@@ -2057,8 +2058,8 @@ const ParcelCalculator = () => {
   };
 
   // Delete saved error calculation
-  const handleDeleteErrorCalculation = (id) => {
-    if (confirm('Are you sure you want to delete this saved calculation?')) {
+  const handleDeleteErrorCalculation = async (id) => {
+    if (await customConfirm('Are you sure you want to delete this saved calculation?')) {
       const updatedCalculations = savedErrorCalculations.filter(c => c.id !== id);
       setSavedErrorCalculations(updatedCalculations);
       setHasUnsavedChanges(true);

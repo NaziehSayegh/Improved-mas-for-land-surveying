@@ -11,6 +11,7 @@ import {
   Loader
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { customConfirm } from '../utils/dialogs';
 
 export default function LicensePage() {
   const toast = useToast();
@@ -200,7 +201,7 @@ export default function LicensePage() {
   };
 
   const handleDeactivate = async () => {
-    if (!confirm('Are you sure you want to deactivate this license?')) {
+    if (!(await customConfirm('Are you sure you want to deactivate this license?'))) {
       return;
     }
 

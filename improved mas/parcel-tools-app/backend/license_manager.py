@@ -52,7 +52,7 @@ class LicenseManager:
             return self._check_trial_status()
 
     def _check_trial_status(self):
-        """Check or start 7-day free trial"""
+        """Check or start 30-day free trial"""
         trial_file = os.path.join(self.data_dir, 'trial_info.json')
         
         try:
@@ -68,8 +68,8 @@ class LicenseManager:
                 start_date = datetime.fromisoformat(start_date_str)
                 now = datetime.now()
                 
-                # Calculate expiration (7 days)
-                expiration_date = start_date + timedelta(days=7)
+                # Calculate expiration (30 days)
+                expiration_date = start_date + timedelta(days=30)
                 days_left = (expiration_date - now).days
                 
                 if now > expiration_date:
@@ -99,7 +99,7 @@ class LicenseManager:
             }
 
     def _start_new_trial(self, trial_file):
-        """Start a new 7-day trial"""
+        """Start a new 30-day trial"""
         try:
             trial_data = {
                 'start_date': datetime.now().isoformat(),
@@ -113,8 +113,8 @@ class LicenseManager:
             return {
                 'status': 'trial',
                 'is_valid': True,
-                'days_left': 7,
-                'message': '7-Day Free Trial Started'
+                'days_left': 30,
+                'message': '30-Day Free Trial Started'
             }
         except Exception as e:
             return {
