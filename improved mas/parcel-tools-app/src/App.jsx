@@ -8,7 +8,6 @@ import ParcelCalculator from './pages/ParcelCalculator';
 import DataFiles from './pages/DataFiles';
 import WorkMode from './pages/WorkMode';
 import Plotting from './pages/Plotting';
-import DxfImport from './pages/DxfImport';
 import BackgroundEffects from './components/BackgroundEffects';
 import Assistant from './pages/Assistant';
 import LicensePage from './pages/LicensePage';
@@ -196,7 +195,6 @@ function AppContent() {
         <Route path="/data-files" element={<DataFiles />} />
         <Route path="/work-mode" element={<WorkMode />} />
         <Route path="/plotting" element={<Plotting />} />
-        <Route path="/dxf-import" element={<DxfImport />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

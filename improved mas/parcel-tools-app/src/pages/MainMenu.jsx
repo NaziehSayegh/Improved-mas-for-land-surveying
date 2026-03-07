@@ -20,7 +20,6 @@ const MainMenu = () => {
   const menuOptionsLeft = [
     { num: 1, icon: '⚙️', label: 'WORK MODE', path: '/work-mode', description: 'Configure survey settings' },
     { num: 3, icon: '📊', label: 'PLOTTING', path: '/plotting', description: 'Visualize points in real coordinates' },
-    { num: 5, icon: '🏗️', label: 'CAD IMPORT', path: '/dxf-import', description: 'Open DXF / DWG files and create parcels' },
   ];
 
   const menuOptionsRight = [
@@ -253,15 +252,6 @@ const MainMenu = () => {
                 <div className="flex items-center gap-2 sm:gap-3">
                   <span className="text-lg sm:text-xl md:text-2xl">❓</span>
                   <span className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-primary">Get Help</span>
-                </div>
-              </button>
-              <button
-                onClick={() => navigate('/dxf-import')}
-                className="w-full bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 rounded-lg p-2.5 sm:p-3 text-left transition-all group"
-              >
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <span className="text-lg sm:text-xl md:text-2xl">🏗️</span>
-                  <span className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-blue-400">CAD Import (DXF/DWG)</span>
                 </div>
               </button>
               <button

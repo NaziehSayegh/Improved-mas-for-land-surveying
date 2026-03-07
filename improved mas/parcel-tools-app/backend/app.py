@@ -2125,12 +2125,44 @@ def generate_license_key():
 
 def _convert_dwg_to_dxf(dwg_path: str) -> str:
     """
-    Convert a DWG file to DXF using the ODA File Converter (if installed).
-    Returns the path to the generated DXF file, or raises RuntimeError.
+    Convert a DWG file to DXF.
+    Strategy:
+      1. AutoCAD COM automation (if AutoCAD is running or installed on Windows)
+      2. ODA File Converter (free CLI tool)
+      3. Raise helpful RuntimeError if neither available
+    Returns the absolute path to the generated DXF file.
     """
-    import subprocess, tempfile, shutil
+    import tempfile, shutil, subprocess
 
-    # Common ODA File Converter install locations on Windows
+    out_dir = tempfile.mkdtemp(prefix="parcel_tools_dwg_")
+    fname = os.path.basename(dwg_path)
+    dxf_name = os.path.splitext(fname)[0] + ".dxf"
+    dxf_out = os.path.join(out_dir, dxf_name)
+
+    # ── Method 1: AutoCAD COM (works if AutoCAD is installed/running on Windows) ──
+    if sys.platform == "win32":
+        try:
+            import win32com.client
+            # Try to connect to a running AutoCAD instance first (faster)
+            try:
+                acad = win32com.client.GetActiveObject("AutoCAD.Application")
+            except Exception:
+                # AutoCAD not running — launch it silently
+                acad = win32com.client.Dispatch("AutoCAD.Application")
+                acad.Visible = False
+
+            doc = acad.Documents.Open(os.path.abspath(dwg_path))
+            # SaveAs format 60 = R2018 ASCII DXF
+            doc.SaveAs(os.path.abspath(dxf_out), 60)
+            doc.Close(False)
+
+            if os.path.isfile(dxf_out):
+                print(f"[parse-cad] DWG→DXF via AutoCAD COM: {dxf_out}")
+                return dxf_out
+        except Exception as e:
+            print(f"[parse-cad] AutoCAD COM unavailable: {e}")
+
+    # ── Method 2: ODA File Converter ──────────────────────────────────────────
     oda_candidates = [
         r"C:\Program Files\ODA\ODAFileConverter\ODAFileConverter.exe",
         r"C:\Program Files (x86)\ODA\ODAFileConverter\ODAFileConverter.exe",
@@ -2138,30 +2170,27 @@ def _convert_dwg_to_dxf(dwg_path: str) -> str:
     ]
     oda_exe = next((p for p in oda_candidates if p and os.path.isfile(p)), None)
 
-    if not oda_exe:
-        raise RuntimeError(
-            "DWG support requires the ODA File Converter. "
-            "Please download it for free from https://www.opendesign.com/guestfiles/oda_file_converter"
-        )
+    if oda_exe:
+        try:
+            in_dir = os.path.dirname(dwg_path)
+            subprocess.run(
+                [oda_exe, in_dir, out_dir, "ACAD2018", "DXF", "0", "1", fname],
+                check=True, capture_output=True, timeout=60
+            )
+            if os.path.isfile(dxf_out):
+                print(f"[parse-cad] DWG→DXF via ODA: {dxf_out}")
+                return dxf_out
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"ODA conversion failed: {e.stderr.decode(errors='replace')}")
 
-    out_dir = tempfile.mkdtemp(prefix="parcel_tools_dwg_")
-    in_dir = os.path.dirname(dwg_path)
-    fname = os.path.basename(dwg_path)
+    # ── No converter available ────────────────────────────────────────────────
+    raise RuntimeError(
+        "Could not convert DWG file. "
+        "Please either:\n"
+        "• Open AutoCAD and try again (we will use it automatically), OR\n"
+        "• Download the free ODA File Converter from https://www.opendesign.com/guestfiles/oda_file_converter"
+    )
 
-    # ODA converter args: input_dir output_dir version type recurse audit file
-    try:
-        subprocess.run(
-            [oda_exe, in_dir, out_dir, "ACAD2018", "DXF", "0", "1", fname],
-            check=True, capture_output=True, timeout=60
-        )
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"ODA conversion failed: {e.stderr.decode(errors='replace')}")
-
-    dxf_name = os.path.splitext(fname)[0] + ".dxf"
-    dxf_path = os.path.join(out_dir, dxf_name)
-    if not os.path.isfile(dxf_path):
-        raise RuntimeError("ODA converter ran but no DXF output was produced.")
-    return dxf_path
 
 
 def _parse_dxf_file(dxf_path: str) -> dict:

@@ -3554,7 +3554,7 @@ const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport
                   )}
                 </h3>
                 <div className="flex gap-6 text-sm text-dark-300">
-                  <span>📐 Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong></span>
+                  <span>📐 Area: <strong className="text-success">{parcel.area != null ? parcel.area.toFixed(4) : 'Calculating...'} m²</strong></span>
                   <span>📍 Points: {parcel.pointCount}</span>
                 </div>
                 {parcel.curves && parcel.curves.length > 0 && (

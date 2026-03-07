@@ -236,20 +236,28 @@ const DxfImport = () => {
         };
     }, [drawCanvas]);
 
-    // ─── File open ────────────────────────────────────────────────────────────
-    const handleFileChange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+    // ─── File open — use Electron dialog for a guaranteed full path ───────────
+    const handleOpenFile = async () => {
+        if (loading) return;
 
-        const filePath = file.path; // Electron provides full path
-        if (!filePath) {
-            toast.error('Full file path not available. Please run in Electron desktop mode.');
-            return;
+        // Use Electron's native file dialog if available (gives real absolute path)
+        let filePath = null;
+        if (window.electronAPI && window.electronAPI.showOpenDialog) {
+            const result = await window.electronAPI.showOpenDialog({
+                title: 'Open AutoCAD File',
+                filters: [
+                    { name: 'AutoCAD Files', extensions: ['dxf', 'dwg'] },
+                    { name: 'DXF Files', extensions: ['dxf'] },
+                    { name: 'DWG Files', extensions: ['dwg'] },
+                ],
+                properties: ['openFile'],
+            });
+            if (!result || result.canceled || !result.filePaths || !result.filePaths[0]) return;
+            filePath = result.filePaths[0];
         }
 
-        const ext = file.name.split('.').pop().toLowerCase();
-        if (!['dxf', 'dwg'].includes(ext)) {
-            toast.error('Only .dxf and .dwg files are supported');
+        if (!filePath) {
+            toast.error('File picker not available. Please run in the Electron desktop app.');
             return;
         }
 
@@ -263,14 +271,7 @@ const DxfImport = () => {
             const data = await res.json();
 
             if (!res.ok) {
-                if (data.oda_required) {
-                    toast.error(
-                        'DWG files require the free ODA File Converter. ' +
-                        'Visit opendesign.com/guestfiles/oda_file_converter to download it.'
-                    );
-                } else {
-                    toast.error(data.error || 'Failed to parse file');
-                }
+                toast.error(data.error || 'Failed to parse CAD file');
                 return;
             }
 
@@ -280,7 +281,6 @@ const DxfImport = () => {
             setSelectedIdx(null);
             selectedIdxRef.current = null;
 
-            // Collect unique layers
             const layers = [...new Set((data.entities || []).map(e => e.layer))];
             setLayerList(layers);
 
@@ -392,18 +392,15 @@ const DxfImport = () => {
 
                         {/* Controls row */}
                         <div className="flex gap-2 flex-wrap items-center">
-                            {/* File picker */}
-                            <label className="btn-primary text-sm py-2 px-3 cursor-pointer flex items-center gap-2">
+                            {/* File picker via Electron dialog */}
+                            <button
+                                onClick={handleOpenFile}
+                                disabled={loading}
+                                className="btn-primary text-sm py-2 px-3 flex items-center gap-2"
+                            >
                                 <Upload className="w-4 h-4" />
                                 {loading ? 'Loading...' : 'Open DXF / DWG'}
-                                <input
-                                    type="file"
-                                    accept=".dxf,.dwg"
-                                    className="hidden"
-                                    onChange={handleFileChange}
-                                    disabled={loading}
-                                />
-                            </label>
+                            </button>
 
                             {fileName && (
                                 <span className="text-sm text-dark-300 font-mono px-3 py-2 bg-dark-800 rounded-lg border border-dark-600">
@@ -429,8 +426,8 @@ const DxfImport = () => {
                                 onClick={handleCreateParcel}
                                 disabled={selectedIdx === null}
                                 className={`text-sm py-2 px-4 rounded-lg flex items-center gap-2 font-semibold transition-all ${selectedIdx !== null
-                                        ? 'bg-yellow-500 hover:bg-yellow-400 text-black'
-                                        : 'bg-dark-700 text-dark-500 cursor-not-allowed'
+                                    ? 'bg-yellow-500 hover:bg-yellow-400 text-black'
+                                    : 'bg-dark-700 text-dark-500 cursor-not-allowed'
                                     }`}
                             >
                                 <Plus className="w-4 h-4" />
