@@ -8,7 +8,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 
 const MainMenu = () => {
   const navigate = useNavigate();
-  const { savedParcels, projectName } = useProject();
+  const { savedParcels, projectName, closeProject, pointsFileName } = useProject();
   const { user, logout } = useAuth();
   const toast = useToast();
 
@@ -263,6 +263,25 @@ const MainMenu = () => {
                   <span className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-yellow-400">License</span>
                 </div>
               </button>
+
+              {/* Close Project - only shown when a file/project is active */}
+              {(pointsFileName || projectName) && (
+                <button
+                  onClick={() => {
+                    closeProject();
+                    toast.success('✅ Project closed.');
+                  }}
+                  className="w-full bg-red-700/20 hover:bg-red-700/30 border border-red-600/50 rounded-lg p-2.5 sm:p-3 text-left transition-all group"
+                >
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <span className="text-lg sm:text-xl md:text-2xl">📂</span>
+                    <div>
+                      <div className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-red-400">Close Project</div>
+                      {pointsFileName && <div className="text-dark-500 text-xs truncate max-w-[160px]">{pointsFileName}</div>}
+                    </div>
+                  </div>
+                </button>
+              )}
 
               {user && (
                 <button

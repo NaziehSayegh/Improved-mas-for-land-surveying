@@ -21,7 +21,8 @@ const DataFiles = () => {
     setProjectName,
     setSavedParcels,
     fileHeading: globalFileHeading,
-    setFileHeading: setGlobalFileHeading
+    setFileHeading: setGlobalFileHeading,
+    closeProject
   } = useProject();
 
   // Local state for editing
@@ -145,23 +146,21 @@ const DataFiles = () => {
     });
   };
 
-  // Close project - clears editing state but STAYS on the page (doesn't navigate)
+  // Close project - resets ALL project state and returns to main menu
   const handleCloseProject = async () => {
-    // Auto-save points file if there are unsaved changes (without asking)
+    // Auto-save points file if there are unsaved point edits
     if (hasUnsavedPoints && pointsFileName) {
       try {
         await handleAutoSavePoints();
-        console.log('✅ Points file auto-saved on close');
       } catch (error) {
-        console.error('Error auto-saving points file on close:', error);
-        // Continue closing even if save fails
+        console.error('Error auto-saving points on close:', error);
       }
     }
 
-    // Clear editing state but STAY on the data files page
-    // Clear pointsFilePath FIRST to stop file watching
-    setPointsFilePath('');
-    setPointsFileName('');
+    // Full atomic reset via context helper
+    closeProject();
+
+    // Also clear local DataFiles editing state
     setEditMode(false);
     setEditingPoints({});
     setNewPointId('');
@@ -169,14 +168,8 @@ const DataFiles = () => {
     setNewPointY('');
     setEditingPointId(null);
 
-    // Also clear the loaded points from context
-    setLoadedPoints({});
-
-    // Small delay to ensure all state updates are processed
-    setTimeout(() => {
-      // Show confirmation
-      toast.success('✅ Project closed. You can now load a new file or start editing.');
-    }, 100);
+    toast.success('✅ Project closed successfully.');
+    navigate('/');
   };
 
   // ESC key to go to main menu (only if no dialogs are open)
@@ -573,7 +566,10 @@ const DataFiles = () => {
             pointsObj[p.id] = { x: p.x, y: p.y };
           });
 
-          // Set all state first, then enable edit mode
+          // IMPORTANT: Reset ALL project state first so no stale parcels/heading bleed through
+          closeProject();
+
+          // Set all state for the new file
           setPointsFileName(file.name);
           setPointsFilePath(filePath);
           setLoadedPoints(pointsObj);

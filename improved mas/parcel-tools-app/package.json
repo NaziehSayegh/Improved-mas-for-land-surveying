@@ -13,7 +13,12 @@
     "start:python": "python backend/app.py",
     "start": "npm run electron:dev"
   },
-  "keywords": ["surveying", "parcel", "mapping", "desktop"],
+  "keywords": [
+    "surveying",
+    "parcel",
+    "mapping",
+    "desktop"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
@@ -62,18 +67,26 @@
       {
         "from": "backend/",
         "to": "backend/",
-        "filter": ["**/*", "!__pycache__", "!venv", "!.pytest_cache"]
+        "filter": [
+          "**/*",
+          "!__pycache__",
+          "!venv",
+          "!.pytest_cache"
+        ]
       }
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/app-icon.ico",
-      "sign": null
+      "sign": null,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -93,5 +106,3 @@
     ]
   }
 }
-
-

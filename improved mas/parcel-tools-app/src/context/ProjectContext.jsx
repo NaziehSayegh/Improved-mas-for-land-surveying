@@ -198,6 +198,19 @@ export const ProjectProvider = ({ children }) => {
     }
   };
 
+  // Reset all project state to empty defaults — the single source of truth for teardown
+  const closeProject = React.useCallback(() => {
+    setProjectName('');
+    setProjectPath('');
+    setPointsFileName('');
+    setPointsFilePath('');
+    setLoadedPoints({});
+    setSavedParcels([]);
+    setHasUnsavedChanges(false);
+    setFileHeading({ block: '', quarter: '', parcels: '', place: '', additionalInfo: '' });
+    setSavedErrorCalculations([]);
+  }, []);
+
   // Memoize context value to prevent unnecessary re-renders in consumers
   const value = React.useMemo(() => ({
     projectName,
@@ -218,7 +231,8 @@ export const ProjectProvider = ({ children }) => {
     fileHeading,
     setFileHeading,
     savedErrorCalculations,
-    setSavedErrorCalculations
+    setSavedErrorCalculations,
+    closeProject
   }), [
     projectName,
     projectPath,
@@ -229,7 +243,8 @@ export const ProjectProvider = ({ children }) => {
     hasUnsavedChanges,
     isWatchingFile,
     fileHeading,
-    savedErrorCalculations
+    savedErrorCalculations,
+    closeProject
   ]);
 
   // Expose context globally for quick save utility
