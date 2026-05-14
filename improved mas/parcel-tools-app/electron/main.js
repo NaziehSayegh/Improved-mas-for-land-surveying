@@ -294,73 +294,17 @@ function createWindow() {
   // Load app
   if (!app.isPackaged) {
     // Development mode - try multiple ports
-    const tryPorts = () => {
-      const ports = [5173, 5174, 5175, 5176];
-      let currentPortIndex = 0;
-
-      const checkAndLoadPort = (port) => {
-        return new Promise((resolve) => {
-          const req = http.request({
-            hostname: 'localhost',
-            port: port,
-            path: '/',
-            method: 'HEAD',
-            timeout: 1000
-          }, (res) => {
-            resolve(true);
-          });
-
-          req.on('error', () => resolve(false));
-          req.on('timeout', () => {
-            req.destroy();
-            resolve(false);
-          });
-          req.end();
-        });
-      };
-
-      const tryNextPort = async () => {
-        if (currentPortIndex >= ports.length) {
-          console.error('Could not connect to Vite dev server on any port');
-          mainWindow.show();
-          mainWindow.webContents.loadHTML(`
-            <html>
-              <body style="background: #0d1117; color: white; padding: 40px; font-family: monospace;">
-                <h1>⚠️ Cannot connect to Vite dev server</h1>
-                <p>Please make sure the dev server is running on one of these ports: ${ports.join(', ')}</p>
-                <p>Check the terminal for errors.</p>
-              </body>
-            </html>
-          `);
-          return;
-        }
-
-        const port = ports[currentPortIndex];
-        const isAvailable = await checkAndLoadPort(port);
-
-        if (isAvailable) {
-          const url = `http://localhost:${port}`;
-          console.log(`Trying to load from: ${url}`);
-          mainWindow.loadURL(url).then(() => {
-            console.log(`✓ Successfully loaded from port ${port}`);
-            mainWindow.webContents.openDevTools();
-          }).catch((err) => {
-            console.log(`✗ Failed to load from port ${port}:`, err);
-            currentPortIndex++;
-            setTimeout(tryNextPort, 500);
-          });
-        } else {
-          console.log(`✗ Port ${port} not available, trying next...`);
-          currentPortIndex++;
-          setTimeout(tryNextPort, 500);
-        }
-      };
-
-      // Start trying ports after a short delay
-      setTimeout(tryNextPort, 1000);
+    const loadDevServer = () => {
+      mainWindow.loadURL('http://localhost:5173').then(() => {
+        console.log('✓ Successfully loaded from port 5173');
+        mainWindow.show();
+        // mainWindow.webContents.openDevTools();
+      }).catch(err => {
+        console.error('Failed to load dev server, retrying in 1s...', err);
+        setTimeout(loadDevServer, 1000);
+      });
     };
-
-    tryPorts();
+    loadDevServer();
   } else {
     // Production mode
     // Use app.getAppPath() which works correctly with both ASAR and unpacked apps
@@ -388,7 +332,7 @@ function createWindow() {
           console.error('[Production] Alternative path also failed:', err2);
 
           mainWindow.show();
-          mainWindow.webContents.loadHTML(`
+          const html = `
             <html>
               <body style="background: #0d1117; color: white; padding: 40px; font-family: monospace;">
                 <h1>⚠️ Error loading application</h1>
@@ -404,7 +348,8 @@ function createWindow() {
                 <p style="margin-top: 20px;">Please reinstall the application.</p>
               </body>
             </html>
-          `);
+          `;
+          mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
         });
       });
   }

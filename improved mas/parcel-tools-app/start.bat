@@ -6,7 +6,7 @@ echo ========================================
 echo.
 
 echo [1/2] Starting Python Backend...
-start "Python Backend" cmd /k "python backend/app.py"
+REM start "Python Backend" cmd /k "python backend/app.py"
 
 timeout /t 3 /nobreak > nul
 

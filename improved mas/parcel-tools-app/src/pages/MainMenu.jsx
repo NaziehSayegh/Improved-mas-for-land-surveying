@@ -20,6 +20,7 @@ const MainMenu = () => {
   const menuOptionsLeft = [
     { num: 1, icon: '⚙️', label: 'WORK MODE', path: '/work-mode', description: 'Configure survey settings' },
     { num: 3, icon: '📊', label: 'PLOTTING', path: '/plotting', description: 'Visualize points in real coordinates' },
+    { num: 5, icon: '🗺️', label: 'CAD IMPORT', path: '/dxf-import', description: 'Import DXF/DWG drawings' },
   ];
 
   const menuOptionsRight = [
@@ -312,7 +313,7 @@ const MainMenu = () => {
             </h2>
             <div className="space-y-2 text-xs sm:text-sm">
               <div className="flex justify-between items-center">
-                <span className="text-dark-300">1-4</span>
+                <span className="text-dark-300">1-5</span>
                 <span className="text-dark-100">Menu Items</span>
               </div>
               <div className="flex justify-between items-center">
@@ -343,8 +344,9 @@ const MainMenu = () => {
           Press{' '}
           <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">1</kbd>,
           <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">2</kbd>,
-          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">3</kbd>, or
-          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">4</kbd> for quick access
+          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">3</kbd>,
+          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">4</kbd>, or
+          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">5</kbd> for quick access
         </p>
         <p className="text-dark-500 text-xs sm:text-sm">
           Professional Surveying Tools • Powered by React & Python

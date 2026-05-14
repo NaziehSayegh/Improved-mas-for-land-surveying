@@ -13,6 +13,7 @@ import Assistant from './pages/Assistant';
 import LicensePage from './pages/LicensePage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
+import DxfImport from './pages/DxfImport';
 
 // Inner component to handle file loading with access to context and navigation
 function AppContent() {
@@ -195,6 +196,7 @@ function AppContent() {
         <Route path="/data-files" element={<DataFiles />} />
         <Route path="/work-mode" element={<WorkMode />} />
         <Route path="/plotting" element={<Plotting />} />
+        <Route path="/dxf-import" element={<DxfImport />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

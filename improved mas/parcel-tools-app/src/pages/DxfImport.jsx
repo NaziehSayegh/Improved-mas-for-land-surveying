@@ -93,7 +93,8 @@ const DxfImport = () => {
             ctx.lineWidth = isSelected ? 3 : 1.5;
             ctx.setLineDash(isSelected ? [] : []);
 
-            if (ent.type === 'LINE' || ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') {
+            const isShape = ['LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'CIRCLE', 'TEXT'].includes(ent.type);
+            if (isShape) {
                 ctx.beginPath();
                 ent.points.forEach((p, pi) => {
                     const s = w2s(p.y, p.x);
@@ -103,7 +104,7 @@ const DxfImport = () => {
                 ctx.stroke();
 
                 // Fill closed selected polyline lightly
-                if (isSelected && ent.closed) {
+                if (isSelected && ent.closed && ['LWPOLYLINE', 'POLYLINE'].includes(ent.type)) {
                     ctx.fillStyle = '#ffd70025';
                     ctx.fill();
                 }
@@ -199,7 +200,7 @@ const DxfImport = () => {
             let best = null, bestDist = Infinity;
 
             entitiesRef.current.forEach((ent, i) => {
-                if (ent.type === 'LINE' || ent.type === 'LWPOLYLINE' || ent.type === 'POLYLINE') {
+                if (['LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'CIRCLE'].includes(ent.type)) {
                     const pts = ent.points;
                     const len = ent.closed ? pts.length : pts.length - 1;
                     for (let j = 0; j < len; j++) {

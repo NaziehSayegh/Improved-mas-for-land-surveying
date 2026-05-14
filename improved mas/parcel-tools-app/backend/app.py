@@ -2139,10 +2139,13 @@ def _convert_dwg_to_dxf(dwg_path: str) -> str:
     dxf_name = os.path.splitext(fname)[0] + ".dxf"
     dxf_out = os.path.join(out_dir, dxf_name)
 
+    acad_error = None
     # ── Method 1: AutoCAD COM (works if AutoCAD is installed/running on Windows) ──
     if sys.platform == "win32":
         try:
             import win32com.client
+            import pythoncom
+            pythoncom.CoInitialize()
             # Try to connect to a running AutoCAD instance first (faster)
             try:
                 acad = win32com.client.GetActiveObject("AutoCAD.Application")
@@ -2151,15 +2154,39 @@ def _convert_dwg_to_dxf(dwg_path: str) -> str:
                 acad = win32com.client.Dispatch("AutoCAD.Application")
                 acad.Visible = False
 
-            doc = acad.Documents.Open(os.path.abspath(dwg_path))
-            # SaveAs format 60 = R2018 ASCII DXF
-            doc.SaveAs(os.path.abspath(dxf_out), 60)
+            # Open Read-Only to avoid locking issues if the user already has the file open
+            doc = acad.Documents.Open(os.path.abspath(dwg_path), True)
+            
+            # Suppress all dialogs and warnings (EXPERT=5 suppresses the custom objects version conflict dialog)
+            try:
+                doc.SetVariable("FILEDIA", 0)
+                doc.SetVariable("CMDDIA", 0)
+                doc.SetVariable("EXPERT", 5)
+                doc.SetVariable("PROXYGRAPHICS", 1)
+                doc.SetVariable("PROXYNOTICE", 0)
+            except Exception:
+                pass
+
+            # Try saving as DXF using newer to older formats
+            # 65 = AC2018 DXF, 61 = AC2013 DXF, 49 = AC2010 DXF, 37 = AC2007 DXF, 13 = AC2000 DXF
+            saved = False
+            for fmt_code in [65, 61, 49, 37, 13]:
+                try:
+                    doc.SaveAs(os.path.abspath(dxf_out), fmt_code)
+                    saved = True
+                    break
+                except Exception:
+                    continue
+            
             doc.Close(False)
 
-            if os.path.isfile(dxf_out):
+            if saved and os.path.isfile(dxf_out):
                 print(f"[parse-cad] DWG→DXF via AutoCAD COM: {dxf_out}")
                 return dxf_out
+            else:
+                raise RuntimeError("AutoCAD rejected the save formats or the file was locked.")
         except Exception as e:
+            acad_error = str(e)
             print(f"[parse-cad] AutoCAD COM unavailable: {e}")
 
     # ── Method 2: ODA File Converter ──────────────────────────────────────────
@@ -2184,12 +2211,12 @@ def _convert_dwg_to_dxf(dwg_path: str) -> str:
             raise RuntimeError(f"ODA conversion failed: {e.stderr.decode(errors='replace')}")
 
     # ── No converter available ────────────────────────────────────────────────
-    raise RuntimeError(
-        "Could not convert DWG file. "
-        "Please either:\n"
-        "• Open AutoCAD and try again (we will use it automatically), OR\n"
-        "• Download the free ODA File Converter from https://www.opendesign.com/guestfiles/oda_file_converter"
-    )
+    error_msg = "Could not convert DWG file. "
+    if acad_error:
+        error_msg += f"\nAutoCAD Error: {acad_error}"
+    error_msg += "\n\nPlease either:\n• Keep AutoCAD OPEN on your computer while importing\n• OR Download the free ODA File Converter."
+    
+    raise RuntimeError(error_msg)
 
 
 
@@ -2197,15 +2224,15 @@ def _parse_dxf_file(dxf_path: str) -> dict:
     """Parse a DXF file and return entities + raw points."""
     try:
         import ezdxf
-    except ImportError:
-        raise RuntimeError("ezdxf library not installed. Run: pip install ezdxf")
+    except ImportError as e:
+        import sys
+        raise RuntimeError(f"ezdxf library not installed or import failed. sys.path: {sys.path}, Error: {str(e)}")
 
     try:
         doc = ezdxf.readfile(dxf_path)
     except Exception as e:
         raise RuntimeError(f"Could not read DXF file: {e}")
 
-    msp = doc.modelspace()
     entities = []
     raw_points = []
     point_counter = [1]
@@ -2216,8 +2243,29 @@ def _parse_dxf_file(dxf_path: str) -> dict:
         raw_points.append({"id": pid, "x": round(float(y), 4), "y": round(float(x), 4)})
         return pid
 
-    for entity in msp:
-        etype = entity.dxftype()
+    # Only read from Layouts. Block instances (INSERT) in layouts will be exploded.
+    # We do NOT read doc.blocks directly because that gives unscaled/unplaced definitions at origin!
+    all_entities = []
+    try:
+        for layout in doc.layouts:
+            all_entities.extend(list(layout))
+    except Exception as e:
+        print(f"[parse-cad] Warning reading layouts: {e}")
+
+    def process_entity(entity):
+        try:
+            etype = entity.dxftype()
+        except:
+            return
+
+        if etype == "INSERT":
+            try:
+                # This correctly translates the block's internal entities to their actual coordinates in the drawing!
+                for virt_ent in entity.virtual_entities():
+                    process_entity(virt_ent)
+            except Exception:
+                pass
+            return
 
         if etype == "LWPOLYLINE":
             try:
@@ -2260,6 +2308,55 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                 })
             except Exception:
                 pass
+                
+        elif etype == "ARC":
+            try:
+                center = entity.dxf.center
+                radius = entity.dxf.radius
+                start_angle = math.radians(entity.dxf.start_angle)
+                end_angle = math.radians(entity.dxf.end_angle)
+                
+                if end_angle < start_angle:
+                    end_angle += 2 * math.pi
+                    
+                points = []
+                steps = 16
+                for i in range(steps + 1):
+                    angle = start_angle + (end_angle - start_angle) * (i / steps)
+                    px = center.x + radius * math.cos(angle)
+                    py = center.y + radius * math.sin(angle)
+                    points.append({"x": round(float(py), 4), "y": round(float(px), 4)})
+                
+                entities.append({
+                    "type": "ARC",
+                    "closed": False,
+                    "points": points,
+                    "layer": entity.dxf.layer
+                })
+            except Exception:
+                pass
+
+        elif etype == "CIRCLE":
+            try:
+                center = entity.dxf.center
+                radius = entity.dxf.radius
+                points = []
+                steps = 32
+                for i in range(steps):
+                    angle = 2 * math.pi * (i / steps)
+                    px = center.x + radius * math.cos(angle)
+                    py = center.y + radius * math.sin(angle)
+                    points.append({"x": round(float(py), 4), "y": round(float(px), 4)})
+                points.append(points[0]) # Close circle
+                
+                entities.append({
+                    "type": "CIRCLE",
+                    "closed": True,
+                    "points": points,
+                    "layer": entity.dxf.layer
+                })
+            except Exception:
+                pass
 
         elif etype == "POINT":
             try:
@@ -2267,6 +2364,31 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                 add_raw_point(loc.x, loc.y)
             except Exception:
                 pass
+
+        elif etype in ("TEXT", "MTEXT"):
+            try:
+                from ezdxf.addons import text2path
+                from ezdxf import path
+                
+                paths = text2path.make_paths_from_entity(entity)
+                for p in paths:
+                    # Flatten the text paths into straight line segments
+                    points = []
+                    for vertex in path.flatten_path(p, distance=0.1):
+                        points.append({"x": round(float(vertex.y), 4), "y": round(float(vertex.x), 4)})
+                    
+                    if len(points) >= 2:
+                        entities.append({
+                            "type": "TEXT",
+                            "closed": False,
+                            "points": points,
+                            "layer": entity.dxf.layer
+                        })
+            except Exception as e:
+                pass
+
+    for entity in all_entities:
+        process_entity(entity)
 
     return {"entities": entities, "raw_points": raw_points}
 
