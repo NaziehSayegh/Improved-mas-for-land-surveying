@@ -2243,6 +2243,25 @@ def _parse_dxf_file(dxf_path: str) -> dict:
         raw_points.append({"id": pid, "x": round(float(y), 4), "y": round(float(x), 4)})
         return pid
 
+    def get_ent_color(entity, doc):
+        try:
+            aci = entity.dxf.color
+            # aci 256 is 'ByLayer'
+            if aci == 256:
+                try:
+                    layer_name = entity.dxf.layer
+                    if layer_name in doc.layers:
+                        aci = doc.layers.get(layer_name).color
+                except:
+                    pass
+            
+            if aci and 0 < aci < 256:
+                r, g, b = ezdxf.colors.aci2rgb(aci)
+                return f"#{r:02x}{g:02x}{b:02x}"
+        except:
+            pass
+        return None
+
     # Only read from Layouts. Block instances (INSERT) in layouts will be exploded.
     # We do NOT read doc.blocks directly because that gives unscaled/unplaced definitions at origin!
     all_entities = []
@@ -2275,7 +2294,8 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                         "type": "LWPOLYLINE",
                         "closed": bool(entity.closed),
                         "points": pts,
-                        "layer": entity.dxf.layer
+                        "layer": entity.dxf.layer,
+                        "color": get_ent_color(entity, doc)
                     })
             except Exception:
                 pass
@@ -2289,7 +2309,8 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                         "type": "POLYLINE",
                         "closed": bool(entity.is_closed),
                         "points": pts,
-                        "layer": entity.dxf.layer
+                        "layer": entity.dxf.layer,
+                        "color": get_ent_color(entity, doc)
                     })
             except Exception:
                 pass
@@ -2304,7 +2325,8 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                         {"x": round(float(s.y), 4), "y": round(float(s.x), 4)},
                         {"x": round(float(e.y), 4), "y": round(float(e.x), 4)},
                     ],
-                    "layer": entity.dxf.layer
+                    "layer": entity.dxf.layer,
+                    "color": get_ent_color(entity, doc)
                 })
             except Exception:
                 pass
@@ -2331,7 +2353,8 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     "type": "ARC",
                     "closed": False,
                     "points": points,
-                    "layer": entity.dxf.layer
+                    "layer": entity.dxf.layer,
+                    "color": get_ent_color(entity, doc)
                 })
             except Exception:
                 pass
@@ -2353,7 +2376,8 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     "type": "CIRCLE",
                     "closed": True,
                     "points": points,
-                    "layer": entity.dxf.layer
+                    "layer": entity.dxf.layer,
+                    "color": get_ent_color(entity, doc)
                 })
             except Exception:
                 pass
@@ -2365,26 +2389,52 @@ def _parse_dxf_file(dxf_path: str) -> dict:
             except Exception:
                 pass
 
+        elif etype == "MTEXT":
+            try:
+                # First try to explode MTEXT into simple lines and text
+                for virt in entity.virtual_entities():
+                    process_entity(virt)
+            except:
+                # If explosion fails, treat as single text below
+                pass
+
         elif etype in ("TEXT", "MTEXT"):
             try:
                 from ezdxf.addons import text2path
                 from ezdxf import path
                 
+                # Get the actual text content and insertion
+                txt_content = entity.plain_text()
+                ins = entity.dxf.insert
+                
                 paths = text2path.make_paths_from_entity(entity)
-                for p in paths:
-                    # Flatten the text paths into straight line segments
-                    points = []
-                    for vertex in path.flatten_path(p, distance=0.1):
-                        points.append({"x": round(float(vertex.y), 4), "y": round(float(vertex.x), 4)})
-                    
-                    if len(points) >= 2:
-                        entities.append({
-                            "type": "TEXT",
-                            "closed": False,
-                            "points": points,
-                            "layer": entity.dxf.layer
-                        })
+                if paths:
+                    for p in paths:
+                        points = []
+                        for vertex in path.flatten_path(p, distance=0.01):
+                            points.append({"x": round(float(vertex.y), 4), "y": round(float(vertex.x), 4)})
+                        
+                        if len(points) >= 2:
+                            entities.append({
+                                "type": "TEXT",
+                                "closed": False,
+                                "points": points,
+                                "layer": entity.dxf.layer,
+                                "color": get_ent_color(entity, doc)
+                            })
+                else:
+                    # FALLBACK: If vector text fails, send as a text label
+                    entities.append({
+                        "type": "TEXT_LABEL",
+                        "text": txt_content,
+                        "x": round(float(ins.y), 4),
+                        "y": round(float(ins.x), 4),
+                        "layer": entity.dxf.layer,
+                        "color": get_ent_color(entity, doc),
+                        "height": round(float(entity.dxf.height), 2) if hasattr(entity.dxf, 'height') else 10
+                    })
             except Exception as e:
+                print(f"[parse-cad] Text conversion failed: {e}")
                 pass
 
     for entity in all_entities:
