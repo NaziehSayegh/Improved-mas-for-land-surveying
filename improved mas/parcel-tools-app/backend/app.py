@@ -2759,6 +2759,61 @@ def _parse_dxf_file(dxf_path: str) -> dict:
             pass
         return None
 
+    # Determine which layer represents land parcels/boundaries.
+    # In cadastral surveying (e.g., Palestine/Israel drawings), the primary parcel boundary layer is 'GIS'.
+    all_doc_layers = set()
+    try:
+        if hasattr(doc, 'layers'):
+            for l in doc.layers:
+                all_doc_layers.add(str(l.dxf.name).strip().upper())
+    except Exception:
+        pass
+    has_gis_layer = any(l == 'GIS' or 'GIS' in l for l in all_doc_layers)
+
+    def is_parcel_boundary_layer(layer_name: str) -> bool:
+        if not layer_name:
+            return False
+        lu = str(layer_name).strip().upper()
+        if has_gis_layer:
+            return (lu == 'GIS' or 'GIS' in lu)
+        return any(k in lu for k in ['PARCEL', 'PLOT', 'TABU', 'QUSAI', 'QASIMA', 'BOUNDARY OF PARTITION'])
+
+    def append_poly_or_explode(poly_type, closed, pts, segments_list, layer_name, color, filled=False):
+        if not pts or len(pts) < 2:
+            return
+        # If filled SOLID or if it IS on the GIS/Parcel boundary layer, keep as polyline
+        if filled or is_parcel_boundary_layer(layer_name):
+            ent_dict = {
+                "type": poly_type,
+                "closed": closed,
+                "points": pts,
+                "layer": layer_name,
+                "color": color
+            }
+            if segments_list:
+                ent_dict["segments"] = segments_list
+            if filled:
+                ent_dict["filled"] = True
+            entities.append(ent_dict)
+        else:
+            # Explode non-GIS polylines into individual unselectable line segments
+            num_pts = len(pts)
+            limit = num_pts if closed else num_pts - 1
+            for i in range(limit):
+                p1 = pts[i]
+                p2 = pts[(i + 1) % num_pts]
+                entities.append({
+                    "type": "LINE",
+                    "x1": p1["x"],
+                    "y1": p1["y"],
+                    "x2": p2["x"],
+                    "y2": p2["y"],
+                    "points": [p1, p2],
+                    "layer": layer_name,
+                    "color": color,
+                    "closed": False
+                })
+
     # Only read from Layouts. Block instances (INSERT) in layouts will be exploded.
     # We do NOT read doc.blocks directly because that gives unscaled/unplaced definitions at origin!
     all_entities = []
@@ -2866,15 +2921,7 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     else:
                         segments.append({"type": "line", "x": round(float(px), 4), "y": round(float(py), 4)})
 
-                if len(final_pts) >= 2:
-                    entities.append({
-                        "type": "LWPOLYLINE",
-                        "closed": closed,
-                        "points": final_pts,
-                        "segments": segments,
-                        "layer": entity.dxf.layer,
-                        "color": get_ent_color(entity, doc)
-                    })
+                append_poly_or_explode("LWPOLYLINE", closed, final_pts, segments, entity.dxf.layer, get_ent_color(entity, doc))
             except Exception as ex:
                 print(f"[parse-cad] LWPOLYLINE failed: {ex}")
 
@@ -2920,15 +2967,7 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     else:
                         segments.append({"type": "line", "x": round(px, 4), "y": round(py, 4)})
 
-                if len(final_pts) >= 2:
-                    entities.append({
-                        "type": "POLYLINE",
-                        "closed": closed,
-                        "points": final_pts,
-                        "segments": segments,
-                        "layer": entity.dxf.layer,
-                        "color": get_ent_color(entity, doc)
-                    })
+                append_poly_or_explode("POLYLINE", closed, final_pts, segments, entity.dxf.layer, get_ent_color(entity, doc))
             except Exception as ex:
                 print(f"[parse-cad] POLYLINE failed: {ex}")
 
@@ -3007,14 +3046,7 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                 for vertex in sp.flattening(0.1):
                     pts.append({"x": round(float(vertex.x), 4), "y": round(float(vertex.y), 4)})
                 if len(pts) >= 2:
-                    closed_spline = entity.closed
-                    entities.append({
-                        "type": "LWPOLYLINE",
-                        "closed": bool(closed_spline),
-                        "points": pts,
-                        "layer": entity.dxf.layer,
-                        "color": get_ent_color(entity, doc)
-                    })
+                    append_poly_or_explode("LWPOLYLINE", bool(entity.closed), pts, None, entity.dxf.layer, get_ent_color(entity, doc))
             except Exception as ex:
                 print(f"[parse-cad] SPLINE failed: {ex}")
 
@@ -3134,13 +3166,7 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     for vertex in p.flattening(0.5):
                         points.append({"x": round(float(vertex.x), 4), "y": round(float(vertex.y), 4)})
                     if len(points) >= 2:
-                        entities.append({
-                            "type": "POLYLINE",
-                            "closed": True,
-                            "points": points,
-                            "layer": entity.dxf.layer,
-                            "color": get_ent_color(entity, doc)
-                        })
+                        append_poly_or_explode("POLYLINE", True, points, None, entity.dxf.layer, get_ent_color(entity, doc), filled=True)
             except Exception as e:
                 print(f"[parse-cad] Hatch conversion failed: {e}")
 
@@ -3159,14 +3185,7 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     # DXF SOLID vertex order is: vtx0, vtx1, vtx3, vtx2 (Z pattern → correct winding)
                     if len(pts) == 4:
                         pts = [pts[0], pts[1], pts[3], pts[2]]
-                    entities.append({
-                        "type": "LWPOLYLINE",
-                        "closed": True,
-                        "points": pts,
-                        "layer": entity.dxf.layer,
-                        "color": get_ent_color(entity, doc),
-                        "filled": True
-                    })
+                    append_poly_or_explode("LWPOLYLINE", True, pts, None, entity.dxf.layer, get_ent_color(entity, doc), filled=True)
             except Exception as e:
                 print(f"[parse-cad] SOLID conversion failed: {e}")
 
@@ -3194,13 +3213,7 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     pts.append({"x": round(cx + rx, 4), "y": round(cy + ry, 4)})
                 closed = abs(end_param - start_param) >= math.pi * 2 - 0.01
                 if len(pts) >= 2:
-                    entities.append({
-                        "type": "LWPOLYLINE",
-                        "closed": closed,
-                        "points": pts,
-                        "layer": entity.dxf.layer,
-                        "color": get_ent_color(entity, doc)
-                    })
+                    append_poly_or_explode("LWPOLYLINE", closed, pts, None, entity.dxf.layer, get_ent_color(entity, doc))
             except Exception as e:
                 print(f"[parse-cad] Ellipse conversion failed: {e}")
 

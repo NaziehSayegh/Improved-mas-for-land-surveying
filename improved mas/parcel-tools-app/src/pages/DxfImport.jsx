@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, MapPin, Layers } from 'lucide-react';
+import { ArrowLeft, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, MapPin, Layers, ArrowUp, ArrowDown, RefreshCw, Star } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
 import { customConfirm } from '../utils/dialogs';
@@ -36,6 +36,19 @@ function isPointInPolygon(px, py, pts) {
         if (intersect) inside = !inside;
     }
     return inside;
+}
+
+function isParcelLayer(layerName, layerList = []) {
+    if (!layerName) return false;
+    const lname = String(layerName).trim().toUpperCase();
+    const hasGis = layerList.some(l => {
+        const n = String(l.name || '').trim().toUpperCase();
+        return n === 'GIS' || n.includes('GIS');
+    });
+    if (hasGis) {
+        return lname === 'GIS' || lname.includes('GIS');
+    }
+    return ['PARCEL', 'PLOT', 'TABU', 'QUSAI', 'QASIMA', 'BOUNDARY OF PARTITION'].some(k => lname.includes(k));
 }
 
 const DxfImport = () => {
@@ -92,9 +105,12 @@ const DxfImport = () => {
     const [detectedPoints, setDetectedPoints] = useState([]);
     const [parcelNumberInput, setParcelNumberInput] = useState('');
     const [newPointsToRegister, setNewPointsToRegister] = useState({});
+    const [renumberStartInput, setRenumberStartInput] = useState('1');
     
     // Layer Management
     const [layerList, setLayerList] = useState([]);
+    const layerListRef = useRef([]);
+    useEffect(() => { layerListRef.current = layerList || []; }, [layerList]);
     const [visibleLayers, setVisibleLayers] = useState({});
     const visibleLayersRef = useRef({});
     const [showLayerPanel, setShowLayerPanel] = useState(false);
@@ -379,8 +395,8 @@ const DxfImport = () => {
                 // Check visibility
                 if (visibleLayersRef.current && visibleLayersRef.current[ent.layer] === false) return;
 
-                // 1. Check if clicking inside a closed polygon (Parcel selection)
-                if (ent.closed && ent.points && ent.points.length >= 3) {
+                // 1. Check if clicking inside a closed polygon (Parcel selection - must be on GIS/Parcel boundary layer and not a filled hatch/symbol)
+                if (ent.closed && !ent.filled && ent.type !== 'CIRCLE' && ent.points && ent.points.length >= 3 && isParcelLayer(ent.layer, layerListRef.current)) {
                     // AutoCAD X = p.y in our ent structure, AutoCAD Y = p.x
                     // s2w returns {x, y} where x is the original CAD Y and y is the original CAD X
                     if (isPointInPolygon(clickWorld.x, clickWorld.y, ent.points)) {
@@ -390,6 +406,9 @@ const DxfImport = () => {
 
                 // 2. Fallback to edge selection
                 if (bestDist > 0 && ['LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'CIRCLE'].includes(ent.type) && ent.points) {
+                    if (ent.closed && (ent.filled || ent.type === 'CIRCLE' || !isParcelLayer(ent.layer, layerListRef.current))) {
+                        return;
+                    }
                     const pts = ent.points;
                     const len = ent.closed ? pts.length : pts.length - 1;
                     for (let j = 0; j < len; j++) {
@@ -520,7 +539,10 @@ const DxfImport = () => {
     const handleCreateParcel = async () => {
         if (selectedIdx === null) return;
         const ent = entities[selectedIdx];
-        if (!ent.closed) { toast.error('Select a CLOSED polyline'); return; }
+        if (!ent.closed || ent.filled || ent.type === 'CIRCLE' || !isParcelLayer(ent.layer, layerListRef.current)) {
+            toast.error('Please select a valid boundary polygon on the GIS / Parcel layer');
+            return;
+        }
 
         // ── Step 0: Separate labels into NUMERIC (point numbers) and ALL (for parcel name) ──
         const allLabels = entities.filter(e => e.type === 'TEXT_LABEL');
@@ -532,10 +554,18 @@ const DxfImport = () => {
 
         // ── Step 1: Auto-detect parcel number inside boundary ──
         let parcelNo = '';
-        // For parcel NAME search: prefer numeric labels inside boundary
         const labelsInside = allLabels.filter(lbl => isPointInPolygon(lbl.x, lbl.y, ent.points));
+        
+        // Prioritize labels on description layers (e.g., "TEXT of description", "TEXT for DESCRIPTION")
+        const descLabelsInside = labelsInside.filter(lbl => /description|desc/i.test(lbl.layer || ''));
+        const numericDescInside = descLabelsInside.filter(lbl => isNumericLabel(lbl.text));
         const numericInside = labelsInside.filter(lbl => isNumericLabel(lbl.text));
-        const searchPool = numericInside.length > 0 ? numericInside : labelsInside;
+
+        let searchPool = [];
+        if (numericDescInside.length > 0) searchPool = numericDescInside;
+        else if (descLabelsInside.length > 0) searchPool = descLabelsInside;
+        else if (numericInside.length > 0) searchPool = numericInside;
+        else searchPool = labelsInside;
 
         if (searchPool.length > 0) {
             let sx = 0, sy = 0;
@@ -545,7 +575,7 @@ const DxfImport = () => {
                 Math.hypot(a.x - centroid.x, a.y - centroid.y) -
                 Math.hypot(b.x - centroid.x, b.y - centroid.y)
             );
-            parcelNo = searchPool[0].text.trim().replace(/^Parcel\s+/i, '');
+            parcelNo = searchPool[0].text.trim().replace(/^Parcel\s+|^\#\s*|^No\.\s*/i, '');
         }
         if (!parcelNo) {
             parcelNo = (savedParcels.length + 1).toString();
@@ -581,33 +611,63 @@ const DxfImport = () => {
         const bbW = Math.max(...xs) - Math.min(...xs);
         const bbH = Math.max(...ys) - Math.min(...ys);
         const bbDiag = Math.hypot(bbW, bbH);
-        // Use 5% of the boundary diagonal as threshold, clamped between 1 and 500 units
-        const DYNAMIC_THRESHOLD = Math.max(1, Math.min(500, bbDiag * 0.05));
+        // Use 25% of the boundary diagonal as threshold, clamped between 15 and 500 units
+        const DYNAMIC_THRESHOLD = Math.max(15, Math.min(500, bbDiag * 0.25));
 
-        // ── Step 4: For each UNIQUE vertex, find nearest NUMERIC text label ──
+        // ── Step 4: For each UNIQUE vertex, find nearest text label using Global Best-Match Pairing ──
         const detectedPts = [];
         const missingPoints = {};
-        const usedLabelIndices = new Set(); // avoid assigning same label to two vertices
+        const candidateLabels = allLabels.filter(lbl => lbl.text && lbl.text.trim().length > 0 && lbl.text.trim().length <= 15);
+
+        // Helper: score a label for corner relevance based on layer name and distance
+        const scoreCandidate = (lbl, dist) => {
+            const layer = (lbl.layer || '').toLowerCase();
+            let score = dist;
+            // Prefer corner/point/number/mark/node block layers
+            if (/corner|number|mark|point|node|boundary|original|pt|num|no|id/i.test(layer)) {
+                score -= DYNAMIC_THRESHOLD * 3; // massive priority boost
+            }
+            // Prefer clean numeric or short integer text
+            if (/^\s*\d+(\.\d+)?\s*$/.test(lbl.text)) {
+                score -= DYNAMIC_THRESHOLD; // bonus for clean integers/numbers
+            }
+            // Deprioritize dimension/table/title/description/road layers
+            if (/dimension|dim|table|title|description|desc|road|elevation/i.test(layer)) {
+                score += DYNAMIC_THRESHOLD * 3; // penalty
+            }
+            return score;
+        };
+
+        // Create global candidate pairs of (vertexIdx, labelIdx, dist, score)
+        const allPairs = [];
+        uniqueVerts.forEach((p, vIdx) => {
+            candidateLabels.forEach((lbl, lIdx) => {
+                const d = Math.hypot(lbl.x - p.x, lbl.y - p.y);
+                if (d < DYNAMIC_THRESHOLD) {
+                    allPairs.push({ vIdx, lIdx, lbl, d, score: scoreCandidate(lbl, d) });
+                }
+            });
+        });
+
+        // Sort all pairs globally by score ascending for optimal non-greedy pairing
+        allPairs.sort((a, b) => a.score - b.score);
+
+        const assignedLabels = new Array(uniqueVerts.length).fill(null);
+        const usedLabelIndices = new Set();
+        const usedVertexIndices = new Set();
+
+        for (const pair of allPairs) {
+            if (!usedVertexIndices.has(pair.vIdx) && !usedLabelIndices.has(pair.lIdx)) {
+                assignedLabels[pair.vIdx] = { label: pair.lbl.text.trim(), dist: pair.d };
+                usedVertexIndices.add(pair.vIdx);
+                usedLabelIndices.add(pair.lIdx);
+            }
+        }
 
         uniqueVerts.forEach((p, idx) => {
-            // Search only in numeric labels; sort by distance
-            const candidates = numericLabels
-                .map((lbl, li) => ({ lbl, li, d: Math.hypot(lbl.x - p.x, lbl.y - p.y) }))
-                .filter(c => c.d < DYNAMIC_THRESHOLD)
-                .sort((a, b) => a.d - b.d);
-
-            // Pick the closest that hasn't already been claimed by another vertex
-            let chosen = null;
-            for (const c of candidates) {
-                if (!usedLabelIndices.has(c.li)) {
-                    chosen = c;
-                    usedLabelIndices.add(c.li);
-                    break;
-                }
-            }
-
-            const matchedLabel = chosen ? chosen.lbl.text.trim() : null;
-            const matchedDist  = chosen ? chosen.d : Infinity;
+            const match = assignedLabels[idx];
+            const matchedLabel = match ? match.label : null;
+            const matchedDist  = match ? match.dist : Infinity;
             let status  = 'missing';
             let pointId = '';
 
@@ -648,6 +708,16 @@ const DxfImport = () => {
 
 
 
+    const syncMissingPoints = (pointsArray) => {
+        const missing = {};
+        pointsArray.forEach(item => {
+            if (item.status !== 'matched' && item.pointId) {
+                missing[item.pointId] = { x: item.x, y: item.y };
+            }
+        });
+        setNewPointsToRegister(missing);
+    };
+
     const handleUpdatePointId = (vertexIdx, newId) => {
         const updated = [...detectedPoints];
         const row = updated[vertexIdx];
@@ -663,15 +733,70 @@ const DxfImport = () => {
         }
 
         setDetectedPoints(updated);
+        syncMissingPoints(updated);
+    };
 
-        // Rebuild newPointsToRegister
-        const missing = {};
-        updated.forEach(item => {
-            if (item.status === 'missing' && item.pointId) {
-                missing[item.pointId] = { x: item.x, y: item.y };
-            }
+    // ── Order & Renumbering Helpers for Modal ──
+    const handleMovePointUp = (idx) => {
+        if (idx === 0) return;
+        const updated = [...detectedPoints];
+        const temp = updated[idx - 1];
+        updated[idx - 1] = updated[idx];
+        updated[idx] = temp;
+        updated.forEach((p, i) => p.vertexIdx = i);
+        setDetectedPoints(updated);
+        syncMissingPoints(updated);
+    };
+
+    const handleMovePointDown = (idx) => {
+        if (idx === detectedPoints.length - 1) return;
+        const updated = [...detectedPoints];
+        const temp = updated[idx + 1];
+        updated[idx + 1] = updated[idx];
+        updated[idx] = temp;
+        updated.forEach((p, i) => p.vertexIdx = i);
+        setDetectedPoints(updated);
+        syncMissingPoints(updated);
+    };
+
+    const handleSetAsStartPoint = (idx) => {
+        if (idx === 0) return;
+        const updated = [
+            ...detectedPoints.slice(idx),
+            ...detectedPoints.slice(0, idx)
+        ];
+        updated.forEach((p, i) => p.vertexIdx = i);
+        setDetectedPoints(updated);
+        syncMissingPoints(updated);
+        toast.success(`Point ${updated[0].pointId || `#${idx + 1}`} set as start corner (#1)`);
+    };
+
+    const handleReverseOrder = () => {
+        if (detectedPoints.length <= 1) return;
+        const updated = [...detectedPoints].reverse();
+        updated.forEach((p, i) => p.vertexIdx = i);
+        setDetectedPoints(updated);
+        syncMissingPoints(updated);
+        toast.success('Boundary corner sequence reversed');
+    };
+
+    const handleAutoRenumber = () => {
+        const startNum = parseInt(renumberStartInput, 10);
+        if (isNaN(startNum)) {
+            toast.error('Enter a valid starting integer');
+            return;
+        }
+        const updated = detectedPoints.map((row, idx) => {
+            const newId = (startNum + idx).toString();
+            return {
+                ...row,
+                pointId: newId,
+                status: loadedPoints[newId] ? 'matched' : 'generated'
+            };
         });
-        setNewPointsToRegister(missing);
+        setDetectedPoints(updated);
+        syncMissingPoints(updated);
+        toast.success(`Renumbered corners sequentially from ${startNum}`);
     };
 
     const handleConfirmCreateParcel = async () => {
@@ -1009,18 +1134,45 @@ const DxfImport = () => {
                             </div>
 
                             {/* Point Mapping Table */}
-                            <div className="flex flex-col gap-2">
-                                <span className="text-xs font-bold text-dark-300 uppercase tracking-wider font-sans">Boundary Corner Mapping</span>
+                            <div className="flex flex-col gap-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                    <span className="text-xs font-bold text-dark-300 uppercase tracking-wider font-sans">Boundary Corner Mapping & Ordering</span>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <div className="flex items-center gap-1 bg-dark-800 border border-dark-700 px-2 py-1 rounded-lg">
+                                            <span className="text-[10px] text-dark-400 font-sans">Start #:</span>
+                                            <input 
+                                                type="text" 
+                                                value={renumberStartInput} 
+                                                onChange={(e) => setRenumberStartInput(e.target.value)} 
+                                                className="w-10 bg-dark-900 border border-dark-700 rounded px-1.5 py-0.5 text-xs text-center text-white font-mono outline-none focus:border-yellow-500"
+                                            />
+                                            <button 
+                                                onClick={handleAutoRenumber}
+                                                className="text-[10px] font-bold bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/30 px-2 py-0.5 rounded transition-all ml-1 font-sans"
+                                            >
+                                                Auto-Renumber
+                                            </button>
+                                        </div>
+                                        <button 
+                                            onClick={handleReverseOrder}
+                                            className="text-[10px] font-bold bg-dark-800 hover:bg-dark-700 text-dark-200 border border-dark-700 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-all font-sans"
+                                            title="Reverse sequence of corners (Clockwise ↔ Counter-clockwise)"
+                                        >
+                                            <RefreshCw className="w-3 h-3 text-primary" /> Reverse Direction
+                                        </button>
+                                    </div>
+                                </div>
                                 <div className="border border-dark-700 rounded-xl overflow-hidden bg-dark-950/40">
                                     <div className="max-h-[35vh] overflow-y-auto scroll-area">
                                         <table className="w-full text-left border-collapse text-[11px]">
                                             <thead>
                                                 <tr className="bg-dark-800/80 border-b border-dark-700 text-dark-400 uppercase tracking-wider font-bold font-sans">
-                                                    <th className="p-2.5 pl-4 w-16 text-center">#</th>
+                                                    <th className="p-2.5 pl-4 w-14 text-center">#</th>
                                                     <th className="p-2.5">CAD Vertex (X, Y)</th>
                                                     <th className="p-2.5">Closest CAD Text Label</th>
-                                                    <th className="p-2.5 w-44">Resolved Point ID</th>
-                                                    <th className="p-2.5 pr-4 w-28 text-center">Status</th>
+                                                    <th className="p-2.5 w-40">Resolved Point ID</th>
+                                                    <th className="p-2.5 w-24 text-center">Status</th>
+                                                    <th className="p-2.5 pr-4 w-32 text-center">Order Actions</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-dark-800 font-mono">
@@ -1049,7 +1201,7 @@ const DxfImport = () => {
                                                                 placeholder="Enter Point ID"
                                                             />
                                                         </td>
-                                                        <td className="p-2.5 pr-4 text-center font-sans">
+                                                        <td className="p-2.5 text-center font-sans">
                                                             {row.status === 'matched' ? (
                                                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold bg-green-500/10 border border-green-500/20 text-green-400">
                                                                     Matched
@@ -1063,6 +1215,34 @@ const DxfImport = () => {
                                                                     New Point
                                                                 </span>
                                                             )}
+                                                        </td>
+                                                        <td className="p-2.5 pr-4 text-center">
+                                                            <div className="flex items-center justify-center gap-1 font-sans">
+                                                                <button 
+                                                                    onClick={() => handleSetAsStartPoint(idx)}
+                                                                    disabled={idx === 0}
+                                                                    title="Set as Start Corner (#1)"
+                                                                    className={`p-1 rounded border transition-all ${idx === 0 ? 'bg-yellow-500/20 border-yellow-500/40 text-yellow-500 cursor-default' : 'bg-dark-800 hover:bg-dark-700 border-dark-700 text-dark-400 hover:text-yellow-400'}`}
+                                                                >
+                                                                    <Star className="w-3.5 h-3.5 fill-current" />
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => handleMovePointUp(idx)}
+                                                                    disabled={idx === 0}
+                                                                    title="Move Up in order"
+                                                                    className={`p-1 rounded border transition-all ${idx === 0 ? 'bg-dark-900 border-dark-800 text-dark-600 cursor-not-allowed' : 'bg-dark-800 hover:bg-dark-700 border-dark-700 text-dark-300 hover:text-white'}`}
+                                                                >
+                                                                    <ArrowUp className="w-3.5 h-3.5" />
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => handleMovePointDown(idx)}
+                                                                    disabled={idx === detectedPoints.length - 1}
+                                                                    title="Move Down in order"
+                                                                    className={`p-1 rounded border transition-all ${idx === detectedPoints.length - 1 ? 'bg-dark-900 border-dark-800 text-dark-600 cursor-not-allowed' : 'bg-dark-800 hover:bg-dark-700 border-dark-700 text-dark-300 hover:text-white'}`}
+                                                                >
+                                                                    <ArrowDown className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 ))}
