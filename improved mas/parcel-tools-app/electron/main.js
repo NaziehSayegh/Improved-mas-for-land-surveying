@@ -35,6 +35,10 @@ log(`Electron: ${process.versions.electron}`);
 log(`App Path: ${app.getAppPath()}`);
 log(`Is Packaged: ${app.isPackaged}`);
 
+// Always run in premium mode
+const APP_MODE = 'premium';
+log(`[Main] APP_MODE: ${APP_MODE}`);
+
 let mainWindow;
 let pythonProcess;
 
@@ -96,10 +100,7 @@ function startPythonBackend() {
 
   pythonProcess.stdout.on('data', (data) => {
     const msg = `[Python] ${data}`.trim();
-    // console.log(msg); // Don't log all stdout to file to avoid noise, unless needed
-    if (msg.includes('ERROR') || msg.includes('Exception') || msg.includes('Traceback')) {
-      log(msg);
-    }
+    log(msg);
   });
 
   pythonProcess.stderr.on('data', (data) => {
@@ -124,6 +125,23 @@ function startPythonBackend() {
   });
 }
 
+// Forcefully kill Python backend and all child processes synchronously
+function killPythonBackendSync() {
+  if (pythonProcess) {
+    log('[Backend] Forcefully killing Python backend process tree...');
+    try {
+      if (process.platform === 'win32') {
+        require('child_process').execSync(`taskkill /F /PID ${pythonProcess.pid} /T`, { stdio: 'ignore' });
+      } else {
+        pythonProcess.kill('SIGKILL');
+      }
+    } catch (err) {
+      // Process may already be terminated
+    }
+    pythonProcess = null;
+  }
+}
+
 async function checkLicenseStatus(retries = 5, delay = 2000) {
   return new Promise((resolve) => {
     let attempts = 0;
@@ -133,7 +151,8 @@ async function checkLicenseStatus(retries = 5, delay = 2000) {
       console.log(`[License] Checking license status (attempt ${attempts}/${retries})...`);
 
       try {
-        const request = http.get('http://127.0.0.1:5000/api/license/status', (res) => {
+        const url = `http://127.0.0.1:5000/api/license/status?mode=${APP_MODE}`;
+        const request = http.get(url, (res) => {
           let data = '';
           res.on('data', (chunk) => { data += chunk; });
           res.on('end', () => {
@@ -234,8 +253,13 @@ function createWindow() {
       // Suppress security warnings in dev console (they're expected)
       sandbox: false
     },
-    frame: true,
-    titleBarStyle: 'default',
+    frame: false,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#0d1117',
+      symbolColor: '#8b949e',
+      height: 32
+    },
     autoHideMenuBar: true,
     icon: path.join(__dirname, '../build/app-icon.png')
   });
@@ -258,8 +282,11 @@ function createWindow() {
     mainWindow.focus();
 
     // Check license status (with retries to wait for backend)
+    // In demo mode the React app handles the trial/expired UI — skip the native dialog.
     checkLicenseStatus(5, 2000).then(async (licenseInfo) => {
       console.log('[License] Final status:', licenseInfo);
+
+      // Proceed to check license status
 
       // Only show dialog if we're SURE there's no license (not on timeout/error)
       if (licenseInfo && !licenseInfo.is_valid && licenseInfo.status === 'no_license') {
@@ -451,7 +478,14 @@ if (app.isPackaged) {
         cancelId: 1
       }).then(result => {
         if (result.response === 0) {
-          autoUpdater.quitAndInstall(false, true);
+          console.log('[Auto-Update] Preparing to install update...');
+          killPythonBackendSync();
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.destroy();
+          }
+          setTimeout(() => {
+            autoUpdater.quitAndInstall(false, true);
+          }, 600);
         }
       });
     }
@@ -502,19 +536,23 @@ app.whenReady().then(() => {
   });
 });
 
+app.on('before-quit', () => {
+  killPythonBackendSync();
+});
+
+app.on('will-quit', () => {
+  killPythonBackendSync();
+});
+
 app.on('window-all-closed', () => {
-  if (pythonProcess) {
-    pythonProcess.kill();
-  }
+  killPythonBackendSync();
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
 app.on('quit', () => {
-  if (pythonProcess) {
-    pythonProcess.kill();
-  }
+  killPythonBackendSync();
 });
 
 // IPC handlers

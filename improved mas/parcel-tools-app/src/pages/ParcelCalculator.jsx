@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { customConfirm, customPrompt } from '../utils/dialogs';
 
@@ -29,40 +29,46 @@ const ParcelCalculator = () => {
     fileHeading,
     setFileHeading,
     savedErrorCalculations,
-    setSavedErrorCalculations
+    setSavedErrorCalculations,
+    currentParcel,
+    setCurrentParcel,
+    loadProjectData,
+    cadFilePath,
+    cadFileName,
+    cadEntities,
+    cadLayers,
+    cadVisibleLayers
   } = useProject();
 
   // Store the last saved file path locally
   const [lastSavedPath, setLastSavedPath] = useState(projectPath || null);
+  const [selectEditParcelMode, setSelectEditParcelMode] = useState(false);
+  const selectEditParcelModeRef = useRef(selectEditParcelMode);
+  
 
   // Local state
   const [parcelNumber, setParcelNumber] = useState('');
   const [pointId, setPointId] = useState('');
   const [enteredIds, setEnteredIds] = useState([]);
+  const [curves, setCurves] = useState([]); // { from: id, to: id, M: number, sign: +1/-1 }
   const [area, setArea] = useState(null);
   const [perimeter, setPerimeter] = useState(null);
-  const [activeTab, setActiveTab] = useState('editor'); // 'editor', 'saved', 'all', or 'errors'
+  const [activeTab, setActiveTab] = useState('map'); // default to visual map tab for instant feedback
 
   // Error calculations state
   const [selectedParcelsForError, setSelectedParcelsForError] = useState([]); // Array of parcel IDs
   const [totalRegisteredArea, setTotalRegisteredArea] = useState(''); // Single registered area for all selected parcels
   const [errorResults, setErrorResults] = useState(null); // Single result object for all parcels
-  const [curves, setCurves] = useState([]); // { from: id, to: id, M: number, sign: +1/-1 }
-  const [showAreaDialog, setShowAreaDialog] = useState(false);
-  const [showCurvesDialog, setShowCurvesDialog] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({
     isOpen: false,
     title: '',
     message: '',
     onConfirm: null
   });
-  const [tempArea, setTempArea] = useState(null);
-  const [tempPerimeter, setTempPerimeter] = useState(null);
   const [curveFrom, setCurveFrom] = useState('');
   const [curveTo, setCurveTo] = useState('');
   const [curveM, setCurveM] = useState('');
   const [curveSign, setCurveSign] = useState('+');
-  const [liveAreaWithCurves, setLiveAreaWithCurves] = useState(null);
   const [editingCurveIndex, setEditingCurveIndex] = useState(null); // Index of curve being edited
 
   // Editing saved parcel state
@@ -75,28 +81,581 @@ const ParcelCalculator = () => {
   const [duplicateParcel, setDuplicateParcel] = useState(null);
   const [pendingParcelNumber, setPendingParcelNumber] = useState('');
 
-  // ESC key to go to main menu (only if no dialogs are open) or close duplicate dialog
+  // --- Canvas Drawing Hooks & State ---
+  const canvasRef = useRef(null);
+  const canvasContainerRef = useRef(null);
+  const zoomRef = useRef(1);
+  const panRef = useRef({ x: 0, y: 0 });
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const [zoomDisplay, setZoomDisplay] = useState(1);
+  const [showPointLabels, setShowPointLabels] = useState(true);
+  const [showCoordinates, setShowCoordinates] = useState(false);
+  const [showSavedParcelsMap, setShowSavedParcelsMap] = useState(true);
+  const [isClosed, setIsClosed] = useState(false);
+  
+  // Mirror state to refs for callback stability
+  const showPointLabelsRef = useRef(showPointLabels);
+  const showCoordinatesRef = useRef(showCoordinates);
+  const showSavedParcelsMapRef = useRef(showSavedParcelsMap);
+  const curvesRef = useRef(curves);
+  const enteredIdsRef = useRef(enteredIds);
+  const loadedPointsRef = useRef(loadedPoints);
+  const savedParcelsRef = useRef(savedParcels);
+  const areaRef = useRef(area);
+  const parcelNumberRef = useRef(parcelNumber);
+  const isClosedRef = useRef(isClosed);
+
+  useEffect(() => { showPointLabelsRef.current = showPointLabels; }, [showPointLabels]);
+  useEffect(() => { showCoordinatesRef.current = showCoordinates; }, [showCoordinates]);
+  useEffect(() => { showSavedParcelsMapRef.current = showSavedParcelsMap; }, [showSavedParcelsMap]);
+  useEffect(() => { curvesRef.current = curves; }, [curves]);
+  useEffect(() => { enteredIdsRef.current = enteredIds; }, [enteredIds]);
+  useEffect(() => { loadedPointsRef.current = loadedPoints; }, [loadedPoints]);
+  useEffect(() => { savedParcelsRef.current = savedParcels; }, [savedParcels]);
+  useEffect(() => { areaRef.current = area; }, [area]);
+  useEffect(() => { parcelNumberRef.current = parcelNumber; }, [parcelNumber]);
+  useEffect(() => { isClosedRef.current = isClosed; }, [isClosed]);
+
+  // Sync context projectPath with local lastSavedPath
   useEffect(() => {
-    const handleKeyPress = (e) => {
-      if (e.key === 'Escape') {
-        // Close duplicate dialog if open
-        if (showDuplicateDialog) {
-          e.preventDefault();
-          setShowDuplicateDialog(false);
-          setDuplicateParcel(null);
-          setPendingParcelNumber('');
-          return;
+    if (projectPath) {
+      setLastSavedPath(projectPath);
+    }
+  }, [projectPath]);
+
+  // Sync local parcel fields to context currentParcel state
+  useEffect(() => {
+    setCurrentParcel({
+      parcelNumber,
+      enteredIds,
+      curves
+    });
+  }, [parcelNumber, enteredIds, curves, setCurrentParcel]);
+
+  // Initialize/sync local parcel fields from context currentParcel state when project loads
+  useEffect(() => {
+    if (currentParcel) {
+      setParcelNumber(currentParcel.parcelNumber || '');
+      setEnteredIds(currentParcel.enteredIds || []);
+      setCurves(currentParcel.curves || []);
+    }
+  }, [projectPath]);
+
+  // Helper function to show error toast
+  const showErrorToast = useCallback((message) => {
+    const toast = document.createElement('div');
+    toast.innerHTML = message;
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      right: auto;
+      text-align: center;
+      background: #da3633;
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      font-weight: bold;
+      z-index: 10000;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+      line-height: 1.5;
+    `;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-out';
+      setTimeout(() => toast.remove(), 300);
+    }, 4000);
+  }, []);
+
+  // Helper function to show success toast
+  const showSuccessToast = useCallback((message) => {
+    const toast = document.createElement('div');
+    toast.innerHTML = message;
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      right: auto;
+      text-align: center;
+      background: #238636;
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      font-weight: bold;
+      z-index: 10000;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+      line-height: 1.5;
+    `;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-out';
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  }, []);
+
+  // Helper function to show confirmation dialog (non-blocking)
+  const showConfirmDialog = useCallback((title, message) => {
+    return new Promise((resolve) => {
+      setConfirmDialog({
+        isOpen: true,
+        title,
+        message,
+        onConfirm: (result) => {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+          resolve(result);
         }
-        // Only navigate if no dialogs are open
-        if (!showAreaDialog && !showCurvesDialog) {
-          e.preventDefault();
-          navigate('/');
-        }
+      });
+    });
+  }, []);
+
+  // Calculate area with active curves
+  const updateCalculatedArea = useCallback(async (ids = enteredIds, activeCurves = curves) => {
+    if (ids.length < 3) return;
+    try {
+      const pointsData = ids.map(id => ({
+        x: loadedPoints[id].x,
+        y: loadedPoints[id].y
+      }));
+
+      const curvesWithIndices = activeCurves.map(curve => {
+        const fromIndex = ids.findIndex(id => id === curve.from);
+        const toIndex = ids.findIndex(id => id === curve.to);
+        return {
+          ...curve,
+          fromIndex,
+          toIndex
+        };
+      });
+
+      const response = await fetch('http://localhost:5000/api/calculate-area', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          points: pointsData,
+          curves: curvesWithIndices
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setArea(data.area);
+        setPerimeter(data.perimeter);
+      } else {
+        throw new Error('Calculation failed');
+      }
+    } catch (error) {
+      console.error('Error calculating area:', error);
+      showErrorToast('❌ Error calculating area');
+    }
+  }, [loadedPoints, enteredIds, curves]);
+
+
+
+  // Coordinate Conversion Helpers
+  const worldToScreen = useCallback((wx, wy) => {
+    return {
+      x: wx * zoomRef.current + panRef.current.x,
+      y: -wy * zoomRef.current + panRef.current.y
+    };
+  }, []);
+
+  const screenToWorld = useCallback((sx, sy) => {
+    return {
+      x: (sx - panRef.current.x) / zoomRef.current,
+      y: -(sy - panRef.current.y) / zoomRef.current
+    };
+  }, []);
+
+  const getCentroid = useCallback((pts) => {
+    if (!pts || pts.length === 0) return { x: 0, y: 0 };
+    let sx = 0, sy = 0;
+    pts.forEach(p => {
+      sx += p.x;
+      sy += p.y;
+    });
+    return { x: sx / pts.length, y: sy / pts.length };
+  }, []);
+
+  const isPolygonCCW = useCallback((pts) => {
+    if (pts.length < 3) return true;
+    let sum = 0;
+    const n = pts.length;
+    for (let i = 0; i < n; i++) {
+      const p1 = pts[i];
+      const p2 = pts[(i + 1) % n];
+      if (p1 && p2) {
+        sum += p1.x * p2.y - p2.x * p1.y;
+      }
+    }
+    return sum > 0;
+  }, []);
+
+  const isPointInPolygon = useCallback((pt, polygon) => {
+    const x = pt.x, y = pt.y;
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i].x, yi = polygon[i].y;
+      const xj = polygon[j].x, yj = polygon[j].y;
+      const intersect = ((yi > y) !== (yj > y))
+          && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }, []);
+
+  const getArcPoints = useCallback((A, B, M, sign, isCCW) => {
+    const dx = B.x - A.x;
+    const dy = B.y - A.y;
+    const C = Math.hypot(dx, dy);
+    
+    if (C < 0.001 || M <= 0) {
+      return [A, B];
+    }
+    
+    const R = (C * C) / (8 * M) + M / 2;
+    const M_mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+    
+    // Left normal vector to the chord (pointing to the left of A -> B)
+    const nx = -dy / C;
+    const ny = dx / C;
+    
+    // If CCW, addition (+1) is to the right (-normal), subtraction (-1) is to the left (+normal)
+    // If CW, addition (+1) is to the left (+normal), subtraction (-1) is to the right (-normal)
+    const factor = isCCW ? -sign : sign;
+    const dx_arc = nx * factor;
+    const dy_arc = ny * factor;
+    
+    const cx = M_mid.x - (R - M) * dx_arc;
+    const cy = M_mid.y - (R - M) * dy_arc;
+    
+    const angleA = Math.atan2(A.y - cy, A.x - cx);
+    const angleB = Math.atan2(B.y - cy, B.x - cx);
+    
+    let diff = angleB - angleA;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    
+    const pts = [];
+    const steps = 30;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const angle = angleA + diff * t;
+      pts.push({
+        x: cx + R * Math.cos(angle),
+        y: cy + R * Math.sin(angle)
+      });
+    }
+    return pts;
+  }, []);
+
+  const getBounds = useCallback(() => {
+    const points = loadedPointsRef.current;
+    if (!points || Object.keys(points).length === 0) return null;
+    
+    const pts = Object.entries(points).map(([id, pt]) => ({
+      id,
+      x: pt.x,
+      y: pt.y
+    }));
+    
+    const xs = pts.map(p => p.x);
+    const ys = pts.map(p => p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    
+    return {
+      minX, maxX, minY, maxY,
+      width: maxX - minX,
+      height: maxY - minY,
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2,
+      points: pts
+    };
+  }, []);
+
+  const drawGrid = useCallback((ctx, w, h) => {
+    const zoom = zoomRef.current;
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1;
+    const step = 50 / zoom;
+    const sw = screenToWorld(0, 0), ew = screenToWorld(w, h);
+    const minX = Math.min(sw.x, ew.x), maxX = Math.max(sw.x, ew.x);
+    const minY = Math.min(sw.y, ew.y), maxY = Math.max(sw.y, ew.y);
+    for (let x = Math.floor(minX / step) * step; x <= maxX; x += step) {
+      const sx = worldToScreen(x, 0).x;
+      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
+    }
+    for (let y = Math.floor(minY / step) * step; y <= maxY; y += step) {
+      const sy = worldToScreen(0, y).y;
+      ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
+    }
+  }, [screenToWorld, worldToScreen]);
+
+  const drawParcel = useCallback((ctx, parcel, index, isActive = false) => {
+    if (!parcel.ids || parcel.ids.length < 2) return;
+    const points = loadedPointsRef.current;
+    
+    let color = '#38bdf8'; // Sky blue for saved
+    if (isActive) {
+      color = '#a78bfa'; // Purple for active
+    } else {
+      const colors = ['#34d399', '#f87171', '#fbbf24', '#94a3b8', '#fb923c'];
+      color = colors[index % colors.length];
+    }
+    
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color + (isActive ? '25' : '08');
+    ctx.lineWidth = isActive ? 3 : 1.5;
+    ctx.beginPath();
+    
+    const parcelPts = parcel.ids.map(id => points[id]).filter(Boolean);
+    const isCCW = isPolygonCCW(parcelPts);
+
+    for (let i = 0; i < parcel.ids.length; i++) {
+      const id1 = parcel.ids[i];
+      const id2 = parcel.ids[(i + 1) % parcel.ids.length];
+      const pt1 = points[id1];
+      const pt2 = points[id2];
+      if (!pt1 || !pt2) continue;
+
+      const curve = parcel.curves?.find(c => 
+        (c.from === id1 && c.to === id2) || 
+        (c.from === id2 && c.to === id1)
+      );
+
+      if (curve && curve.M > 0) {
+        const isReversed = curve.from === id2 && curve.to === id1;
+        const drawSign = isReversed ? -curve.sign : curve.sign;
+        const arcPts = getArcPoints(pt1, pt2, curve.M, drawSign, isCCW);
+        arcPts.forEach((ap, api) => {
+          const s = worldToScreen(ap.x, ap.y);
+          if (i === 0 && api === 0) ctx.moveTo(s.x, s.y);
+          else ctx.lineTo(s.x, s.y);
+        });
+      } else {
+        const s1 = worldToScreen(pt1.x, pt1.y);
+        const s2 = worldToScreen(pt2.x, pt2.y);
+        if (i === 0) ctx.moveTo(s1.x, s1.y);
+        ctx.lineTo(s2.x, s2.y);
+      }
+    }
+    
+    if (parcel.ids.length > 2) {
+      ctx.closePath();
+    }
+    ctx.fill();
+    ctx.stroke();
+    
+    if (parcel.number) {
+      let sx = 0, sy = 0, cnt = 0;
+      parcel.ids.forEach(id => {
+        const pt = points[id];
+        if (pt) { sx += pt.x; sy += pt.y; cnt++; }
+      });
+      if (cnt > 0) {
+        const s = worldToScreen(sx / cnt, sy / cnt);
+        ctx.fillStyle = color;
+        ctx.font = 'bold 12px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Parcel ${parcel.number}`, s.x, s.y);
+      }
+    }
+  }, [worldToScreen, getArcPoints, isPolygonCCW]);
+
+  const drawActiveParcelLines = useCallback((ctx) => {
+    const activeIds = enteredIdsRef.current;
+    const points = loadedPointsRef.current;
+    const activeCurves = curvesRef.current;
+    if (activeIds.length === 0) return;
+    
+    ctx.strokeStyle = '#a78bfa';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    
+    let activePathClosed = false;
+    if (activeIds.length > 2) {
+      if (activeIds[activeIds.length - 1] === activeIds[0] || isClosed || area !== null) {
+        activePathClosed = true;
+      }
+    }
+    
+    const activePts = activeIds.map(id => points[id]).filter(Boolean);
+    const isCCW = isPolygonCCW(activePts);
+
+    const numPoints = activeIds.length;
+    const isExplicitlyClosed = numPoints > 2 && activeIds[numPoints - 1] === activeIds[0];
+    const limit = (activePathClosed && !isExplicitlyClosed) ? numPoints : numPoints - 1;
+
+    for (let i = 0; i < limit; i++) {
+      const id1 = activeIds[i];
+      const id2 = activeIds[(i + 1) % numPoints];
+      const pt1 = points[id1];
+      const pt2 = points[id2];
+      if (!pt1 || !pt2) continue;
+
+      const curve = activeCurves?.find(c => 
+        (c.from === id1 && c.to === id2) || 
+        (c.from === id2 && c.to === id1)
+      );
+
+      if (curve && curve.M > 0) {
+        const isReversed = curve.from === id2 && curve.to === id1;
+        const drawSign = isReversed ? -curve.sign : curve.sign;
+        const arcPts = getArcPoints(pt1, pt2, curve.M, drawSign, isCCW);
+        arcPts.forEach((ap, api) => {
+          const s = worldToScreen(ap.x, ap.y);
+          if (i === 0 && api === 0) ctx.moveTo(s.x, s.y);
+          else ctx.lineTo(s.x, s.y);
+        });
+      } else {
+        const s1 = worldToScreen(pt1.x, pt1.y);
+        const s2 = worldToScreen(pt2.x, pt2.y);
+        if (i === 0) ctx.moveTo(s1.x, s1.y);
+        ctx.lineTo(s2.x, s2.y);
+      }
+    }
+    
+    if (activePathClosed) {
+      ctx.fillStyle = 'rgba(167, 139, 250, 0.15)';
+      ctx.fill();
+    }
+    ctx.stroke();
+  }, [worldToScreen, getArcPoints, isPolygonCCW, area, isClosed]);
+
+  const drawPoint = useCallback((ctx, id, pt) => {
+    const activeIds = enteredIdsRef.current;
+    const s = worldToScreen(pt.x, pt.y);
+    const isActivePoint = activeIds.includes(id);
+    
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, isActivePoint ? 7 : 4, 0, Math.PI * 2);
+    ctx.fillStyle = isActivePoint ? '#a78bfa' : '#475569';
+    ctx.fill();
+    
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = isActivePoint ? 1.5 : 1;
+    ctx.stroke();
+    
+    if (showPointLabelsRef.current) {
+      ctx.fillStyle = isActivePoint ? '#e9d5ff' : '#94a3b8';
+      ctx.font = isActivePoint ? 'bold 11px Inter, monospace' : '9px Inter, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(id, s.x, s.y - (isActivePoint ? 10 : 8));
+    }
+    
+    if (showCoordinatesRef.current) {
+      ctx.font = '8px monospace';
+      ctx.fillStyle = '#6e7681';
+      ctx.fillText(`(${pt.x.toFixed(1)}, ${pt.y.toFixed(1)})`, s.x, s.y + 15);
+    }
+  }, [worldToScreen]);
+
+  const drawCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const bounds = getBounds();
+    
+    ctx.fillStyle = '#0f172a'; // Deep slate background
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    if (!bounds || bounds.points.length === 0) {
+      ctx.fillStyle = '#64748b';
+      ctx.font = '15px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('No points loaded. Load a points file (.pnt/.txt) to begin visual mapping.', canvas.width / 2, canvas.height / 2);
+      return;
+    }
+    
+    drawGrid(ctx, canvas.width, canvas.height);
+    
+    // Draw saved parcels
+    if (showSavedParcelsMapRef.current) {
+      const parcels = savedParcelsRef.current;
+      parcels.forEach((p, index) => {
+        drawParcel(ctx, p, index, false);
+      });
+    }
+    
+    // Draw active parcel lines
+    drawActiveParcelLines(ctx);
+    
+    // Draw all points
+    bounds.points.forEach(p => {
+      drawPoint(ctx, p.id, loadedPointsRef.current[p.id]);
+    });
+  }, [getBounds, drawGrid, drawParcel, drawActiveParcelLines, drawPoint]);
+
+  useEffect(() => {
+    selectEditParcelModeRef.current = selectEditParcelMode;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.style.cursor = selectEditParcelMode ? 'pointer' : 'crosshair';
+    }
+    drawCanvas();
+  }, [selectEditParcelMode, drawCanvas]);
+
+  const resetView = useCallback(() => {
+    const bounds = getBounds();
+    const canvas = canvasRef.current;
+    if (!bounds || !canvas) return;
+    const padding = 60;
+    const scaleX = (canvas.width - padding * 2) / Math.max(bounds.width, 1);
+    const scaleY = (canvas.height - padding * 2) / Math.max(bounds.height, 1);
+    const scale = Math.min(scaleX, scaleY, 100);
+    zoomRef.current = scale;
+    panRef.current = {
+      x: canvas.width / 2 - bounds.centerX * scale,
+      y: canvas.height / 2 + bounds.centerY * scale
+    };
+    setZoomDisplay(scale);
+    drawCanvas();
+  }, [getBounds, drawCanvas]);
+
+
+
+  // Redraw when data changes
+  useEffect(() => {
+    if (activeTab === 'map') {
+      drawCanvas();
+    }
+  }, [loadedPoints, savedParcels, enteredIds, area, isClosed, showPointLabels, showCoordinates, showSavedParcelsMap, activeTab, drawCanvas]);
+
+  // Enter/ESC keyboard shortcut listeners for the confirm dialog
+  useEffect(() => {
+    if (!confirmDialog.isOpen) return;
+
+    const handleConfirmKeys = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        confirmDialog.onConfirm?.(true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        confirmDialog.onConfirm?.(false);
       }
     };
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [navigate, showAreaDialog, showCurvesDialog, showDuplicateDialog]);
+
+    window.addEventListener('keydown', handleConfirmKeys);
+    return () => window.removeEventListener('keydown', handleConfirmKeys);
+  }, [confirmDialog]);
+
+  // Auto-fit view when points are loaded
+  const hasPoints = Object.keys(loadedPoints).length > 0;
+  useEffect(() => {
+    if (hasPoints && activeTab === 'map') {
+      setTimeout(resetView, 100);
+    }
+  }, [hasPoints, activeTab]);
+
 
   // Handle window close/refresh - ask before closing with unsaved changes
   useEffect(() => {
@@ -264,87 +823,13 @@ const ParcelCalculator = () => {
     reader.readAsText(file);
   };
 
-  // Helper function to show error toast
-  const showErrorToast = (message) => {
-    const toast = document.createElement('div');
-    toast.innerHTML = message;
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      right: auto;
-      text-align: center;
-      background: #da3633;
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      font-weight: bold;
-      z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-      animation: slideIn 0.3s ease-out;
-      max-width: 400px;
-      line-height: 1.5;
-    `;
-    document.body.appendChild(toast);
 
-    setTimeout(() => {
-      toast.style.animation = 'slideOut 0.3s ease-out';
-      setTimeout(() => toast.remove(), 300);
-    }, 4000);
-  };
-
-  // Helper function to show success toast
-  const showSuccessToast = (message) => {
-    const toast = document.createElement('div');
-    toast.innerHTML = message;
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      right: auto;
-      text-align: center;
-      background: #238636;
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      font-weight: bold;
-      z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-      animation: slideIn 0.3s ease-out;
-      max-width: 400px;
-      line-height: 1.5;
-    `;
-    document.body.appendChild(toast);
-
-    setTimeout(() => {
-      toast.style.animation = 'slideOut 0.3s ease-out';
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
-  };
-
-  // Helper function to show confirmation dialog (non-blocking)
-  const showConfirmDialog = (title, message) => {
-    return new Promise((resolve) => {
-      setConfirmDialog({
-        isOpen: true,
-        title,
-        message,
-        onConfirm: (result) => {
-          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
-          resolve(result);
-        }
-      });
-    });
-  };
 
   // Add point ID
   const handleAddPoint = () => {
-    // Make sure dialogs are closed
-    if (showAreaDialog || showCurvesDialog) {
-      setShowAreaDialog(false);
-      setShowCurvesDialog(false);
+    if (isClosed || area !== null) {
+      showErrorToast('⚠️ Boundary is already closed! Save or clear the active parcel first.');
+      return;
     }
 
     if (!pointId.trim()) return;
@@ -404,8 +889,7 @@ const ParcelCalculator = () => {
 
     // Check if polygon closed (first ID re-entered)
     if (enteredIds.length > 2 && pointId === enteredIds[0]) {
-      // Close polygon and calculate
-      calculateArea([...enteredIds]);
+      closePolygonAndPrompt(enteredIds);
       setPointId('');
       return;
     }
@@ -423,159 +907,25 @@ const ParcelCalculator = () => {
     }, 50);
   };
 
-  // Calculate area when polygon closed
-  const calculateArea = async (ids) => {
-    try {
-      const points = ids.map(id => ({
-        x: loadedPoints[id].x,
-        y: loadedPoints[id].y
-      }));
 
-      const response = await fetch('http://localhost:5000/api/calculate-area', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ points }),
-      });
 
-      if (!response.ok) throw new Error('Calculation failed');
-
-      const data = await response.json();
-      setTempArea(data.area);
-      setTempPerimeter(data.perimeter);
-      setShowAreaDialog(true); // Show dialog to user
-    } catch (error) {
-      console.error('Error calculating area:', error);
-      showErrorToast('Error calculating area');
-    }
-  };
-
-  // User confirms area - ask about curves
-  const handleConfirmArea = () => {
-    setShowAreaDialog(false);
-    setShowCurvesDialog(true);
-  };
-
-  // User wants to edit
-  const handleEditArea = () => {
-    setShowAreaDialog(false);
-    setTempArea(null);
-    setTempPerimeter(null);
-    // Keep points so they can edit
-  };
-
-  // User done with curves - recalculate with curves and show confirmation
-  const handleFinalizeCurves = async () => {
-    setShowCurvesDialog(false);
-
-    // Recalculate area WITH curves
-    try {
-      const pointsData = enteredIds.map((id, index) => ({
-        x: loadedPoints[id].x,
-        y: loadedPoints[id].y
-      }));
-
-      // Add curve indices
-      const curvesWithIndices = curves.map(curve => {
-        const fromIndex = enteredIds.findIndex(id => id === curve.from);
-        const toIndex = enteredIds.findIndex(id => id === curve.to);
-        return {
-          ...curve,
-          fromIndex,
-          toIndex
-        };
-      });
-
-      const response = await fetch('http://localhost:5000/api/calculate-area', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          points: pointsData,
-          curves: curvesWithIndices
-        }),
-      });
-
-      if (!response.ok) throw new Error('Calculation failed');
-
-      const data = await response.json();
-
-      const finalCalculatedArea = data.area;
-      const finalPerimeter = data.perimeter;
-
-      // Show final confirmation
-      const curveAdjText = data.curveAdjustment !== 0
-        ? `\nCurve Adjustment: ${data.curveAdjustment > 0 ? '+' : ''}${data.curveAdjustment.toFixed(4)} m²`
-        : '';
-
-      const confirmed = await showConfirmDialog(
-        `✅ Area Calculated with ${curves.length} Curve(s)!`,
-        `Base Area: ${data.baseArea.toFixed(4)} m²${curveAdjText.replace(/\\n/g, '<br/>')}<br/>━━━━━━━━━━━━━━━━━━━━━━<br/>Final Area: ${finalCalculatedArea.toFixed(4)} m²<br/><br/>Is this correct?<br/><br/>OK = Save Parcel | Cancel = Go Back to Edit`
-      );
-
-      if (confirmed) {
-        // User confirmed - save parcel with CURVE-ADJUSTED AREA
-        setShowCurvesDialog(false);
-        autoSaveCurrentParcelWithArea(finalCalculatedArea, finalPerimeter);
-      } else {
-        // User wants to edit - keep dialog open with current values
-        setTempArea(finalCalculatedArea);
-        setTempPerimeter(finalPerimeter);
-        // Dialog stays open
-      }
-    } catch (error) {
-      console.error('Error calculating with curves:', error);
-      showErrorToast('❌ Error calculating area with curves');
-    }
-  };
-
-  // Recalculate area when curves change
+  // Recalculate area when curves change (if the area is calculated / loop closed)
   useEffect(() => {
-    if (showCurvesDialog && curves.length > 0) {
-      calculateAreaWithCurves();
-    } else {
-      setLiveAreaWithCurves(tempArea);
+    if (area !== null && enteredIds.length >= 3) {
+      updateCalculatedArea(enteredIds, curves);
     }
-  }, [curves, showCurvesDialog]);
-
-  // Calculate area with current curves
-  const calculateAreaWithCurves = async () => {
-    try {
-      const pointsData = enteredIds.map((id) => ({
-        x: loadedPoints[id].x,
-        y: loadedPoints[id].y
-      }));
-
-      const curvesWithIndices = curves.map(curve => {
-        const fromIndex = enteredIds.findIndex(id => id === curve.from);
-        const toIndex = enteredIds.findIndex(id => id === curve.to);
-        return {
-          ...curve,
-          fromIndex,
-          toIndex
-        };
-      });
-
-      const response = await fetch('http://localhost:5000/api/calculate-area', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          points: pointsData,
-          curves: curvesWithIndices
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setLiveAreaWithCurves(data.area);
-      }
-    } catch (error) {
-      console.error('Error calculating with curves:', error);
-    }
-  };
+  }, [curves]);
 
   // Add curve
   const handleAddCurve = () => {
     if (!curveFrom || !curveTo || !curveM) {
       showErrorToast('Fill all curve fields!');
+      return;
+    }
+
+    const mValue = parseFloat(curveM);
+    if (isNaN(mValue) || mValue <= 0) {
+      showErrorToast('Ordinate (M) must be a positive number!');
       return;
     }
 
@@ -588,7 +938,7 @@ const ParcelCalculator = () => {
     const newCurve = {
       from: curveFrom,
       to: curveTo,
-      M: parseFloat(curveM),
+      M: mValue,
       sign: curveSign === '+' ? 1 : -1
     };
 
@@ -599,8 +949,11 @@ const ParcelCalculator = () => {
 
     // Auto-focus back to "From" for rapid entry
     setTimeout(() => {
-      const fromInput = document.getElementById('curve-from');
-      if (fromInput) fromInput.focus();
+      const fromInput = document.getElementById('sidebar-curve-from');
+      if (fromInput) {
+        fromInput.focus();
+        fromInput.select?.();
+      }
     }, 50);
   };
 
@@ -615,10 +968,10 @@ const ParcelCalculator = () => {
 
     // Focus "From" input
     setTimeout(() => {
-      const fromInput = document.getElementById('curve-from');
+      const fromInput = document.getElementById('sidebar-curve-from');
       if (fromInput) {
         fromInput.focus();
-        fromInput.select();
+        fromInput.select?.();
       }
     }, 50);
   };
@@ -632,11 +985,17 @@ const ParcelCalculator = () => {
       return;
     }
 
+    const mValue = parseFloat(curveM);
+    if (isNaN(mValue) || mValue <= 0) {
+      showErrorToast('Ordinate (M) must be a positive number!');
+      return;
+    }
+
     const updatedCurves = [...curves];
     updatedCurves[editingCurveIndex] = {
       from: curveFrom,
       to: curveTo,
-      M: parseFloat(curveM),
+      M: mValue,
       sign: curveSign === '+' ? 1 : -1
     };
 
@@ -669,154 +1028,6 @@ const ParcelCalculator = () => {
         handleAddCurve();
       }
     }
-  };
-
-  const handleSkipCurves = async () => {
-    // Show final confirmation
-    const confirmed = await showConfirmDialog(
-      '✅ Area Without Curves',
-      `Final Area: ${tempArea.toFixed(4)} m²<br/>Perimeter: ${tempPerimeter.toFixed(4)} m<br/>Points: ${enteredIds.length}<br/><br/>Is this correct?<br/><br/>OK = Save Parcel | Cancel = Go Back to Edit`
-    );
-
-    if (confirmed) {
-      // User confirmed - auto-save and close dialog
-      setShowCurvesDialog(false);
-      autoSaveCurrentParcelWithArea(tempArea, tempPerimeter);
-    }
-    // If user cancels, dialog stays open (no need to reopen)
-  };
-
-  // Auto-save current parcel with specific area value
-  const autoSaveCurrentParcelWithArea = (finalArea, finalPerimeter) => {
-    if (!parcelNumber.trim()) {
-      showErrorToast('⚠️ Enter a parcel number first!');
-      return;
-    }
-    if (enteredIds.length < 3) {
-      showErrorToast('⚠️ Need at least 3 points!');
-      return;
-    }
-
-    const currentParcelNum = parcelNumber; // Save before resetting
-
-    // Check if we are updating an existing parcel
-    if (editingParcelId) {
-      const updatedParcels = savedParcels.map(p => {
-        if (p.id === editingParcelId) {
-          return {
-            ...p,
-            number: currentParcelNum,
-            ids: [...enteredIds],
-            area: finalArea,
-            perimeter: finalPerimeter,
-            curves: [...curves],
-            pointCount: enteredIds.length
-          };
-        }
-        return p;
-      });
-
-      setSavedParcels(updatedParcels);
-      setHasUnsavedChanges(true);
-
-      // Show update toast
-      const toast = document.createElement('div');
-      toast.innerHTML = `✅ Updated Parcel #${currentParcelNum}! 💾`;
-      toast.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        right: auto;
-        text-align: center;
-        background: #238636;
-        color: white;
-        padding: 16px 24px;
-        border-radius: 12px;
-        font-weight: bold;
-        z-index: 10000;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-        animation: slideIn 0.3s ease-out;
-      `;
-      document.body.appendChild(toast);
-      setTimeout(() => {
-        toast.style.animation = 'slideOut 0.3s ease-out';
-        setTimeout(() => toast.remove(), 300);
-      }, 3000);
-
-      // Clear editing state
-      setEditingParcelId(null);
-    } else {
-      // Create NEW parcel
-      const parcel = {
-        id: Date.now(),
-        number: currentParcelNum,
-        ids: [...enteredIds],
-        area: finalArea,  // Use the FINAL calculated area (with curves!)
-        perimeter: finalPerimeter,
-        curves: [...curves],
-        pointCount: enteredIds.length
-      };
-
-      setSavedParcels([...savedParcels, parcel]);
-      setHasUnsavedChanges(true);
-
-      // Show save toast
-      const toast = document.createElement('div');
-      const saveText = (lastSavedPath || projectPath) ? '💾 Auto-saving...' : '⚠️ Please Save Project!';
-      toast.innerHTML = `✅ Parcel ${currentParcelNum} saved! ${saveText}`;
-      toast.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        right: auto;
-        text-align: center;
-        background: #238636;
-        color: white;
-        padding: 16px 24px;
-        border-radius: 12px;
-        font-weight: bold;
-        z-index: 10000;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-        animation: slideIn 0.3s ease-out;
-      `;
-      document.body.appendChild(toast);
-      setTimeout(() => {
-        toast.style.animation = 'slideOut 0.3s ease-out';
-        setTimeout(() => toast.remove(), 300);
-      }, 3000);
-    }
-
-    // Close all dialogs first
-    setShowAreaDialog(false);
-    setShowCurvesDialog(false);
-
-    // Reset ALL state for next parcel
-    setParcelNumber('');
-    setPointId(''); // Clear point ID input
-    setEnteredIds([]);
-    setArea(null);
-    setPerimeter(null);
-    setCurves([]);
-    setTempArea(null);
-    setTempPerimeter(null);
-    setLiveAreaWithCurves(null);
-
-    // Reset curve form fields
-    setCurveFrom('');
-    setCurveTo('');
-    setCurveM('');
-    setCurveSign('+');
-
-    // Re-focus to parcel number input (no alert blocking!)
-    setTimeout(() => {
-      const parcelInput = document.querySelector('input[placeholder="Enter parcel number"]');
-      if (parcelInput) {
-        parcelInput.focus();
-        parcelInput.select();
-      }
-    }, 200);
   };
 
   // Save parcel
@@ -853,6 +1064,7 @@ const ParcelCalculator = () => {
     setArea(null);
     setPerimeter(null);
     setCurves([]);
+    setIsClosed(false);
 
     const saveText = (lastSavedPath || projectPath) ? '💾 Auto-saving project...' : '⚠️ Please Save Project!';
     showSuccessToast(`✅ Saved parcel ${parcel.number}<br/><br/>${saveText}`);
@@ -872,6 +1084,7 @@ const ParcelCalculator = () => {
       setEnteredIds(enteredIds.slice(0, -1));
       setArea(null);
       setPerimeter(null);
+      setIsClosed(false);
     }
   };
 
@@ -884,6 +1097,7 @@ const ParcelCalculator = () => {
       setPerimeter(null);
       setCurves([]);
       setParcelNumber('');
+      setIsClosed(false);
       showSuccessToast('✅ Points reset');
     }
   };
@@ -894,6 +1108,7 @@ const ParcelCalculator = () => {
     setEnteredIds(newIds);
     setArea(null);
     setPerimeter(null);
+    setIsClosed(false);
   };
 
   // Load saved parcel for editing
@@ -905,43 +1120,12 @@ const ParcelCalculator = () => {
     setArea(parcel.area);
     setPerimeter(parcel.perimeter);
     setEditingParcelId(parcel.id); // Track which parcel we're editing
-    setActiveTab('editor');
+    setIsClosed(true);
+    setActiveTab('map');
     // Close duplicate dialog if open
     setShowDuplicateDialog(false);
     setDuplicateParcel(null);
     setPendingParcelNumber('');
-
-    // Calculate base area (without curves) so we can edit curves correctly
-    try {
-      // We need loadedPoints to be available
-      if (loadedPoints && parcel.ids.length > 0) {
-        const pointsData = parcel.ids.map(id => {
-          if (!loadedPoints[id]) return { x: 0, y: 0 };
-          return {
-            x: loadedPoints[id].x,
-            y: loadedPoints[id].y
-          };
-        });
-
-        const response = await fetch('http://localhost:5000/api/calculate-area', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            points: pointsData
-            // No curves sent = base area
-          }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setTempArea(data.area);
-          setTempPerimeter(data.perimeter);
-          console.log('Calculated base area for editing:', data.area);
-        }
-      }
-    } catch (error) {
-      console.error('Error calculating base area for editing:', error);
-    }
   };
 
   // Handle duplicate parcel dialog - Replace option
@@ -1195,8 +1379,12 @@ const ParcelCalculator = () => {
     setEditingParcelId(null);
     setInsertPointAfterIndex(null);
     setEditingPointIndex(null);
-    setArea(finalArea);
-    setPerimeter(finalPerimeter);
+    setParcelNumber('');
+    setEnteredIds([]);
+    setArea(null);
+    setPerimeter(null);
+    setCurves([]);
+    setIsClosed(false);
 
     // Show success toast
     const toast = document.createElement('div');
@@ -1223,6 +1411,272 @@ const ParcelCalculator = () => {
       setTimeout(() => toast.remove(), 300);
     }, 3000);
   };
+
+  // Helper to close polygon, calculate, and prompt for curves
+  const closePolygonAndPrompt = useCallback(async (ids) => {
+    setIsClosed(true);
+    // 1. Calculate area and perimeter
+    await updateCalculatedArea(ids, curves);
+
+    // 2. Ask user if there are any curves
+    const hasCurves = await showConfirmDialog(
+      'Curves Adjustment',
+      'Boundary closed successfully! Are there any curves to adjust on this parcel?'
+    );
+
+    if (hasCurves) {
+      // Focus "From Pt" input
+      setTimeout(() => {
+        const fromInput = document.getElementById('sidebar-curve-from');
+        if (fromInput) {
+          fromInput.focus();
+          fromInput.select?.();
+        }
+      }, 150);
+    } else {
+      // Ask if they want to save the parcel now
+      const shouldSave = await showConfirmDialog(
+        'Save Parcel',
+        'Would you like to save this parcel now?'
+      );
+      if (shouldSave) {
+        if (!parcelNumberRef.current || !parcelNumberRef.current.trim()) {
+          showErrorToast('⚠️ Please enter a parcel number first!');
+          setTimeout(() => {
+            const numInput = document.getElementById('parcel-number-input');
+            if (numInput) {
+              numInput.focus();
+            }
+          }, 150);
+        } else {
+          if (editingParcelId) {
+            handleUpdateSavedParcel();
+          } else {
+            handleSaveParcel();
+          }
+        }
+      } else {
+        // Focus "Save/Update Parcel" button
+        setTimeout(() => {
+          const saveBtn = document.getElementById('save-parcel-btn');
+          if (saveBtn) {
+            saveBtn.focus();
+          }
+        }, 150);
+      }
+    }
+  }, [curves, updateCalculatedArea, showConfirmDialog, handleSaveParcel, handleUpdateSavedParcel, editingParcelId, showErrorToast]);
+
+  // Setup canvas listeners
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = canvasContainerRef.current;
+    if (!canvas || !container || activeTab !== 'map') return;
+    
+    const resize = () => {
+      const r = container.getBoundingClientRect();
+      canvas.width = r.width;
+      canvas.height = r.height;
+      drawCanvas();
+    };
+    
+    const onWheel = (e) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      const oldZ = zoomRef.current;
+      const newZ = Math.max(0.01, Math.min(200, oldZ * delta));
+      const scale = newZ / oldZ;
+      panRef.current = {
+        x: mx - (mx - panRef.current.x) * scale,
+        y: my - (my - panRef.current.y) * scale
+      };
+      zoomRef.current = newZ;
+      setZoomDisplay(newZ);
+      drawCanvas();
+    };
+    
+    const onDown = (e) => {
+      isDraggingRef.current = true;
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+      canvas.style.cursor = 'grabbing';
+    };
+    
+    const onMouseMove = (e) => {
+      if (!isDraggingRef.current) return;
+      panRef.current = {
+        x: panRef.current.x + (e.clientX - dragStartRef.current.x),
+        y: panRef.current.y + (e.clientY - dragStartRef.current.y)
+      };
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+      drawCanvas();
+    };
+    
+    const onMouseUp = () => {
+      isDraggingRef.current = false;
+      canvas.style.cursor = selectEditParcelModeRef.current ? 'pointer' : 'crosshair';
+    };
+    
+    const onClick = async (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      
+      if (selectEditParcelModeRef.current) {
+        // SELECT/EDIT PARCEL MODE: check if clicked a parcel or its number label
+        const worldPt = screenToWorld(cx, cy);
+        console.log('[EditMode Click] cx:', cx, 'cy:', cy, 'worldPt:', worldPt);
+        
+        const currentSavedParcels = savedParcelsRef.current || [];
+        const currentPoints = loadedPointsRef.current || {};
+        console.log('[EditMode Click] Total saved parcels in state:', currentSavedParcels.length);
+        
+        const candidates = [];
+        
+        for (let i = 0; i < currentSavedParcels.length; i++) {
+          const parcel = currentSavedParcels[i];
+          const pts = (parcel.ids || []).map(id => currentPoints[id]).filter(Boolean);
+          if (pts.length >= 3) {
+            // Check 1: Point in polygon
+            const isInside = isPointInPolygon(worldPt, pts);
+            
+            // Check 2: Near label centroid
+            let isNearLabel = false;
+            let sx = 0, sy = 0, cnt = 0;
+            parcel.ids.forEach(id => {
+              const pt = currentPoints[id];
+              if (pt) { sx += pt.x; sy += pt.y; cnt++; }
+            });
+            let distToLabel = Infinity;
+            if (cnt > 0) {
+              const s = worldToScreen(sx / cnt, sy / cnt);
+              distToLabel = Math.hypot(s.x - cx, s.y - cy);
+              if (distToLabel < 30) { // 30px click radius around label
+                isNearLabel = true;
+              }
+            }
+            
+            console.log(`[EditMode Click] Checking Parcel #${parcel.number}: isInside=${isInside}, isNearLabel=${isNearLabel} (distToLabel=${distToLabel !== Infinity ? distToLabel.toFixed(1) : 'N/A'}), pointCount=${pts.length}`);
+            
+            if (isInside || isNearLabel) {
+              candidates.push({
+                parcel,
+                isInside,
+                isNearLabel,
+                distToLabel,
+                area: parcel.area || 0
+              });
+            }
+          } else {
+            console.log(`[EditMode Click] Skipped Parcel #${parcel.number} (less than 3 valid points: ${pts.length})`);
+          }
+        }
+        
+        let clickedParcel = null;
+        if (candidates.length > 0) {
+          // Sort candidates:
+          // 1. Prioritize near label
+          // 2. Sort by distance to label if both near label
+          // 3. Otherwise, sort by area ascending (smallest area first, e.g. nested parcels)
+          candidates.sort((a, b) => {
+            if (a.isNearLabel && !b.isNearLabel) return -1;
+            if (!a.isNearLabel && b.isNearLabel) return 1;
+            if (a.isNearLabel && b.isNearLabel) {
+              return a.distToLabel - b.distToLabel;
+            }
+            return a.area - b.area;
+          });
+          clickedParcel = candidates[0].parcel;
+          console.log(`[EditMode Click] MATCH FOUND: Selected Parcel #${clickedParcel.number} out of ${candidates.length} candidates`);
+        }
+        
+        if (clickedParcel) {
+          const confirmEdit = await showConfirmDialog(
+            'Edit Parcel',
+            `Would you like to edit Parcel #${clickedParcel.number}?`
+          );
+          if (confirmEdit) {
+            handleLoadSavedParcel(clickedParcel);
+            setSelectEditParcelMode(false);
+          }
+        } else {
+          // Diagnostic toast to show what went wrong
+          const matchLogs = currentSavedParcels.map(p => {
+            const pts = (p.ids || []).map(id => currentPoints[id]).filter(Boolean);
+            const inside = isPointInPolygon(worldPt, pts);
+            let dist = 'N/A';
+            let sx = 0, sy = 0, cnt = 0;
+            p.ids.forEach(id => {
+              const pt = currentPoints[id];
+              if (pt) { sx += pt.x; sy += pt.y; cnt++; }
+            });
+            if (cnt > 0) {
+              const s = worldToScreen(sx / cnt, sy / cnt);
+              dist = Math.hypot(s.x - cx, s.y - cy).toFixed(1) + 'px';
+            }
+            return `#${p.number}: inside=${inside}, dist=${dist}, pts=${pts.length}/${p.ids ? p.ids.length : 0}`;
+          }).reverse().slice(0, 5).join('<br/>');
+          
+          showErrorToast(`❌ Click at (${worldPt.x.toFixed(1)}, ${worldPt.y.toFixed(1)}) did not match any parcel.<br/><br/><b>Checked Parcels:</b><br/>${matchLogs || 'None saved'}`);
+        }
+        return;
+      }
+
+      // NORMAL MODE: select point to build parcel
+      const bounds = getBounds();
+      if (!bounds) return;
+      
+      let closest = null;
+      let minD = Infinity;
+      bounds.points.forEach(p => {
+        const s = worldToScreen(p.x, p.y);
+        const d = Math.hypot(s.x - cx, s.y - cy);
+        if (d < 15 && d < minD) {
+          minD = d;
+          closest = p.id;
+        }
+      });
+      
+      if (closest) {
+        // If the boundary is already closed (isClosedRef.current || areaRef.current !== null), block selection of more points
+        const isClosed = isClosedRef.current || areaRef.current !== null;
+        if (isClosed) {
+          showErrorToast('⚠️ Boundary is already closed! Please save or clear the active parcel first.');
+          return;
+        }
+
+        // Double check if polygon closed (first ID re-clicked)
+        if (enteredIdsRef.current.length > 2 && closest === enteredIdsRef.current[0]) {
+          closePolygonAndPrompt(enteredIdsRef.current);
+        } else if (!enteredIdsRef.current.includes(closest)) {
+          setEnteredIds(prev => [...prev, closest]);
+          setArea(null);
+          setPerimeter(null);
+        }
+      }
+    };
+    
+    resize();
+    window.addEventListener('resize', resize);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('mousedown', onDown);
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mouseup', onMouseUp);
+    canvas.addEventListener('mouseleave', onMouseUp);
+    canvas.addEventListener('click', onClick);
+    
+    return () => {
+      window.removeEventListener('resize', resize);
+      canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('mousedown', onDown);
+      canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('mouseup', onMouseUp);
+      canvas.removeEventListener('mouseleave', onMouseUp);
+      canvas.removeEventListener('click', onClick);
+    };
+  }, [activeTab, drawCanvas, getBounds, worldToScreen, screenToWorld, closePolygonAndPrompt, isPointInPolygon, showConfirmDialog, handleLoadSavedParcel]);
 
   // Delete saved parcel
   const handleDeleteSaved = async (id) => {
@@ -1267,6 +1721,11 @@ const ParcelCalculator = () => {
         curves: curves || []
       },
       savedErrorCalculations: savedErrorCalculations || [],
+      cadFilePath: cadFilePath || '',
+      cadFileName: cadFileName || '',
+      cadEntities: cadEntities || [],
+      cadLayers: cadLayers || [],
+      cadVisibleLayers: cadVisibleLayers || {},
       savedAt: new Date().toISOString(),
       // Add metadata to indicate if project is empty
       isEmpty: !savedParcels || savedParcels.length === 0,
@@ -1575,54 +2034,38 @@ const ParcelCalculator = () => {
         const result = await response.json();
         const projectData = result.projectData;
 
-        // IMPORTANT: Clear ALL current state FIRST to ensure complete isolation
-        setGlobalProjectName('');
-        setPointsFileName('');
-        setPointsFilePath('');
-        setLoadedPoints({});
-        setSavedParcels([]);
-        setFileHeading({
-          block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
-        });
-        setSavedErrorCalculations([]);
+        // Clear local UI state
         setParcelNumber('');
         setEnteredIds([]);
         setArea(null);
         setPerimeter(null);
         setCurves([]);
-        setHasUnsavedChanges(false);
 
-        // Now load the NEW project's data - completely replace everything
-        setGlobalProjectName(projectData.projectName || '');
-        // Remember the file path for future saves
-        if (filePath) {
-          setLastSavedPath(filePath);
-          setProjectPath(filePath);
+        // Now load the NEW project's data into global context
+        const finalPath = result.filePath || filePath;
+        if (finalPath) {
+          setLastSavedPath(finalPath);
         }
-        setPointsFileName(projectData.pointsFileName || '');
-        setPointsFilePath(projectData.pointsFilePath || '');
-        setLoadedPoints(projectData.loadedPoints || {});
-        setSavedParcels(projectData.savedParcels || []);
-        setFileHeading(projectData.fileHeading || {
-          block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
-        });
-        setSavedErrorCalculations(projectData.savedErrorCalculations || []);
+        loadProjectData(projectData, finalPath);
 
-        // Load current parcel state if it exists
+        // Load current parcel UI state if it exists
         if (projectData.currentParcel) {
           setParcelNumber(projectData.currentParcel.parcelNumber || '');
           setEnteredIds(projectData.currentParcel.enteredIds || []);
           setCurves(projectData.currentParcel.curves || []);
         } else {
-          // Clear current parcel if not in project
           setParcelNumber('');
           setEnteredIds([]);
           setCurves([]);
         }
 
-        setHasUnsavedChanges(false);
-
         showSuccessToast(`✅ Project "${projectData.projectName}" loaded successfully!<br/><br/>Parcels: ${projectData.savedParcels?.length || 0}<br/>Points: ${Object.keys(projectData.loadedPoints || {}).length}<br/><br/>🔄 Points file is being watched for changes!`);
+
+        const hasCad = Boolean(projectData.cadFilePath || (projectData.cadEntities && projectData.cadEntities.length > 0) || projectData.cadFileName);
+        if (hasCad) {
+          navigate('/dxf-import');
+          return;
+        }
 
         // Focus the parcel number input after project loads
         setTimeout(() => {
@@ -1760,6 +2203,33 @@ const ParcelCalculator = () => {
       showSuccessToast('✅ Project closed. You can now start a new project or load an existing one.');
     }, 100);
   };
+
+  // Navigate back to main menu with unsaved changes verification
+  const handleBackToMainMenu = useCallback(async () => {
+    const currentProjectPath = lastSavedPath || projectPath;
+
+    if (hasUnsavedChanges) {
+      const result = await showUnsavedChangesDialog(
+        globalProjectName
+          ? `Save changes to "${globalProjectName}" before exiting?`
+          : 'Save changes before exiting?'
+      );
+
+      if (result === 'save') {
+        try {
+          const saved = await handleSaveProject(!currentProjectPath);
+          if (!saved) return; // User cancelled save - don't navigate
+        } catch (error) {
+          console.log('Save failed or cancelled:', error);
+          return;
+        }
+      } else if (result === 'cancel') {
+        return; // Stay on the page
+      }
+    }
+
+    navigate('/');
+  }, [navigate, hasUnsavedChanges, lastSavedPath, projectPath, globalProjectName]);
 
   // Helper function to show unsaved changes dialog (same as in hook)
   const showUnsavedChangesDialog = (message) => {
@@ -2197,7 +2667,8 @@ const ParcelCalculator = () => {
           parcels: [parcel],
           points: loadedPoints,
           fileHeading: userChoice.heading,
-          errorResults: null
+          errorResults: null,
+          isBuggy: false
         }),
       });
 
@@ -2246,7 +2717,8 @@ const ParcelCalculator = () => {
           points: loadedPoints,
           fileHeading: fileHeading,
           errorResults: errorResults,  // Keeping this for backward compatibility or current view
-          savedErrorCalculations: savedErrorCalculations // Sending all saved calculations
+          savedErrorCalculations: savedErrorCalculations, // Sending all saved calculations
+          isBuggy: false
         }),
       });
 
@@ -2357,87 +2829,98 @@ const ParcelCalculator = () => {
     }
   };
 
+  // ESC key to go to main menu (only if no dialogs are open) or close duplicate dialog
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (e.key === 'Escape') {
+        // Close duplicate dialog if open
+        if (showDuplicateDialog) {
+          e.preventDefault();
+          setShowDuplicateDialog(false);
+          setDuplicateParcel(null);
+          setPendingParcelNumber('');
+          return;
+        }
+        // Only navigate if no dialogs are open
+        if (!showDuplicateDialog && !confirmDialog.isOpen) {
+          e.preventDefault();
+          handleBackToMainMenu();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [handleBackToMainMenu, showDuplicateDialog, confirmDialog.isOpen]);
+
   return (
-    <div className="min-h-screen p-6 relative z-10 bg-dark-900">
+    <div className="h-screen w-screen flex flex-col bg-dark-900 text-white overflow-hidden select-none">
+      {/* Portals / Overlay Dialogs */}
       {/* Duplicate Parcel Dialog - Non-blocking */}
       {showDuplicateDialog && duplicateParcel && createPortal(
         <div
-          className="fixed inset-0 z-50 p-4"
+          className="fixed inset-0 bg-black/60 flex items-center justify-center backdrop-blur-sm"
           style={{
-            pointerEvents: 'none',
             position: 'fixed',
             top: 0,
             left: 0,
             width: '100vw',
             height: '100vh',
-            zIndex: 9999
+            zIndex: 9999,
+            pointerEvents: 'auto'
           }}
         >
           <motion.div
-            initial={{ scale: 0.9, opacity: 0, x: 20 }}
-            animate={{ scale: 1, opacity: 1, x: 0 }}
-            className="bg-dark-800 border-2 border-warning rounded-2xl p-8 max-w-md w-full shadow-2xl"
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-dark-800 border-2 border-warning rounded-2xl p-6 max-w-md w-full shadow-2xl"
             onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            style={{
-              position: 'fixed',
-              top: '20px',
-              right: '20px',
-              pointerEvents: 'auto',
-              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.8)',
-              maxWidth: '450px'
-            }}
           >
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-3xl font-bold text-warning">⚠️ Duplicate Parcel Number</h2>
+              <h2 className="text-2xl font-bold text-warning flex items-center gap-2">⚠️ Duplicate Parcel</h2>
               <button
                 onClick={() => {
                   setShowDuplicateDialog(false);
                   setDuplicateParcel(null);
                   setPendingParcelNumber('');
                 }}
-                className="text-dark-400 hover:text-white text-2xl font-bold leading-none"
-                title="Close (or click outside)"
+                className="text-dark-400 hover:text-white text-xl font-bold"
               >
                 ×
               </button>
             </div>
-            <p className="text-dark-300 mb-6">
+            <p className="text-dark-200 mb-4 text-sm">
               Parcel number <strong className="text-primary">"{pendingParcelNumber}"</strong> already exists!
             </p>
 
-            <div className="bg-dark-700 rounded-xl p-4 mb-6 border border-dark-600">
-              <p className="text-dark-400 text-sm mb-2">Existing Parcel Details:</p>
-              <div className="text-dark-50">
+            <div className="bg-dark-700 rounded-xl p-4 mb-4 border border-dark-600">
+              <p className="text-dark-400 text-xs mb-1">Existing Parcel Details:</p>
+              <div className="text-dark-100 text-sm">
                 <p><strong>Parcel #{duplicateParcel.number}</strong></p>
-                <p className="text-sm text-dark-300 mt-1">
+                <p className="text-xs text-dark-300 mt-1">
                   📐 Area: {duplicateParcel.area?.toFixed(4) || 'N/A'} m² |
                   📍 Points: {duplicateParcel.pointCount || duplicateParcel.ids?.length || 0}
                 </p>
               </div>
             </div>
 
-            <p className="text-dark-300 mb-6">What would you like to do?</p>
-            <p className="text-dark-400 text-sm mb-4 italic">
-              💡 Note: Duplicates will be saved separately and shown in the "All Parcels" tab
-            </p>
+            <p className="text-dark-200 mb-4 text-sm">What would you like to do?</p>
 
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2.5">
               <button
                 onClick={handleReplaceDuplicate}
-                className="btn-primary w-full py-3 flex items-center justify-center gap-2"
+                className="btn-primary w-full py-2.5 text-sm"
               >
-                ✏️ Replace & Edit Existing
+                ✏️ Edit Existing
               </button>
               <button
                 onClick={handleCreateNewDuplicate}
-                className="btn-success w-full py-3 flex items-center justify-center gap-2"
+                className="btn-success w-full py-2.5 text-sm"
               >
                 ➕ Create New (Allow Duplicate)
               </button>
               <button
                 onClick={handleCancelDuplicate}
-                className="btn-secondary w-full py-3 flex items-center justify-center gap-2 border-danger/50 text-danger hover:bg-danger/20"
+                className="btn-secondary w-full py-2.5 text-sm border-danger/30 text-danger hover:bg-danger/10"
               >
                 ❌ Cancel
               </button>
@@ -2450,7 +2933,7 @@ const ParcelCalculator = () => {
       {/* Confirmation Dialog */}
       {confirmDialog.isOpen && createPortal(
         <div
-          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center"
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center backdrop-blur-sm"
           style={{
             position: 'fixed',
             top: 0,
@@ -2458,34 +2941,28 @@ const ParcelCalculator = () => {
             width: '100vw',
             height: '100vh',
             zIndex: 10000,
-            pointerEvents: 'auto',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
+            pointerEvents: 'auto'
           }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget && confirmDialog.onConfirm) confirmDialog.onConfirm(false);
-          }}
+          onClick={() => confirmDialog.onConfirm && confirmDialog.onConfirm(false)}
         >
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-dark-800 border-2 border-warning rounded-2xl p-8 max-w-md w-full shadow-2xl"
+            className="bg-dark-800 border-2 border-warning rounded-2xl p-6 max-w-md w-full shadow-2xl"
             onClick={(e) => e.stopPropagation()}
-            style={{ margin: 0 }}
           >
-            <h2 className="text-2xl font-bold text-white mb-4">⚠️ {confirmDialog.title}</h2>
-            <p className="text-dark-300 mb-6 font-medium">{confirmDialog.message}</p>
-            <div className="flex gap-4 justify-end">
+            <h2 className="text-xl font-bold text-white mb-3 flex items-center gap-2">⚠️ {confirmDialog.title}</h2>
+            <p className="text-dark-300 mb-5 text-sm font-medium leading-relaxed">{confirmDialog.message}</p>
+            <div className="flex gap-3 justify-end">
               <button
                 onClick={() => confirmDialog.onConfirm && confirmDialog.onConfirm(false)}
-                className="px-6 py-2 rounded-lg bg-dark-700 text-white hover:bg-dark-600 transition-colors font-semibold"
+                className="px-5 py-2 rounded-lg bg-dark-700 text-white hover:bg-dark-600 transition-colors text-sm font-semibold"
               >
                 Cancel
               </button>
               <button
                 onClick={() => confirmDialog.onConfirm && confirmDialog.onConfirm(true)}
-                className="px-6 py-2 rounded-lg bg-success text-white hover:bg-success/90 transition-colors font-bold shadow-lg shadow-success/20"
+                className="px-5 py-2 rounded-lg bg-success text-white hover:bg-success/90 transition-colors text-sm font-bold shadow-lg"
               >
                 Confirm
               </button>
@@ -2495,1012 +2972,763 @@ const ParcelCalculator = () => {
         document.body
       )}
 
-      {/* Area Confirmation Dialog */}
-      {showAreaDialog && createPortal(
-        <div
-          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100vw',
-            height: '100vh',
-            zIndex: 9999,
-            pointerEvents: 'auto',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) e.stopPropagation();
-          }}
-        >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-dark-800 border-2 border-primary rounded-2xl p-8 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-            style={{ pointerEvents: 'auto' }}
-          >
-            <h2 className="text-3xl font-bold text-primary mb-4">✅ Polygon Closed!</h2>
-            <p className="text-dark-300 mb-6">Area has been calculated:</p>
 
-            <div className="bg-dark-900 rounded-xl p-6 mb-6 border-2 border-success">
-              <div className="text-center">
-                <p className="text-dark-400 text-sm mb-2">Area</p>
-                <p className="text-5xl font-bold text-success mb-2">{tempArea?.toFixed(4)}</p>
-                <p className="text-dark-400 text-sm">square meters</p>
-              </div>
-              <div className="mt-4 pt-4 border-t border-dark-700">
-                <p className="text-dark-400 text-sm">Perimeter: {tempPerimeter?.toFixed(4)} m</p>
-                <p className="text-dark-400 text-sm">Points: {enteredIds.length}</p>
-              </div>
-            </div>
 
-            <p className="text-dark-300 mb-6">Do you want to continue or edit?</p>
-
-            <div className="flex gap-4">
-              <button onClick={handleEditArea} className="btn-secondary flex-1 py-3">
-                ✏️ Edit Points
-              </button>
-              <button onClick={handleConfirmArea} className="btn-primary flex-1 py-3">
-                ✅ Continue
-              </button>
-            </div>
-          </motion.div>
-        </div>,
-        document.body
-      )}
-
-      {/* Curves Dialog */}
-      {showCurvesDialog && createPortal(
-        <div
-          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center"
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100vw',
-            height: '100vh',
-            zIndex: 9999,
-            pointerEvents: 'auto',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflowY: 'auto'
-          }}
-          onClick={(e) => { if (e.target === e.currentTarget) { /* Don't close */ } }}
-          onMouseDown={(e) => { if (e.target === e.currentTarget) e.stopPropagation(); }}
-        >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-dark-800 border-2 border-primary rounded-2xl p-8 max-w-2xl w-full my-8"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              maxWidth: '700px',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              pointerEvents: 'auto'
-            }}
-          >
-            <h2 className="text-3xl font-bold text-primary mb-4">📐 Curves Adjustment</h2>
-            <p className="text-dark-300 mb-6">Do you want to add or subtract curves? (Middle Ordinate Method)</p>
-
-            {/* Current area - shows live updates */}
-            <div className="bg-dark-900 rounded-xl p-4 mb-6 border-2 border-primary">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-dark-400 text-xs mb-1">Base Area:</p>
-                  <p className="text-dark-300 font-bold text-lg">{tempArea?.toFixed(4)} m²</p>
-                </div>
-                {curves.length > 0 && liveAreaWithCurves && (
-                  <>
-                    <div className="text-center">
-                      <p className="text-dark-400 text-xs mb-1">Adjustment:</p>
-                      <p className={`font-bold text-lg ${(liveAreaWithCurves - tempArea) >= 0 ? 'text-success' : 'text-danger'}`}>
-                        {(liveAreaWithCurves - tempArea) >= 0 ? '+' : ''}{(liveAreaWithCurves - tempArea).toFixed(4)} m²
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-dark-400 text-xs mb-1">Final Area:</p>
-                      <p className="text-primary font-bold text-2xl">{liveAreaWithCurves?.toFixed(4)} m²</p>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Add curve form */}
-            <div className="bg-dark-700 rounded-xl p-6 mb-6">
-              <h3 className="text-lg font-bold text-dark-50 mb-4">Add Curve:</h3>
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-dark-300 text-sm mb-2">From Point ID:</label>
-                  <input
-                    id="curve-from"
-                    type="text"
-                    value={curveFrom}
-                    onChange={(e) => setCurveFrom(e.target.value)}
-                    onKeyDown={(e) => handleCurveInputKeyDown(e, 'curve-to')}
-                    onFocus={(e) => e.target.select()}
-                    className="input-field w-full"
-                    placeholder="e.g. 1"
-                    autoComplete="off"
-                    readOnly={false}
-                    disabled={false}
-                    style={{ pointerEvents: 'auto', cursor: 'text' }}
-                  />
-                </div>
-                <div>
-                  <label className="block text-dark-300 text-sm mb-2">To Point ID:</label>
-                  <input
-                    id="curve-to"
-                    type="text"
-                    value={curveTo}
-                    onChange={(e) => setCurveTo(e.target.value)}
-                    onKeyDown={(e) => handleCurveInputKeyDown(e, 'curve-m')}
-                    onFocus={(e) => e.target.select()}
-                    className="input-field w-full"
-                    placeholder="e.g. 2"
-                    autoComplete="off"
-                    readOnly={false}
-                    disabled={false}
-                    style={{ pointerEvents: 'auto', cursor: 'text' }}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-dark-300 text-sm mb-2">Middle Ordinate (M):</label>
-                  <input
-                    id="curve-m"
-                    type="number"
-                    step="0.01"
-                    value={curveM}
-                    onChange={(e) => setCurveM(e.target.value)}
-                    onKeyDown={(e) => handleCurveInputKeyDown(e)}
-                    onFocus={(e) => e.target.select()}
-                    className="input-field w-full"
-                    placeholder="0.00"
-                    autoComplete="off"
-                    readOnly={false}
-                    disabled={false}
-                    style={{ pointerEvents: 'auto', cursor: 'text' }}
-                  />
-                </div>
-                <div>
-                  <label className="block text-dark-300 text-sm mb-2">Add or Subtract:</label>
-                  <select
-                    value={curveSign}
-                    onChange={(e) => setCurveSign(e.target.value)}
-                    className="input-field w-full"
-                    style={{ pointerEvents: 'auto' }}
-                  >
-                    <option value="+">+ Add to Area</option>
-                    <option value="-">− Subtract from Area</option>
-                  </select>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                {editingCurveIndex !== null && (
-                  <button onClick={handleCancelEdit} className="btn-secondary w-1/3 border-danger/50 text-danger hover:bg-danger/20">
-                    ✖ Cancel
-                  </button>
-                )}
-                <button onClick={handleAddCurve} className={`btn-primary w-full ${editingCurveIndex !== null ? 'bg-warning border-warning text-dark-900 hover:bg-warning/90' : ''}`}>
-                  {editingCurveIndex !== null ? '🖊️ Update Curve' : '➕ Add Curve'}
-                </button>
-              </div>
-            </div>
-
-            {/* List of added curves */}
-            {curves.length > 0 && (
-              <div className="bg-dark-700 rounded-xl p-6 mb-6">
-                <h3 className="text-lg font-bold text-dark-50 mb-4">Added Curves ({curves.length}):</h3>
-                <div className="space-y-2">
-                  {curves.map((curve, index) => (
-                    <div key={index} className="flex items-center justify-between bg-dark-800 rounded-lg p-3">
-                      <span className={curve.sign === 1 ? 'text-success' : 'text-danger'}>
-                        {curve.from} → {curve.to}: M = {curve.M} <strong>{curve.sign === 1 ? '(+Add Area)' : '(−Subtract Area)'}</strong>
-                      </span>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleStartEditCurve(index)}
-                          className="text-warning hover:text-warning-light"
-                          title="Edit Curve"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setCurves(curves.filter((_, i) => i !== index))}
-                          className="text-danger hover:text-danger-light"
-                          title="Delete Curve"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-4">
-              <button onClick={handleSkipCurves} className="btn-secondary flex-1 py-3">
-                Skip (No Curves)
-              </button>
-              <button onClick={handleFinalizeCurves} className="btn-success flex-1 py-3">
-                ✅ Finalize Area
-              </button>
-            </div>
-          </motion.div>
-        </div>,
-        document.body
-      )}
-
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-          <div className="flex gap-2 mb-4">
-            <button onClick={() => navigate('/')} className="btn-secondary flex items-center gap-2">
-              <ArrowLeft className="w-5 h-5" />
-              ↩ MAIN MENU
-            </button>
-            <button onClick={handleCloseProject} className="btn-secondary flex items-center gap-2 bg-red-600/20 hover:bg-red-600/30 border-red-600/50 text-red-400">
-              ❌ Close Project
-            </button>
-          </div>
-
-          <div className="glass-effect rounded-xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h1 className="text-3xl font-bold text-primary mb-2">📐 Parcel Area Calculator</h1>
-                <p className="text-dark-300">Professional Surveying Tool</p>
-              </div>
-              <div className="text-success font-bold">● Ready</div>
-            </div>
-
-            {/* Toolbar */}
-            <div className="flex gap-2 flex-wrap items-center">
-              {(globalProjectName || (pointsFileName && Object.keys(loadedPoints).length > 0)) && (
-                <div className="px-3 py-2 bg-primary/20 border border-primary rounded-lg text-primary font-semibold text-sm flex items-center gap-2">
-                  📁 {globalProjectName || `Working: ${pointsFileName}`}
-                  {globalProjectName && (
-                    <>
-                      {hasUnsavedChanges ? (
-                        (lastSavedPath || projectPath) ? (
-                          <span className="text-warning animate-pulse">💾 Saving...</span>
-                        ) : (
-                          <button
-                            onClick={handleSmartSave}
-                            className="text-warning hover:text-warning/80 hover:underline text-left font-bold"
-                            title="Click to save project (auto-saves to points file location if possible)"
-                          >
-                            ⚠️ Unsaved Setup (Click to Save)
-                          </button>
-                        )
-                      ) : (
-                        <span className="text-success">✓ Saved</span>
-                      )}
-                    </>
-                  )}
-                  {isWatchingFile && <span className="text-success text-xs">🔄 Auto-Watch</span>}
-                  {!globalProjectName && pointsFileName && (
-                    <span className="text-dark-300 text-xs">(Points File Only)</span>
-                  )}
-                </div>
-              )}
-
-              <button onClick={handleNewProject} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
-                <Plus className="w-4 h-4" />
-                New
-              </button>
-
-              <input type="file" accept=".prcl" onChange={handleLoadProject} style={{ display: 'none' }} id="load-project" />
-              <label htmlFor="load-project" className="btn-secondary py-2 px-4 text-sm cursor-pointer flex items-center gap-2">
-                <Upload className="w-4 h-4" />
-                Open Project
-              </label>
-
-              <button
-                onClick={handleSaveAs}
-                title="Save project"
-                className="btn-primary py-2 px-4 text-sm flex items-center gap-2"
-                onMouseEnter={() => {
-                  // Quick check when hovering
-                  if (typeof window !== 'undefined' && !window.electronAPI) {
-                    console.warn('[UI] ⚠️ Electron API not available on button hover');
-                  }
-                }}
-              >
-                <Save className="w-4 h-4" />
-                Save As... {hasUnsavedChanges && <span className="animate-pulse">💾</span>}
-              </button>
-
-              <div className="mx-2 h-6 w-px bg-dark-600"></div>
-
-              <input type="file" accept=".pnt,.txt,.csv" onChange={handleLoadFile} style={{ display: 'none' }} id="load-points" />
-              <label htmlFor="load-points" className="btn-secondary py-2 px-4 text-sm cursor-pointer flex items-center gap-2">
-                <Upload className="w-4 h-4" />
-                Load Points
-              </label>
-
-              <button onClick={handleExportAll} disabled={savedParcels.length === 0} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
-                <FileDown className="w-4 h-4" />
-                Export PDF
-              </button>
-            </div>
-
-            {/* File status */}
-            {pointsFileName && (
-              <div className="mt-4 p-3 bg-success/10 border border-success rounded-lg flex items-center justify-between">
-                <p className="text-success font-semibold">
-                  📁 Loaded: {pointsFileName} ({Object.keys(loadedPoints).length} points)
-                </p>
-                {isWatchingFile && (
-                  <div className="flex items-center gap-2 text-success text-sm">
-                    <span className="animate-pulse">🔄</span>
-                    <span>Auto-watching for changes</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </motion.div>
-
-        {/* Input Area */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.1 }}
-          className="card mb-6"
-          style={{ pointerEvents: 'auto' }}
-        >
-          <div className="mb-4 p-3 bg-primary/10 border border-primary/30 rounded-lg">
-            <p className="text-primary font-semibold">
-              📝 STEP 1: Enter parcel number → STEP 2: Add point IDs one by one
-            </p>
-          </div>
-
-          <div className="flex gap-4 items-end flex-wrap" style={{ pointerEvents: 'auto' }}>
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-dark-300 font-semibold mb-2">Parcel #:</label>
-              <input
-                type="text"
-                value={parcelNumber}
-                onChange={(e) => {
-                  // Ensure input is always enabled and functional
-                  setParcelNumber(e.target.value);
-                  // Close duplicate dialog if user changes the number
-                  if (showDuplicateDialog) {
-                    setShowDuplicateDialog(false);
-                    setDuplicateParcel(null);
-                    setPendingParcelNumber('');
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    // Don't proceed if duplicate dialog is open
-                    if (!showDuplicateDialog) {
-                      const pointInput = document.getElementById('point-id-input');
-                      if (pointInput) {
-                        pointInput.focus();
-                      }
-                    }
-                  }
-                }}
-                onFocus={(e) => {
-                  e.target.select();
-                  // Ensure input is enabled when focused
-                  e.target.readOnly = false;
-                  e.target.disabled = false;
-                }}
-                onBlur={(e) => {
-                  // Ensure input stays enabled even after blur
-                  e.target.readOnly = false;
-                  e.target.disabled = false;
-                }}
-                className="bg-dark-700 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30 transition-all w-full"
-                placeholder="Enter parcel number"
-                style={{ fontSize: '16px', cursor: 'text', pointerEvents: 'auto' }}
-                autoComplete="off"
-                readOnly={false}
-                disabled={false}
-                tabIndex="1"
-              />
-            </div>
-
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-dark-300 font-semibold mb-2">Point ID:</label>
-              <input
-                id="point-id-input"
-                type="text"
-                value={pointId}
-                onChange={(e) => {
-                  // Ensure input is always enabled and functional
-                  setPointId(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  // Allow all keys to work normally
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddPoint();
-                  }
-                  // Don't prevent default for other keys - allow normal typing
-                }}
-                onFocus={(e) => {
-                  e.target.select();
-                  // Ensure input is enabled when focused
-                  e.target.readOnly = false;
-                  e.target.disabled = false;
-                }}
-                onBlur={(e) => {
-                  // Ensure input stays enabled even after blur
-                  e.target.readOnly = false;
-                  e.target.disabled = false;
-                }}
-                className="bg-dark-700 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30 transition-all w-full"
-                placeholder="Type point ID"
-                style={{ fontSize: '16px', cursor: 'text', pointerEvents: 'auto' }}
-                autoComplete="off"
-                readOnly={false}
-                disabled={false}
-                tabIndex="2"
-              />
-            </div>
-
-            <button onClick={handleAddPoint} className="btn-primary flex items-center gap-2">
-              <Plus className="w-5 h-5" />
-              ADD POINT
-            </button>
-
-            <button onClick={handleUndo} className="btn-secondary flex items-center gap-2">
-              <RefreshCw className="w-5 h-5" />
-              Undo
-            </button>
-
-            <button onClick={handleReset} className="btn-secondary flex items-center gap-2 hover:bg-danger hover:border-danger">
-              <Trash2 className="w-5 h-5" />
-              Reset
-            </button>
-          </div>
-        </motion.div>
-
-        {/* Tabs */}
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => setActiveTab('editor')}
-            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'editor'
-              ? 'bg-dark-800 text-primary border-t-2 border-primary'
-              : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-              }`}
-          >
-            Editor
+      {/* ── Main Toolbar ── */}
+      <header className="flex-shrink-0 bg-dark-800/90 border-b border-dark-700 px-6 py-3 flex items-center justify-between backdrop-blur-sm z-20">
+        <div className="flex items-center gap-3">
+          <button onClick={handleBackToMainMenu} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 group">
+            <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+            ↩ Main Menu
           </button>
-          <button
-            onClick={() => setActiveTab('saved')}
-            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'saved'
-              ? 'bg-dark-800 text-primary border-t-2 border-primary'
-              : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-              }`}
-          >
-            Saved Parcels ({(() => {
-              // Count unique parcel numbers only
-              const uniqueNumbers = new Set(savedParcels.map(p => p.number.trim().toLowerCase()));
-              return uniqueNumbers.size;
-            })()})
+          <button onClick={handleCloseProject} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 bg-red-600/10 hover:bg-red-600/20 border-red-600/30 text-red-400">
+            Close Project
           </button>
-          <button
-            onClick={() => setActiveTab('all')}
-            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'all'
-              ? 'bg-dark-800 text-primary border-t-2 border-primary'
-              : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-              }`}
-          >
-            All Parcels ({savedParcels.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('errors')}
-            className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'errors'
-              ? 'bg-dark-800 text-primary border-t-2 border-primary'
-              : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-              }`}
-          >
-            Error Calculations
-          </button>
+          
+          {/* File watch / Loaded info */}
+          {pointsFileName && (
+            <div className="text-xs bg-success/10 border border-success/30 px-2.5 py-1 rounded-lg text-success flex items-center gap-1.5">
+              <span>📁 {pointsFileName} ({Object.keys(loadedPoints).length} pts)</span>
+              {isWatchingFile && <span className="animate-pulse">🔄 watched</span>}
+            </div>
+          )}
         </div>
 
-        {/* Editor Tab */}
-        {activeTab === 'editor' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-dark-50">YOUR POINTS:</h2>
-              <span className="text-primary font-semibold">{enteredIds.length} points</span>
+        <div className="flex items-center gap-2">
+          {globalProjectName && (
+            <div className="text-xs bg-primary/15 border border-primary/30 px-3 py-1 rounded-lg text-primary font-semibold">
+              Project: {globalProjectName} {hasUnsavedChanges && <span className="text-warning text-xs">● Unsaved</span>}
+            </div>
+          )}
+          
+          <button onClick={handleNewProject} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5">
+            <Plus className="w-3.5 h-3.5" /> New
+          </button>
+
+          <input type="file" accept=".prcl" onChange={handleLoadProject} style={{ display: 'none' }} id="load-project" />
+          <label htmlFor="load-project" className="btn-secondary py-1.5 px-3 text-xs cursor-pointer flex items-center gap-1.5 mb-0 font-medium">
+            <Upload className="w-3.5 h-3.5" /> Open
+          </label>
+
+          <button onClick={handleSmartSave} className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5">
+            <Save className="w-3.5 h-3.5" /> Save {hasUnsavedChanges && <span className="animate-bounce">💾</span>}
+          </button>
+          
+          <button onClick={handleSaveAs} className="btn-secondary py-1.5 px-3 text-xs">
+            Save As...
+          </button>
+
+          <input type="file" accept=".pnt,.txt,.csv" onChange={handleLoadFile} style={{ display: 'none' }} id="load-points" />
+          <label htmlFor="load-points" className="btn-secondary py-1.5 px-3 text-xs cursor-pointer flex items-center gap-1.5 mb-0 font-medium bg-dark-700/60">
+            <Upload className="w-3.5 h-3.5" /> Load Points
+          </label>
+
+          <button onClick={handleExportAll} disabled={savedParcels.length === 0} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5">
+            <FileDown className="w-3.5 h-3.5" /> Export PDF
+          </button>
+        </div>
+      </header>
+
+      {/* ── Main Workspace split layout ── */}
+      <main className="flex-grow min-h-0 flex relative">
+        
+        {/* Left column - Point Entry & Path Editor */}
+        <section className="w-[360px] flex-shrink-0 bg-dark-850 border-r border-dark-700 flex flex-col min-h-0 h-full">
+          <div className="p-4 border-b border-dark-700 flex-shrink-0">
+            <h2 className="text-sm font-bold text-dark-200 mb-2 uppercase tracking-wide">1. Parcel Details</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-dark-400 text-xs mb-1 font-semibold">Parcel Number:</label>
+                <input
+                  type="text"
+                  value={parcelNumber}
+                  onChange={(e) => {
+                    setParcelNumber(e.target.value);
+                    if (showDuplicateDialog) {
+                      setShowDuplicateDialog(false);
+                      setDuplicateParcel(null);
+                      setPendingParcelNumber('');
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      document.getElementById('point-id-input')?.focus();
+                    }
+                  }}
+                  className="w-full bg-dark-800 border-2 border-dark-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-primary"
+                  placeholder="e.g. 102/B"
+                  autoComplete="off"
+                />
+              </div>
+
+              <div>
+                <label className="block text-dark-400 text-xs mb-1 font-semibold">Add Corner Point ID:</label>
+                <div className="flex gap-1.5">
+                  <input
+                    id="point-id-input"
+                    type="text"
+                    value={pointId}
+                    onChange={(e) => setPointId(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddPoint();
+                      }
+                    }}
+                    disabled={isClosed || area !== null}
+                    className="flex-1 bg-dark-800 border-2 border-dark-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    placeholder={(isClosed || area !== null) ? "Boundary is closed" : "Point ID"}
+                    autoComplete="off"
+                  />
+                  <button 
+                    onClick={handleAddPoint} 
+                    disabled={isClosed || area !== null}
+                    className="bg-primary hover:bg-primary-light text-white text-xs px-3 rounded font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    ADD
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* Points Display - Horizontal with Insert/Edit buttons */}
-            <div className="bg-dark-700 rounded-lg p-4 mb-4 min-h-[120px] max-h-[200px] overflow-auto">
-              {enteredIds.length === 0 ? (
-                <p className="text-dark-400 text-center py-8">No points entered yet. Add point IDs above.</p>
-              ) : (
-                <div className="flex flex-wrap gap-2 items-center">
-                  {enteredIds.map((id, index) => (
-                    <React.Fragment key={index}>
-                      {/* Insert button before this point (except first) */}
-                      {index > 0 && (
+            <div className="flex gap-2 mt-3 pt-3 border-t border-dark-750/50">
+              <button onClick={handleUndo} disabled={enteredIds.length === 0} className="btn-secondary py-1 px-2.5 text-[11px] flex-1 flex items-center justify-center gap-1">
+                <RefreshCw className="w-3 h-3" /> Undo Point
+              </button>
+              <button onClick={handleReset} disabled={enteredIds.length === 0} className="btn-secondary py-1 px-2.5 text-[11px] flex-1 flex items-center justify-center gap-1 hover:border-danger/45 hover:text-danger">
+                <Trash2 className="w-3 h-3" /> Clear Active
+              </button>
+            </div>
+          </div>
+
+          {/* Current point list (Scrollable) */}
+          <div className="flex-1 overflow-y-auto p-4 min-h-0 bg-dark-850/40">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold text-dark-300 uppercase tracking-wider">Active Corners ({enteredIds.length})</h3>
+              {editingParcelId && <span className="text-warning text-xs font-semibold">✏️ Editing saved</span>}
+            </div>
+
+            {enteredIds.length === 0 ? (
+              <div className="h-[200px] border border-dashed border-dark-700 rounded-lg flex flex-col items-center justify-center p-4 text-center">
+                <p className="text-dark-500 text-xs mb-1">No points entered yet.</p>
+                <p className="text-dark-600 text-[10px]">Type Point IDs or click markers on the visual map to add corners.</p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {enteredIds.map((id, index) => (
+                  <div key={index} className="flex flex-col">
+                    {/* Insert point before this point indicator */}
+                    {index > 0 && (
+                      <div className="flex items-center justify-center h-4 group/insert">
                         <button
                           onClick={() => handleInsertPointAt(index - 1)}
-                          className="opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity text-primary hover:text-primary/80"
-                          title={`Insert point between ${enteredIds[index - 1]} and ${id}`}
+                          className="opacity-0 group-hover/insert:opacity-100 hover:opacity-100 transition-all text-primary bg-primary/10 border border-primary/30 text-[9px] px-2 py-0.5 rounded-full"
+                          title="Insert point here"
                         >
-                          <Plus className="w-4 h-4" />
+                          + Insert between
                         </button>
-                      )}
-
-                      {/* Point display */}
-                      <div
-                        className={`bg-dark-800 border-2 rounded-lg px-4 py-4 flex items-center justify-center hover:border-primary transition-all group aspect-square min-w-[60px] w-[60px] h-[60px] relative ${editingPointIndex === index ? 'border-warning' : 'border-primary/50'
-                          }`}
-                      >
-                        <span className="text-primary font-bold text-lg">{id}</span>
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute top-1 right-1">
-                          <button
-                            onClick={() => {
-                              setEditingPointIndex(index);
-                              setPointId(id);
-                              setInsertPointAfterIndex(null);
-                              document.getElementById('point-id-input')?.focus();
-                            }}
-                            className="text-warning hover:text-warning/80"
-                            title="Edit this point ID"
-                          >
-                            <Edit className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={() => handleDeletePoint(index)}
-                            className="text-danger hover:text-danger/80"
-                            title="Delete this point"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
                       </div>
-                    </React.Fragment>
+                    )}
+
+                    <div className={`flex items-center justify-between bg-dark-800 rounded p-2 border ${editingPointIndex === index ? 'border-warning' : 'border-dark-700/80'} group hover:border-dark-600 transition-all`}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-dark-500 text-[10px] w-4">{index + 1}.</span>
+                        <span className="text-primary font-mono font-bold text-sm">{id}</span>
+                        {loadedPoints[id] && (
+                          <span className="text-[10px] text-dark-405">
+                            ({loadedPoints[id].y.toFixed(1)}, {loadedPoints[id].x.toFixed(1)})
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => {
+                            setEditingPointIndex(index);
+                            setPointId(id);
+                            setInsertPointAfterIndex(null);
+                            document.getElementById('point-id-input')?.focus();
+                          }}
+                          className="text-warning text-xs hover:underline"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeletePoint(index)}
+                          className="text-danger text-xs hover:underline"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Loop indicator */}
+            {enteredIds.length > 0 && (
+              <div className="mt-3 text-[11px] text-dark-400 bg-dark-800/40 p-2 rounded border border-dark-800 text-center">
+                {enteredIds.length >= 3 ? (
+                  <span>Enter <strong className="text-primary">"{enteredIds[0]}"</strong> again to close loop and calculate area</span>
+                ) : (
+                  <span>Add at least 3 points to draw polygon</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Curves Adjustment (Sidebar Section) */}
+          {enteredIds.length >= 3 && (
+            <div className="p-4 border-t border-dark-700 bg-dark-900/30 flex-shrink-0">
+              <h3 className="text-xs font-bold text-dark-300 uppercase tracking-wider mb-2">3. Curves Adjustment</h3>
+              
+              {/* Curve Input Form */}
+              <div className="bg-dark-800/60 rounded-xl p-3 mb-3 border border-dark-750 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-dark-400 text-[10px] mb-0.5">From Pt:</label>
+                    <input
+                      id="sidebar-curve-from"
+                      type="text"
+                      value={curveFrom}
+                      onChange={(e) => setCurveFrom(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !curveFrom.trim()) {
+                          e.preventDefault();
+                          document.getElementById('save-parcel-btn')?.focus();
+                        } else {
+                          handleCurveInputKeyDown(e, 'sidebar-curve-to');
+                        }
+                      }}
+                      className="w-full bg-dark-900 border border-dark-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-primary"
+                      placeholder="e.g. 1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-dark-400 text-[10px] mb-0.5">To Pt:</label>
+                    <input
+                      id="sidebar-curve-to"
+                      type="text"
+                      value={curveTo}
+                      onChange={(e) => setCurveTo(e.target.value)}
+                      onKeyDown={(e) => handleCurveInputKeyDown(e, 'sidebar-curve-m')}
+                      className="w-full bg-dark-900 border border-dark-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-primary"
+                      placeholder="e.g. 2"
+                    />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-dark-400 text-[10px] mb-0.5">Ordinate (M):</label>
+                    <input
+                      id="sidebar-curve-m"
+                      type="text"
+                      value={curveM}
+                      onChange={(e) => setCurveM(e.target.value)}
+                      onKeyDown={(e) => handleCurveInputKeyDown(e)}
+                      className="w-full bg-dark-900 border border-dark-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-primary"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-dark-400 text-[10px] mb-0.5">Sign:</label>
+                    <select
+                      value={curveSign}
+                      onChange={(e) => setCurveSign(e.target.value)}
+                      className="w-full bg-dark-900 border border-dark-600 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-primary"
+                    >
+                      <option value="+">+ Add (convex)</option>
+                      <option value="-">− Subtract (concave)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-1.5 pt-1">
+                  {editingCurveIndex !== null ? (
+                    <>
+                      <button onClick={handleCancelEdit} className="btn-secondary py-1 px-2.5 text-[10px] border-danger/30 text-danger hover:bg-danger/10">
+                        Cancel
+                      </button>
+                      <button onClick={handleAddCurve} className="btn-primary flex-1 py-1 text-[10px]">
+                        Update
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={handleAddCurve} className="btn-secondary w-full py-1 text-[10px] border-primary/30 text-primary hover:bg-primary/10">
+                      + Add Curve
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Curves List */}
+              {curves.length > 0 && (
+                <div className="space-y-1 max-h-[120px] overflow-y-auto pr-1">
+                  {curves.map((curve, index) => (
+                    <div key={index} className="flex items-center justify-between bg-dark-800 rounded p-1.5 border border-dark-700/60 text-[11px]">
+                      <span className={curve.sign === 1 ? 'text-success' : 'text-danger'}>
+                        {curve.from} → {curve.to}: M={curve.M} ({curve.sign === 1 ? '+' : '−'})
+                      </span>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleStartEditCurve(index)} className="text-warning hover:underline text-[10px]">Edit</button>
+                        <button onClick={() => setCurves(curves.filter((_, i) => i !== index))} className="text-danger hover:underline text-[10px]">Delete</button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
             </div>
+          )}
 
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-dark-400 text-sm">
-                💡 Click ✏️ to EDIT point | Click ➕ to INSERT between points | Click 🗑️ to DELETE | Close polygon by re-entering first ID
-              </p>
-              {editingParcelId && (
-                <button onClick={handleUpdateSavedParcel} className="btn-success flex items-center gap-2">
-                  <Save className="w-4 h-4" />
-                  Update Saved Parcel
-                </button>
-              )}
-            </div>
-
-            {/* Area Result */}
-            {area !== null && (
-              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-gradient-to-br from-success/20 to-success/10 border-2 border-success rounded-xl p-6 mb-4">
-                <h3 className="text-success font-bold text-lg mb-3">✅ Polygon Closed - Area Calculated</h3>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-dark-400 text-sm">Area</p>
-                    <p className="text-3xl font-bold text-success">{area.toFixed(4)}</p>
-                    <p className="text-dark-400 text-xs">square meters</p>
-                  </div>
-                  <div>
-                    <p className="text-dark-400 text-sm">Perimeter</p>
-                    <p className="text-2xl font-bold text-dark-50">{perimeter.toFixed(4)}</p>
-                    <p className="text-dark-400 text-xs">meters</p>
-                  </div>
-                  <div>
-                    <p className="text-dark-400 text-sm">Points</p>
-                    <p className="text-2xl font-bold text-dark-50">{enteredIds.length}</p>
-                    <p className="text-dark-400 text-xs">corners</p>
-                  </div>
+          {/* Area result bottom card */}
+          {area !== null && (
+            <div className="p-4 bg-gradient-to-br from-success/15 to-success/5 border-t border-success/30 flex-shrink-0">
+              <h4 className="text-xs font-bold text-success uppercase tracking-wider mb-2">Calculated Results</h4>
+              <div className="grid grid-cols-2 gap-2 text-center">
+                <div className="bg-dark-900/60 p-2 rounded border border-success/15">
+                  <p className="text-dark-400 text-[9px] mb-0.5">Area</p>
+                  <p className="text-base font-mono font-bold text-success">{area.toFixed(4)} m²</p>
                 </div>
-              </motion.div>
-            )}
+                <div className="bg-dark-900/60 p-2 rounded border border-dark-700/50">
+                  <p className="text-dark-400 text-[9px] mb-0.5">Perimeter</p>
+                  <p className="text-base font-mono font-bold text-dark-100">{perimeter.toFixed(2)} m</p>
+                </div>
+              </div>
 
-            {/* Actions */}
-            <div className="flex gap-4 justify-between items-center pt-4 border-t border-dark-600">
-              <div className="text-dark-400 text-sm">
+              <div className="flex gap-2 mt-3">
                 {editingParcelId ? (
-                  <span className="text-warning">✏️ Editing saved parcel: {parcelNumber}</span>
-                ) : area ? (
-                  <span className="text-success">✅ Parcel saved! Ready for next parcel.</span>
-                ) : enteredIds.length > 0 ? (
-                  <span>Enter <strong className="text-primary">"{enteredIds[0]}"</strong> again to close polygon</span>
+                  <button id="save-parcel-btn" onClick={handleUpdateSavedParcel} className="btn-success w-full py-2 text-xs font-bold flex items-center justify-center gap-1.5">
+                    <Save className="w-3.5 h-3.5" /> Save Changes
+                  </button>
                 ) : (
-                  'Start by entering point IDs'
-                )}
-              </div>
-              <div className="flex gap-2">
-                {editingParcelId && (
-                  <button
-                    onClick={handleUpdateSavedParcel}
-                    className="btn-success flex items-center gap-2 text-sm"
-                  >
-                    <Save className="w-4 h-4" />
-                    Update Parcel
-                  </button>
-                )}
-                {area && !editingParcelId && (
-                  <button
-                    onClick={handleSaveParcel}
-                    className="btn-secondary flex items-center gap-2 text-sm"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Manually Save Again
-                  </button>
-                )}
-                {editingParcelId && (
-                  <button
-                    onClick={() => {
-                      setEditingParcelId(null);
-                      setInsertPointAfterIndex(null);
-                      setEditingPointIndex(null);
-                      setParcelNumber('');
-                      setEnteredIds([]);
-                      setArea(null);
-                      setPerimeter(null);
-                      setCurves([]);
-                      setPointId('');
-                      const pointInput = document.getElementById('point-id-input');
-                      if (pointInput) {
-                        pointInput.placeholder = 'Type point ID';
-                      }
-                    }}
-                    className="btn-secondary flex items-center gap-2 text-sm"
-                  >
-                    Cancel Edit
+                  <button id="save-parcel-btn" onClick={handleSaveParcel} className="btn-success w-full py-2 text-xs font-bold flex items-center justify-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5" /> Save Parcel
                   </button>
                 )}
               </div>
             </div>
-          </motion.div>
-        )}
+          )}
+        </section>
 
-        {/* Saved Parcels Tab - Only Unique Parcel Numbers */}
-        {activeTab === 'saved' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card">
-            <h2 className="text-xl font-bold text-dark-50 mb-2">Saved Parcels (Unique Only)</h2>
-            <p className="text-dark-400 text-sm mb-4">
-              Showing one parcel per number. Check "All Parcels" tab to see duplicates.
-            </p>
+        {/* Right column - Utility Tab Panels */}
+        <section className="flex-grow min-w-0 bg-dark-950 flex flex-col h-full">
+          {/* Tabs header */}
+          <div className="flex-shrink-0 bg-dark-900 border-b border-dark-700 px-4 flex items-center justify-between">
+            <div className="flex">
+              <button
+                onClick={() => setActiveTab('map')}
+                className={`px-5 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                  activeTab === 'map' ? 'border-primary text-primary bg-dark-950/30' : 'border-transparent text-dark-400 hover:text-dark-200'
+                }`}
+              >
+                🗺️ Visual Map
+              </button>
+              <button
+                onClick={() => setActiveTab('saved')}
+                className={`px-5 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                  activeTab === 'saved' ? 'border-primary text-primary bg-dark-950/30' : 'border-transparent text-dark-400 hover:text-dark-200'
+                }`}
+              >
+                📁 Saved Parcels ({(() => {
+                  const unique = new Set(savedParcels.map(p => p.number.trim().toLowerCase()));
+                  return unique.size;
+                })()})
+              </button>
+              <button
+                onClick={() => setActiveTab('all')}
+                className={`px-5 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                  activeTab === 'all' ? 'border-primary text-primary bg-dark-950/30' : 'border-transparent text-dark-400 hover:text-dark-200'
+                }`}
+              >
+                📋 All Versions ({savedParcels.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('errors')}
+                className={`px-5 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                  activeTab === 'errors' ? 'border-primary text-primary bg-dark-950/30' : 'border-transparent text-dark-400 hover:text-dark-200'
+                }`}
+              >
+                📊 Error Calculations
+              </button>
+              <button
+                onClick={() => setActiveTab('help')}
+                className={`px-5 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                  activeTab === 'help' ? 'border-primary text-primary bg-dark-950/30' : 'border-transparent text-dark-400 hover:text-dark-200'
+                }`}
+              >
+                📘 User Guide
+              </button>
+            </div>
 
-            {/* Memoized List for Unique Parcels */}
-            <UniqueParcelsList
-              savedParcels={savedParcels}
-              onEdit={(parcel) => {
-                handleLoadSavedParcel(parcel);
-                setActiveTab('editor');
-              }}
-              onDelete={handleDeleteSaved}
-              onExport={handleExportSingle} // Not used in unique view but consistent prop
-            />
-
-            {savedParcels.length > 0 && (
-              <div className="mt-6 pt-4 border-t border-dark-600">
-                <button onClick={handleExportAll} className="btn-primary w-full flex items-center justify-center gap-2">
-                  <FileDown className="w-5 h-5" />
-                  Export All Parcels ({savedParcels.length})
-                </button>
+            {activeTab === 'map' && hasPoints && (
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-dark-400 font-mono">Zoom: {(zoomDisplay).toFixed(1)}x</span>
+                <div className="h-4 w-px bg-dark-700"></div>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => {
+                      zoomRef.current = Math.min(200, zoomRef.current * 1.25);
+                      setZoomDisplay(zoomRef.current);
+                      drawCanvas();
+                    }}
+                    className="p-1 hover:bg-dark-800 text-dark-300 rounded border border-dark-700"
+                    title="Zoom In"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      zoomRef.current = Math.max(0.01, zoomRef.current * 0.8);
+                      setZoomDisplay(zoomRef.current);
+                      drawCanvas();
+                    }}
+                    className="p-1 hover:bg-dark-800 text-dark-300 rounded border border-dark-700"
+                    title="Zoom Out"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={resetView}
+                    className="p-1 hover:bg-dark-800 text-dark-300 rounded border border-dark-700"
+                    title="Reset Fit View"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                  <div className="h-6 w-px bg-dark-750 mx-1"></div>
+                  <button
+                    onClick={() => setShowPointLabels(prev => !prev)}
+                    className={`p-1 rounded border ${showPointLabels ? 'bg-primary/20 border-primary text-primary' : 'border-dark-700 text-dark-400'}`}
+                    title="Toggle Point Labels"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setShowCoordinates(prev => !prev)}
+                    className={`p-1 rounded border ${showCoordinates ? 'bg-primary/20 border-primary text-primary' : 'border-dark-700 text-dark-400'}`}
+                    title="Toggle Coordinates"
+                  >
+                    <EyeOff className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setShowSavedParcelsMap(prev => !prev)}
+                    className={`p-1 rounded border ${showSavedParcelsMap ? 'bg-primary/20 border-primary text-primary' : 'border-dark-700 text-dark-400'}`}
+                    title="Toggle Saved Parcels overlay"
+                  >
+                    <span className="text-[9px] font-bold px-0.5">SAVED</span>
+                  </button>
+                  <div className="h-6 w-px bg-dark-750 mx-1"></div>
+                  <button
+                    onClick={() => setSelectEditParcelMode(prev => !prev)}
+                    className={`p-1 rounded border flex items-center gap-1 px-2 font-bold ${
+                      selectEditParcelMode
+                        ? 'bg-warning/20 border-warning text-warning'
+                        : 'border-dark-700 text-dark-400 hover:text-dark-200'
+                    }`}
+                    title="Edit Parcel Mode: Click a saved parcel or its number on the map to load/edit its points"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span className="text-[10px]">EDIT MODE</span>
+                  </button>
+                </div>
               </div>
             )}
-          </motion.div>
-        )}
+          </div>
 
-        {/* All Parcels Tab - Shows All Including Duplicates */}
-        {activeTab === 'all' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card">
-            <h2 className="text-xl font-bold text-dark-50 mb-2">All Parcels (Including Duplicates)</h2>
-            <p className="text-dark-400 text-sm mb-4">
-              Showing all saved parcels. Duplicates are allowed and shown separately.
-            </p>
-
-            {/* Memoized List for All Parcels */}
-            <AllParcelsList
-              savedParcels={savedParcels}
-              onEdit={(parcel) => {
-                handleLoadSavedParcel(parcel);
-                setActiveTab('editor');
-              }}
-              onDelete={handleDeleteSaved}
-              onExport={handleExportSingle}
-            />
-
-            {savedParcels.length > 0 && (
-              <div className="mt-6 pt-4 border-t border-dark-600">
-                <button onClick={handleExportAll} className="btn-primary w-full flex items-center justify-center gap-2">
-                  <FileDown className="w-5 h-5" />
-                  Export All Parcels ({savedParcels.length})
-                </button>
-              </div>
-            )}
-          </motion.div>
-        )}
-
-        {/* Error Calculations Tab */}
-        {activeTab === 'errors' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card">
-            <h2 className="text-xl font-bold text-dark-50 mb-4">📊 Error Calculations</h2>
-            <p className="text-dark-400 text-sm mb-6">
-              Select multiple parcels, then enter ONE registered area for the total. Calculate error using surveying formula:<br />
-              <strong className="text-primary">Permissible Error = 0.8 × √(Registered Area) + 0.002 × Registered Area</strong><br />
-              If within limits, areas are adjusted proportionally. If exceeds, original areas are used.
-            </p>
-
-            {/* Total Registered Area Input */}
-            <div className="mb-6 p-4 bg-dark-700 rounded-lg">
-              <label className="block text-dark-300 font-semibold mb-2">
-                Total Registered Area (for all selected parcels):
-              </label>
-              <div className="flex gap-4 items-center">
-                <input
-                  type="number"
-                  step="0.0001"
-                  min="0"
-                  value={totalRegisteredArea}
-                  onChange={(e) => setTotalRegisteredArea(e.target.value)}
-                  className="bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/30 transition-all"
-                  style={{ width: '200px', fontSize: '16px' }}
-                  placeholder="Enter total m²"
+          {/* Tab Content Panel (Strictly sized, no page-level scrolls) */}
+          <div className="flex-1 min-h-0 relative">
+            
+            {/* Visual Map Tab */}
+            {activeTab === 'map' && (
+              <div ref={canvasContainerRef} className="w-full h-full relative overflow-hidden bg-dark-950">
+                {selectEditParcelMode && (
+                  <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-warning/90 border border-warning/30 text-dark-955 font-bold px-4 py-2 rounded-full shadow-lg text-[11px] z-50 flex items-center gap-2 animate-pulse backdrop-blur">
+                    <span>✏️ Select Mode: Click a parcel or its number to edit it</span>
+                  </div>
+                )}
+                <canvas
+                  ref={canvasRef}
+                  className={`w-full h-full block ${selectEditParcelMode ? 'cursor-pointer' : 'cursor-crosshair'}`}
+                  style={{ touchAction: 'none' }}
                 />
-                <span className="text-dark-300">m² (from registry)</span>
-              </div>
-              <p className="text-dark-400 text-xs mt-2">
-                Enter the total registered area for all selected parcels combined
-              </p>
-            </div>
-
-            {/* Parcel Selection */}
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-dark-50">
-                  Select Parcels ({selectedParcelsForError.length} selected)
-                </h3>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setSelectedParcelsForError(savedParcels.map(p => p.id))}
-                    className="btn-secondary text-sm py-1 px-3"
-                  >
-                    Select All
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedParcelsForError([]);
-                      setTotalRegisteredArea('');
-                      setErrorResults(null);
-                    }}
-                    className="btn-secondary text-sm py-1 px-3"
-                  >
-                    Clear All
-                  </button>
-                  <button
-                    onClick={handleCalculateErrors}
-                    disabled={selectedParcelsForError.length === 0 || !totalRegisteredArea}
-                    className="btn-primary text-sm py-1 px-3 flex items-center gap-2"
-                  >
-                    Calculate Errors
-                  </button>
-                </div>
-              </div>
-
-              {savedParcels.length === 0 ? (
-                <p className="text-dark-400 text-center py-8">No saved parcels to calculate errors for.</p>
-              ) : (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {savedParcels.map((parcel) => {
-                    const isSelected = selectedParcelsForError.includes(parcel.id);
-
-                    return (
-                      <div
-                        key={parcel.id}
-                        onClick={() => toggleParcelSelection(parcel.id)}
-                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${isSelected
-                          ? 'bg-primary/20 border-primary'
-                          : 'bg-dark-700 border-dark-600 hover:border-dark-500'
-                          }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <h4 className="font-bold text-primary mb-1">
-                              Parcel #{parcel.number}
-                              {isSelected && <span className="ml-2 text-success">✓ Selected</span>}
-                            </h4>
-                            <p className="text-sm text-dark-300">
-                              Calculated Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong> | Points: {parcel.pointCount}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Error Results */}
-            {errorResults && (
-              <div className="mt-6 pt-6 border-t border-dark-600">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-dark-50">Current Calculation Results</h3>
-                  <button
-                    onClick={handleSaveErrorCalculation}
-                    className="btn-success py-2 px-4 text-sm flex items-center gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    Save This Calculation
-                  </button>
-                </div>
-
-                {/* Overall Summary */}
-                <div className="mb-6 p-6 bg-dark-700 rounded-lg border-2 border-primary/50">
-                  <h4 className="text-primary font-bold text-lg mb-4">📊 Overall Calculation Summary:</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                    <div>
-                      <p className="text-xs text-dark-400 mb-1">Total Registered Area</p>
-                      <p className="text-xl font-bold text-primary">{errorResults.totalRegisteredArea.toFixed(4)} m²</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-dark-400 mb-1">Total Calculated Area</p>
-                      <p className="text-xl font-bold text-success">{errorResults.totalCalculatedArea.toFixed(4)} m²</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-dark-400 mb-1">Absolute Difference</p>
-                      <p className="text-xl font-bold text-warning">{errorResults.absoluteDifference.toFixed(4)} m²</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-dark-400 mb-1">Permissible Error</p>
-                      <p className="text-xl font-bold text-primary">{errorResults.permissibleError.toFixed(4)} m²</p>
-                    </div>
-                  </div>
-                  <div className="mt-4 pt-4 border-t border-dark-600">
-                    <p className={`text-base font-bold mb-2 ${errorResults.exceedsLimit ? 'text-danger' : 'text-success'}`}>
-                      {errorResults.exceedsLimit
-                        ? '⚠️ ERROR EXCEEDS PERMISSIBLE LIMITS - Using original calculated areas'
-                        : '✅ WITHIN PERMISSIBLE LIMITS - Areas adjusted proportionally'}
-                    </p>
-                    <p className="text-xs text-dark-400">
-                      Formula: Permissible Error = 0.8 × √({errorResults.totalRegisteredArea.toFixed(2)}) + 0.002 × {errorResults.totalRegisteredArea.toFixed(2)} = {errorResults.permissibleError.toFixed(4)} m²
-                    </p>
-                  </div>
-                </div>
-
-                {/* Individual Parcel Results Table */}
-                <div className="bg-dark-700 rounded-lg p-6 border border-primary/30">
-                  <h4 className="text-lg font-bold text-primary mb-4">Parcel Results:</h4>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-dark-800 border-b-2 border-dark-600">
-                          <th className="px-4 py-3 text-left text-dark-300 font-semibold">Parcel #</th>
-                          <th className="px-4 py-3 text-right text-dark-300 font-semibold">Original Calculated (m²)</th>
-                          <th className="px-4 py-3 text-right text-dark-300 font-semibold">Adjusted Area (m²)</th>
-                          <th className="px-4 py-3 text-right text-dark-300 font-semibold">Rounded Area (m²)</th>
-                          <th className="px-4 py-3 text-right text-dark-300 font-semibold">Points</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {errorResults.parcelResults.map((parcelResult, index) => (
-                          <tr key={parcelResult.parcelId} className={`border-b border-dark-600 ${index % 2 === 0 ? 'bg-dark-800/50' : ''}`}>
-                            <td className="px-4 py-3 text-primary font-semibold">{parcelResult.parcelNumber}</td>
-                            <td className="px-4 py-3 text-right text-success">{parcelResult.calculatedArea.toFixed(4)}</td>
-                            <td className="px-4 py-3 text-right text-warning">
-                              {parcelResult.adjustedArea.toFixed(4)}
-                              {!errorResults.exceedsLimit && (
-                                <span className="ml-2 text-xs text-success">✓</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-right text-primary font-bold">{parcelResult.roundedArea}</td>
-                            <td className="px-4 py-3 text-right text-dark-300">{parcelResult.pointCount}</td>
-                          </tr>
-                        ))}
-                        <tr className="bg-dark-800 border-t-2 border-primary font-bold">
-                          <td className="px-4 py-3 text-primary">TOTAL:</td>
-                          <td className="px-4 py-3 text-right text-success">
-                            {errorResults.parcelResults.reduce((sum, p) => sum + p.calculatedArea, 0).toFixed(4)}
-                          </td>
-                          <td className="px-4 py-3 text-right text-warning">
-                            {errorResults.parcelResults.reduce((sum, p) => sum + p.adjustedArea, 0).toFixed(4)}
-                          </td>
-                          <td className="px-4 py-3 text-right text-primary">
-                            {errorResults.parcelResults.reduce((sum, p) => sum + p.roundedArea, 0)}
-                          </td>
-                          <td className="px-4 py-3 text-right text-dark-300">
-                            {errorResults.parcelResults.reduce((sum, p) => sum + p.pointCount, 0)}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                
+                {/* Mini instructions Overlay */}
+                <div className="absolute bottom-4 left-4 bg-dark-900/90 border border-dark-700 px-3 py-2 rounded-lg text-[10px] text-dark-300 backdrop-blur pointer-events-none select-none max-w-xs shadow-xl">
+                  <p className="font-bold text-primary mb-1">🗺️ Map Guide:</p>
+                  <ul className="space-y-0.5 list-disc pl-3 text-dark-400">
+                    <li>Left click & drag to **Pan**.</li>
+                    <li>Scroll wheel to **Zoom**.</li>
+                    <li>Click a point dot to **Add to Path**.</li>
+                    <li>Click starting point to **Close Loop**.</li>
+                  </ul>
                 </div>
               </div>
             )}
-            {/* Saved Calculations History */}
-            {savedErrorCalculations.length > 0 && (
-              <div className="mt-8 pt-6 border-t-2 border-dark-600">
-                <h3 className="text-xl font-bold text-dark-50 mb-4">📜 Saved Calculations History ({savedErrorCalculations.length})</h3>
-                <div className="space-y-4">
-                  {savedErrorCalculations.map((calc, index) => (
-                    <div key={calc.id} className="bg-dark-800 rounded-lg p-6 border border-dark-600">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h4 className="text-lg font-bold text-primary">
-                            {calc.name} <span className="text-sm text-dark-400 font-normal">({new Date(calc.timestamp).toLocaleString()})</span>
-                          </h4>
-                          <p className="text-sm text-dark-300">
-                            Registered: {calc.totalRegisteredArea} m² | Calculated: {calc.totalCalculatedArea.toFixed(4)} m²
-                          </p>
+
+            {/* Saved Parcels Tab (Unique) */}
+            {activeTab === 'saved' && (
+              <div className="w-full h-full overflow-y-auto p-6 bg-dark-900/30">
+                <div className="max-w-4xl mx-auto">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="text-lg font-bold text-white leading-none">Saved Unique Parcels</h2>
+                      <p className="text-dark-400 text-xs mt-1">Showing one version per parcel number. Check "All Versions" to see history.</p>
+                    </div>
+                    {savedParcels.length > 0 && (
+                      <button onClick={handleExportAll} className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5 font-bold">
+                        <FileDown className="w-3.5 h-3.5" /> Export All PDF
+                      </button>
+                    )}
+                  </div>
+
+                  <UniqueParcelsList
+                    savedParcels={savedParcels}
+                    onEdit={(parcel) => {
+                      handleLoadSavedParcel(parcel);
+                    }}
+                    onDelete={handleDeleteSaved}
+                    onExport={handleExportSingle}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* All Versions Tab */}
+            {activeTab === 'all' && (
+              <div className="w-full h-full overflow-y-auto p-6 bg-dark-900/30">
+                <div className="max-w-4xl mx-auto">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h2 className="text-lg font-bold text-white leading-none">All Saved Versions</h2>
+                      <p className="text-dark-400 text-xs mt-1">Full change log of all saves (including duplicates and updates).</p>
+                    </div>
+                    {savedParcels.length > 0 && (
+                      <button onClick={handleExportAll} className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5 font-bold">
+                        <FileDown className="w-3.5 h-3.5" /> Export All PDF
+                      </button>
+                    )}
+                  </div>
+
+                  <AllParcelsList
+                    savedParcels={savedParcels}
+                    onEdit={(parcel) => {
+                      handleLoadSavedParcel(parcel);
+                    }}
+                    onDelete={handleDeleteSaved}
+                    onExport={handleExportSingle}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Error Calculations Tab */}
+            {activeTab === 'errors' && (
+              <div className="w-full h-full overflow-y-auto p-6 bg-dark-900/30">
+                <div className="max-w-4xl mx-auto">
+                  <h2 className="text-lg font-bold text-white leading-none mb-1">📊 Error Adjustment</h2>
+                  <p className="text-dark-400 text-xs mb-6">
+                    Proportionally adjust calculated areas against a registered title area.
+                    Permissible limit formula: <code className="text-primary">0.8 × √A + 0.002 × A</code>.
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                    <div className="bg-dark-800 border border-dark-700 rounded-xl p-4 md:col-span-2">
+                      <label className="block text-dark-300 font-semibold text-xs mb-2">
+                        Total Registered Title Area:
+                      </label>
+                      <div className="flex gap-3 items-center">
+                        <input
+                          type="number"
+                          step="0.0001"
+                          min="0"
+                          value={totalRegisteredArea}
+                          onChange={(e) => setTotalRegisteredArea(e.target.value)}
+                          className="bg-dark-900 border border-dark-700 rounded px-3 py-1.5 text-white focus:outline-none focus:border-primary text-sm w-44"
+                          placeholder="Registered m²"
+                        />
+                        <span className="text-xs text-dark-400">m² (from land registry title)</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-dark-800 border border-dark-700 rounded-xl p-4 flex flex-col justify-between">
+                      <p className="text-[10px] text-dark-400">Selected: {selectedParcelsForError.length} parcels</p>
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => setSelectedParcelsForError(savedParcels.map(p => p.id))}
+                          className="btn-secondary py-1 text-[10px] flex-1 text-center"
+                        >
+                          All
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedParcelsForError([]);
+                            setTotalRegisteredArea('');
+                            setErrorResults(null);
+                          }}
+                          className="btn-secondary py-1 text-[10px] flex-1 text-center"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <button
+                        onClick={handleCalculateErrors}
+                        disabled={selectedParcelsForError.length === 0 || !totalRegisteredArea}
+                        className="btn-primary w-full py-1.5 mt-2 text-xs font-bold"
+                      >
+                        Calculate Adjustment
+                      </button>
+                    </div>
+                  </div>
+
+                  {savedParcels.length === 0 ? (
+                    <div className="text-center py-12 bg-dark-800/30 rounded-lg border border-dark-800 text-dark-500 text-xs">
+                      No saved parcels. Add and save parcels to perform error calculations.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 mb-6">
+                      <h3 className="text-xs font-bold text-dark-300 uppercase tracking-wider mb-2">Select Parcels to Include:</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {savedParcels.map((parcel) => {
+                          const isSelected = selectedParcelsForError.includes(parcel.id);
+                          return (
+                            <div
+                              key={parcel.id}
+                              onClick={() => toggleParcelSelection(parcel.id)}
+                              className={`p-3 rounded-lg border-2 cursor-pointer transition-all flex items-center justify-between ${
+                                isSelected ? 'bg-primary/10 border-primary' : 'bg-dark-800/60 border-dark-700/80 hover:border-dark-600'
+                              }`}
+                            >
+                              <div>
+                                <h4 className="font-bold text-sm text-primary">Parcel #{parcel.number}</h4>
+                                <p className="text-[10px] text-dark-400">Area: {parcel.area.toFixed(4)} m² | Points: {parcel.pointCount}</p>
+                              </div>
+                              <input type="checkbox" checked={isSelected} readOnly className="pointer-events-none rounded border-dark-600 bg-dark-800" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Results preview */}
+                  {errorResults && (
+                    <div className="bg-dark-800 border border-dark-700 rounded-xl p-5 mb-6">
+                      <div className="flex items-center justify-between border-b border-dark-700 pb-3 mb-4">
+                        <h3 className="text-sm font-bold text-primary uppercase tracking-wider">Adjustment Results</h3>
+                        <button onClick={handleSaveErrorCalculation} className="btn-success py-1 px-3 text-xs flex items-center gap-1 font-bold">
+                          <Save className="w-3.5 h-3.5" /> Save Results
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4 text-center">
+                        <div className="bg-dark-900 p-2.5 rounded">
+                          <p className="text-[10px] text-dark-500 mb-0.5">Total Registered</p>
+                          <p className="font-mono text-sm font-bold text-primary">{errorResults.totalRegisteredArea.toFixed(4)} m²</p>
                         </div>
-                        <div className="flex gap-2">
-                          <div className={`px-3 py-1 rounded-full text-xs font-bold border ${calc.exceedsLimit ? 'bg-danger/20 text-danger border-danger' : 'bg-success/20 text-success border-success'}`}>
-                            {calc.exceedsLimit ? 'Exceeds Limit' : 'Within Limit'}
-                          </div>
-                          <button
-                            onClick={() => handleDeleteErrorCalculation(calc.id)}
-                            className="p-2 hover:bg-danger/20 rounded-lg text-danger transition-colors"
-                            title="Delete Calculation"
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
+                        <div className="bg-dark-900 p-2.5 rounded">
+                          <p className="text-[10px] text-dark-500 mb-0.5">Total Calculated</p>
+                          <p className="font-mono text-sm font-bold text-success">{errorResults.totalCalculatedArea.toFixed(4)} m²</p>
+                        </div>
+                        <div className="bg-dark-900 p-2.5 rounded">
+                          <p className="text-[10px] text-dark-500 mb-0.5">Difference</p>
+                          <p className="font-mono text-sm font-bold text-warning">{errorResults.absoluteDifference.toFixed(4)} m²</p>
+                        </div>
+                        <div className="bg-dark-900 p-2.5 rounded">
+                          <p className="text-[10px] text-dark-500 mb-0.5 font-bold">Permissible Limit</p>
+                          <p className="font-mono text-sm font-bold text-primary">{errorResults.permissibleError.toFixed(4)} m²</p>
                         </div>
                       </div>
 
-                      {/* Mini Results Table */}
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
+                      <div className={`p-3 rounded text-xs mb-4 text-center font-bold ${errorResults.exceedsLimit ? 'bg-danger/10 text-danger border border-danger/20' : 'bg-success/10 text-success border border-success/20'}`}>
+                        {errorResults.exceedsLimit
+                          ? '⚠️ Adjustment Exceeds Permissible Limit - Using original area values'
+                          : '✅ Within Permissible Limit - Proportionally adjusted'}
+                      </div>
+
+                      {/* Tables */}
+                      <div className="overflow-x-auto bg-dark-900 rounded border border-dark-700">
+                        <table className="w-full text-left text-xs">
                           <thead>
-                            <tr className="bg-dark-900 border-b border-dark-700">
-                              <th className="px-3 py-2 text-left text-dark-400">Parcel</th>
-                              <th className="px-3 py-2 text-right text-dark-400">Orig. Area</th>
-                              <th className="px-3 py-2 text-right text-dark-400">Adj. Area</th>
-                              <th className="px-3 py-2 text-right text-dark-400">Final</th>
+                            <tr className="bg-dark-800 border-b border-dark-700 text-dark-400">
+                              <th className="p-3">Parcel</th>
+                              <th className="p-3 text-right">Orig Area</th>
+                              <th className="p-3 text-right">Adj Area</th>
+                              <th className="p-3 text-right">Rounded</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {calc.parcelResults.map((p, i) => (
-                              <tr key={i} className="border-b border-dark-700/50">
-                                <td className="px-3 py-1 text-primary">{p.parcelNumber}</td>
-                                <td className="px-3 py-1 text-right text-dark-300">{p.calculatedArea.toFixed(3)}</td>
-                                <td className="px-3 py-1 text-right text-warning">{p.adjustedArea.toFixed(3)}</td>
-                                <td className="px-3 py-1 text-right text-success font-bold">{p.roundedArea}</td>
+                            {errorResults.parcelResults.map((pr) => (
+                              <tr key={pr.parcelId} className="border-b border-dark-800">
+                                <td className="p-3 text-primary font-bold">#{pr.parcelNumber}</td>
+                                <td className="p-3 text-right font-mono">{pr.calculatedArea.toFixed(4)}</td>
+                                <td className="p-3 text-right font-mono text-warning">{pr.adjustedArea.toFixed(4)}</td>
+                                <td className="p-3 text-right font-mono font-bold text-success">{pr.roundedArea}</td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
                       </div>
                     </div>
-                  ))}
+                  )}
+
+                  {/* Calculations History */}
+                  {savedErrorCalculations.length > 0 && (
+                    <div className="border-t border-dark-800 pt-6">
+                      <h3 className="text-xs font-bold text-dark-300 uppercase tracking-wider mb-4">Saved Adjustments History ({savedErrorCalculations.length})</h3>
+                      <div className="space-y-4">
+                        {savedErrorCalculations.map((calc) => (
+                          <div key={calc.id} className="bg-dark-800 border border-dark-700 rounded-lg p-4">
+                            <div className="flex justify-between items-center mb-3">
+                              <h4 className="text-sm font-bold text-white">{calc.name} <span className="text-[10px] text-dark-500 font-normal">({new Date(calc.timestamp).toLocaleDateString()})</span></h4>
+                              <button onClick={() => handleDeleteErrorCalculation(calc.id)} className="text-danger hover:underline text-xs">Delete</button>
+                            </div>
+                            <div className="text-[11px] text-dark-400 space-y-1">
+                              <p>Registered: {calc.totalRegisteredArea} m² | Calc: {calc.totalCalculatedArea.toFixed(4)} m² | Status: <span className={calc.exceedsLimit ? 'text-danger' : 'text-success font-bold'}>{calc.exceedsLimit ? 'Exceeded Limit' : 'Adjusted'}</span></p>
+                              <div className="flex gap-2 flex-wrap pt-1.5">
+                                {calc.parcelResults.map((pr, i) => (
+                                  <span key={i} className="bg-dark-900 px-2 py-1 rounded text-dark-300">
+                                    #{pr.parcelNumber}: <strong>{pr.roundedArea}</strong>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
-          </motion.div>
-        )}
 
-        {/* Help Text */}
-        <div className="mt-6 p-4 bg-dark-800/50 rounded-lg text-dark-400 text-sm">
-          <p className="font-semibold text-primary mb-2">📘 How to Use:</p>
-          <ul className="space-y-1">
-            <li>1. Load points file (.pnt, .txt, .csv)</li>
-            <li>2. Enter parcel number, press Enter</li>
-            <li>3. Type point IDs one by one, press Enter after each</li>
-            <li>4. Re-enter first ID to close polygon → Area dialog appears</li>
-            <li>5. Click "Continue" → Add curves or skip</li>
-            <li>6. Click "Finalize" → <strong className="text-success">Parcel AUTO-SAVES! ✨</strong></li>
-            <li>7. Cursor returns to parcel number → Ready for next parcel!</li>
-            <li>8. Everything auto-saves to project file every 2 seconds 💾</li>
-          </ul>
-        </div>
-      </div>
+            {/* Help Tab */}
+            {activeTab === 'help' && (
+              <div className="w-full h-full overflow-y-auto p-6 bg-dark-900/30">
+                <div className="max-w-2xl mx-auto bg-dark-800 border border-dark-700 rounded-xl p-6 text-sm text-dark-300 space-y-4 leading-relaxed">
+                  <h2 className="text-lg font-bold text-primary mb-2 flex items-center gap-2">📘 Surveyor's Guide</h2>
+                  <div className="space-y-3">
+                    <p className="font-semibold text-white">How to calculate parcel areas:</p>
+                    <ul className="space-y-2 list-decimal pl-4">
+                      <li>Load your coordinates file (.pnt, .txt, .csv) from the top menu.</li>
+                      <li>Specify a **Parcel Number** on the left panel.</li>
+                      <li>Double-click/click points on the **Visual Map** tab or type Point IDs one-by-one to create a path.</li>
+                      <li>Close the polygon loop by clicking the **first point** again on the map or typing the first ID in the input box.</li>
+                      <li>The **Area Confirmation** dialog will show the base polygon area. Click **Continue** to add curves if necessary.</li>
+                      <li>Select any curve links (Middle Ordinate M method) and click **Finalize Area** to save the parcel.</li>
+                    </ul>
+                    <p className="text-xs text-dark-500 pt-4 border-t border-dark-700">
+                      Note: Your project saves automatically every 2 seconds to keep your progress secure. Saved parcels can be exported to PDF at any time.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </section>
+
+      </main>
     </div>
   );
 };
@@ -3510,16 +3738,18 @@ const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport
     return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
   }
 
-  // Get unique parcels (first occurrence of each parcel number)
+  // Get unique parcels (LATEST occurrence of each parcel number)
+  const uniqueParcels = [];
   const seen = new Set();
-  const uniqueParcels = savedParcels.filter(parcel => {
+  // Loop from the end to get the latest first
+  for (let i = savedParcels.length - 1; i >= 0; i--) {
+    const parcel = savedParcels[i];
     const key = parcel.number.trim().toLowerCase();
-    if (seen.has(key)) {
-      return false;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueParcels.unshift(parcel); // Keep original chronological order
     }
-    seen.add(key);
-    return true;
-  });
+  }
 
   if (uniqueParcels.length === 0) {
     return <p className="text-dark-400 text-center py-12">No unique parcels found.</p>;

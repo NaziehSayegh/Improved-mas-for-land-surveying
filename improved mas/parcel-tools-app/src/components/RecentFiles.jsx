@@ -12,12 +12,15 @@ const RecentFiles = () => {
   const toast = useToast();
   const {
     setProjectName,
+    setProjectPath,
     setPointsFileName,
     setPointsFilePath,
     setLoadedPoints,
     setSavedParcels,
     setFileHeading,
-    setHasUnsavedChanges
+    setHasUnsavedChanges,
+    setCurrentParcel,
+    loadProjectData
   } = useProject();
   const [recentFiles, setRecentFiles] = useState({ projects: [], points: [] });
   const [loading, setLoading] = useState(true);
@@ -79,30 +82,10 @@ const RecentFiles = () => {
       const result = await response.json();
       const projectData = result.projectData;
 
-      // IMPORTANT: Clear ALL current state FIRST to ensure complete isolation
-      setProjectName('');
-      setPointsFileName('');
-      setPointsFilePath('');
-      setLoadedPoints({});
-      setSavedParcels([]);
-      setFileHeading({
-        block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
-      });
-      setHasUnsavedChanges(false);
+      loadProjectData(projectData, result.filePath || file.path || '');
 
-      // Now load the NEW project's data - completely replace everything
-      setProjectName(projectData.projectName || '');
-      setPointsFileName(projectData.pointsFileName || '');
-      setPointsFilePath(projectData.pointsFilePath || '');
-      setLoadedPoints(projectData.loadedPoints || {});
-      setSavedParcels(projectData.savedParcels || []);
-      setFileHeading(projectData.fileHeading || {
-        block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
-      });
-      setHasUnsavedChanges(false);
-
-      // Navigate to calculator
-      navigate('/parcel-calculator');
+      const hasCad = Boolean(projectData.cadFilePath || (projectData.cadEntities && projectData.cadEntities.length > 0) || projectData.cadFileName);
+      navigate(hasCad ? '/dxf-import' : '/parcel-calculator');
 
       // Refresh recent files list
       loadRecentFiles();

@@ -32,63 +32,60 @@ class FirebaseService:
     
     # ==================== USER OPERATIONS ====================
     
-    def create_user(self, email, password, license_key):
+    def create_user(self, email, password, license_key,
+                    account_type='premium', machine_id_hash=None, trial_start=None):
         """
-        Create a new user with Firebase Authentication
+        Create a new user with Firebase Authentication.
+        account_type: 'demo' (no license needed, 30-day trial) or 'premium' (license required)
+        machine_id_hash: SHA-256 hash of the machine ID — account is locked to this machine
+        trial_start: ISO datetime string when the trial began (from Registry)
         Returns: {'success': bool, 'user_id': str, 'error': str}
         """
         try:
             if self._is_online():
                 from firebase_config import get_firebase_auth
                 auth = get_firebase_auth()
-                
+
                 # Create user in Firebase Auth
-                user = auth.create_user(
-                    email=email,
-                    password=password
-                )
-                
+                user = auth.create_user(email=email, password=password)
+
                 # Create user document in Firestore
                 user_data = {
                     'email': email,
-                    'license_key': license_key,
+                    'license_key': license_key or '',
+                    'account_type': account_type,          # 'demo' | 'premium'
+                    'machine_id_hash': machine_id_hash or '',
+                    'trial_start': trial_start or datetime.now().isoformat(),
+                    'is_active': True,                     # admin can set False to block
+                    'is_admin': False,
                     'created_at': datetime.now().isoformat(),
-                    'last_login': datetime.now().isoformat()
+                    'last_login': datetime.now().isoformat(),
                 }
-                
+
                 self.db.collection('users').document(user.uid).set(user_data)
-                
-                # Save to JSON fallback
                 self._save_user_to_json(user.uid, user_data)
-                
-                return {
-                    'success': True,
-                    'user_id': user.uid,
-                    'message': 'User created successfully'
-                }
+
+                return {'success': True, 'user_id': user.uid, 'message': 'User created successfully'}
             else:
-                # Offline mode - save to JSON only
-                import uuid
-                user_id = str(uuid.uuid4())
+                # Offline mode — save to JSON only
+                import uuid as _uuid
+                user_id = str(_uuid.uuid4())
                 user_data = {
                     'email': email,
-                    'license_key': license_key,
+                    'license_key': license_key or '',
+                    'account_type': account_type,
+                    'machine_id_hash': machine_id_hash or '',
+                    'trial_start': trial_start or datetime.now().isoformat(),
+                    'is_active': True,
+                    'is_admin': False,
                     'created_at': datetime.now().isoformat(),
-                    'last_login': datetime.now().isoformat()
+                    'last_login': datetime.now().isoformat(),
                 }
                 self._save_user_to_json(user_id, user_data)
-                
-                return {
-                    'success': True,
-                    'user_id': user_id,
-                    'message': 'User created in offline mode'
-                }
-                
+                return {'success': True, 'user_id': user_id, 'message': 'User created in offline mode'}
+
         except Exception as e:
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
     
     def verify_user_credentials(self, email, password):
         """
@@ -137,21 +134,56 @@ class FirebaseService:
                 'error': str(e)
             }
     
+    def _normalize_user(self, data):
+        if not data or not isinstance(data, dict):
+            return data
+        lic = data.get('license')
+        lic_key = data.get('license_key')
+        if (isinstance(lic, dict) and lic.get('key')) or (isinstance(lic_key, str) and lic_key.strip()):
+            data['account_type'] = 'premium'
+            if not data.get('license_key') and isinstance(lic, dict):
+                data['license_key'] = lic.get('key', '')
+        elif not data.get('account_type'):
+            data['account_type'] = 'demo'
+        return data
+
     def get_user(self, user_id):
         """Get user data"""
         try:
             if self._is_online():
                 doc = self.db.collection('users').document(user_id).get()
                 if doc.exists:
-                    return doc.to_dict()
+                    return self._normalize_user(doc.to_dict())
             
             # Fallback to JSON
             users = self._load_users_from_json()
-            return users.get(user_id)
+            return self._normalize_user(users.get(user_id))
             
         except Exception as e:
             print(f"[Firebase Service] Error getting user: {e}")
             return None
+
+    def get_user_by_email(self, email):
+        """Get a user by email address from Firestore or local storage."""
+        if not email:
+            return None
+        clean_email = email.strip().lower()
+        try:
+            if self._is_online():
+                docs = self.db.collection('users').where('email', '==', clean_email).limit(1).stream()
+                for doc in docs:
+                    data = doc.to_dict()
+                    data['uid'] = doc.id
+                    return self._normalize_user(data)
+            # Fallback/offline
+            users = self._load_users_from_json()
+            for uid, data in users.items():
+                if data.get('email', '').strip().lower() == clean_email:
+                    data['uid'] = uid
+                    return self._normalize_user(data)
+        except Exception as e:
+            print(f"[Firebase Service] Error getting user by email {clean_email}: {e}")
+        return None
     
     # ==================== PROJECT OPERATIONS ====================
     
@@ -276,16 +308,22 @@ class FirebaseService:
     def save_license(self, user_id, license_data):
         """Save license information"""
         try:
+            lic_key = license_data.get('key', '') if isinstance(license_data, dict) else ''
             if self._is_online():
-                self.db.collection('users').document(user_id).update({
+                self.db.collection('users').document(user_id).set({
                     'license': license_data,
-                    'license_updated_at': datetime.now().isoformat()
-                })
+                    'license_updated_at': datetime.now().isoformat(),
+                    'account_type': 'premium',
+                    'license_key': lic_key
+                }, merge=True)
             
             # Save to JSON
             users = self._load_users_from_json()
             if user_id in users:
                 users[user_id]['license'] = license_data
+                users[user_id]['account_type'] = 'premium'
+                if lic_key:
+                    users[user_id]['license_key'] = lic_key
                 self._save_users_to_json(users)
             
             return {'success': True}
@@ -316,7 +354,7 @@ class FirebaseService:
     
     # ==================== DEVICE MANAGEMENT ====================
     
-    def add_device(self, user_id, machine_id, device_name="Unknown Device"):
+    def add_device(self, user_id, machine_id, device_name="Unknown Device", computer_name=None, os_user=None, os_platform=None):
         """
         Add a device to user's active devices
         Returns: {'success': bool, 'error': str, 'device_count': int}
@@ -335,10 +373,19 @@ class FirebaseService:
                 # Check if device already exists
                 for device_id, device_info in devices.items():
                     if device_info.get('machine_id') == machine_id:
-                        # Update last_seen
-                        user_ref.update({
+                        # Update last_seen and other details
+                        update_fields = {
                             f'devices.{device_id}.last_seen': datetime.now().isoformat()
-                        })
+                        }
+                        if computer_name:
+                            update_fields[f'devices.{device_id}.computer_name'] = computer_name
+                        if os_user:
+                            update_fields[f'devices.{device_id}.os_user'] = os_user
+                        if os_platform:
+                            update_fields[f'devices.{device_id}.os_platform'] = os_platform
+                        if device_name != "Unknown Device":
+                            update_fields[f'devices.{device_id}.device_name'] = device_name
+                        user_ref.update(update_fields)
                         return {'success': True, 'device_count': len(devices), 'device_id': device_id}
                 
                 # Check device limit (max 2 devices)
@@ -355,6 +402,9 @@ class FirebaseService:
                 devices[device_id] = {
                     'machine_id': machine_id,
                     'device_name': device_name,
+                    'computer_name': computer_name or '',
+                    'os_user': os_user or '',
+                    'os_platform': os_platform or '',
                     'activated_at': datetime.now().isoformat(),
                     'last_seen': datetime.now().isoformat()
                 }
@@ -374,6 +424,14 @@ class FirebaseService:
                 for device_id, device_info in devices.items():
                     if device_info.get('machine_id') == machine_id:
                         devices[device_id]['last_seen'] = datetime.now().isoformat()
+                        if computer_name:
+                            devices[device_id]['computer_name'] = computer_name
+                        if os_user:
+                            devices[device_id]['os_user'] = os_user
+                        if os_platform:
+                            devices[device_id]['os_platform'] = os_platform
+                        if device_name != "Unknown Device":
+                            devices[device_id]['device_name'] = device_name
                         users[user_id]['devices'] = devices
                         self._save_users_to_json(users)
                         return {'success': True, 'device_count': len(devices), 'device_id': device_id}
@@ -392,6 +450,9 @@ class FirebaseService:
                 devices[device_id] = {
                     'machine_id': machine_id,
                     'device_name': device_name,
+                    'computer_name': computer_name or '',
+                    'os_user': os_user or '',
+                    'os_platform': os_platform or '',
                     'activated_at': datetime.now().isoformat(),
                     'last_seen': datetime.now().isoformat()
                 }
@@ -565,7 +626,131 @@ class FirebaseService:
             print(f"[Firebase Service] Error getting AI config: {e}")
             return {}
     
+    # ==================== ADMIN OPERATIONS ====================
+
+    def get_all_users(self):
+        """Admin: return list of all user records from Firestore."""
+        try:
+            if self._is_online():
+                docs = self.db.collection('users').stream()
+                result = []
+                for doc in docs:
+                    data = self._normalize_user(doc.to_dict())
+                    data['uid'] = doc.id
+                    # Mask machine_id_hash to last 8 chars for display
+                    mhash = data.get('machine_id_hash', '')
+                    data['machine_id_masked'] = f'...{mhash[-8:]}' if len(mhash) >= 8 else mhash
+                    result.append(data)
+                return result
+            # Offline fallback
+            users = self._load_users_from_json()
+            return [dict(self._normalize_user(v), uid=k) for k, v in users.items()]
+        except Exception as e:
+            print(f'[Firebase Admin] get_all_users error: {e}')
+            return []
+
+    def set_user_active(self, uid, is_active: bool):
+        """Admin: enable or disable a user account."""
+        try:
+            if self._is_online():
+                self.db.collection('users').document(uid).set({'is_active': is_active}, merge=True)
+            users = self._load_users_from_json()
+            if uid not in users:
+                users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
+            users[uid]['is_active'] = is_active
+            self._save_users_to_json(users)
+            return {'success': True}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def extend_user_trial(self, uid, new_trial_start_iso: str):
+        """Admin: reset trial_start to a new date (effectively extending the trial)."""
+        try:
+            if self._is_online():
+                self.db.collection('users').document(uid).set({
+                    'trial_start': new_trial_start_iso,
+                    'trial_extended_at': datetime.now().isoformat()
+                }, merge=True)
+            users = self._load_users_from_json()
+            if uid not in users:
+                users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
+            users[uid]['trial_start'] = new_trial_start_iso
+            self._save_users_to_json(users)
+            return {'success': True}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def reset_user_machine(self, uid):
+        """Admin: clear machine binding so the user can log in from a new PC."""
+        try:
+            if self._is_online():
+                self.db.collection('users').document(uid).set({
+                    'machine_id_hash': '',
+                    'devices': {},
+                    'machine_reset_at': datetime.now().isoformat()
+                }, merge=True)
+            users = self._load_users_from_json()
+            if uid not in users:
+                users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
+            users[uid]['machine_id_hash'] = ''
+            users[uid]['devices'] = {}
+            self._save_users_to_json(users)
+            return {'success': True}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def upgrade_user_to_premium(self, uid):
+        """Admin: upgrade a demo account to premium (waives license key requirement)."""
+        try:
+            if self._is_online():
+                self.db.collection('users').document(uid).set({
+                    'account_type': 'premium',
+                    'upgraded_at': datetime.now().isoformat()
+                }, merge=True)
+            users = self._load_users_from_json()
+            if uid not in users:
+                users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
+            users[uid]['account_type'] = 'premium'
+            self._save_users_to_json(users)
+            return {'success': True}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def deactivate_user_license(self, uid):
+        """Admin: deactivate a user's license, reverting them to a demo account and clearing the license key."""
+        try:
+            if self._is_online():
+                self.db.collection('users').document(uid).set({
+                    'account_type': 'demo',
+                    'license_key': '',
+                    'license_deactivated_at': datetime.now().isoformat()
+                }, merge=True)
+            users = self._load_users_from_json()
+            if uid not in users:
+                users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
+            target_email = users[uid].get('email', '')
+            users[uid]['account_type'] = 'demo'
+            users[uid]['license_key'] = ''
+            self._save_users_to_json(users)
+
+            # Also check if local license file belongs to this user/email and remove it
+            try:
+                lic_file = os.path.join(self.data_dir, 'license.json')
+                if os.path.exists(lic_file):
+                    with open(lic_file, 'r', encoding='utf-8') as f:
+                        lic_data = json.load(f)
+                    if target_email and lic_data.get('email', '').lower() == target_email.lower():
+                        os.remove(lic_file)
+                        print(f'[Admin] Removed local license file for deactivated user: {target_email}')
+            except Exception as e:
+                print(f'[Admin] Note on local license removal: {e}')
+
+            return {'success': True}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
     # ==================== JSON FALLBACK METHODS ====================
+
     
     def _save_user_to_json(self, user_id, user_data):
         """Save user to JSON file"""

@@ -15,8 +15,18 @@ import urllib.request
 import urllib.parse
 import urllib.error
 
+# Windows Registry support — survives app uninstallation
+try:
+    import winreg as _winreg
+    _HAS_WINREG = True
+except ImportError:
+    _HAS_WINREG = False
+
+# Registry path where trial dates are stored
+_REGISTRY_KEY_PATH = r'Software\NaziehSayegh\ParcelTools'
+
 # Secret key for license validation (CHANGE THIS TO YOUR OWN SECRET!)
-LICENSE_SECRET = "PARCELTOOLS_SECRET_KEY_CHANGE_ME_2024"  # TODO: Change this!
+LICENSE_SECRET = "a8f3d9e2c1b74f6a0d5e8c3b2a9f1e4d7c6b5a8f3d9e2c1b74f6a0d5e8c3b2a"
 
 class LicenseManager:
     def __init__(self, data_dir):
@@ -51,81 +61,157 @@ class LicenseManager:
             print(f"Error reading license: {e}")
             return self._check_trial_status()
 
-    def _check_trial_status(self):
-        """Check or start 30-day free trial"""
-        trial_file = os.path.join(self.data_dir, 'trial_info.json')
-        
+    # ── Registry-Based Trial System ─────────────────────────────────────────────
+    # Trial start dates are stored in the Windows Registry under:
+    #   HKEY_CURRENT_USER\Software\NaziehSayegh\ParcelTools
+    # This key is NOT removed by NSIS uninstallers, so deleting and reinstalling
+    # the app does NOT reset the 30-day trial clock.
+    # On non-Windows, a hidden folder (~/.parceltools_system/) is used instead.
+
+    def _get_or_create_registry_date(self, value_name):
+        """Read (or create) a trial start date stored permanently in the Windows Registry.
+        Returns (date_iso_string, is_newly_created).
+        Falls back to a hidden system folder on non-Windows."""
+        if _HAS_WINREG:
+            try:
+                key = _winreg.CreateKeyEx(
+                    _winreg.HKEY_CURRENT_USER,
+                    _REGISTRY_KEY_PATH,
+                    0,
+                    _winreg.KEY_ALL_ACCESS
+                )
+                try:
+                    date_str, _ = _winreg.QueryValueEx(key, value_name)
+                    datetime.fromisoformat(date_str)   # validate format
+                    print(f'[License] Registry date found for {value_name}: {date_str}')
+                    return date_str, False
+                except (FileNotFoundError, OSError, ValueError):
+                    # Value does not exist yet — stamp it now
+                    date_str = datetime.now().isoformat()
+                    _winreg.SetValueEx(key, value_name, 0, _winreg.REG_SZ, date_str)
+                    print(f'[License] Registry date created for {value_name}: {date_str}')
+                    return date_str, True
+                finally:
+                    _winreg.CloseKey(key)
+            except Exception as e:
+                print(f'[License] Registry error: {e}')
+
+        # ── Non-Windows / Registry fallback: hidden system folder ──────────────
+        fallback_dir = os.path.join(os.path.expanduser('~'), '.parceltools_system')
+        os.makedirs(fallback_dir, exist_ok=True)
+        fallback_file = os.path.join(fallback_dir, f'{value_name}.dat')
         try:
-            if os.path.exists(trial_file):
-                with open(trial_file, 'r', encoding='utf-8') as f:
-                    trial_data = json_lib.load(f)
-                
-                start_date_str = trial_data.get('start_date')
-                if not start_date_str:
-                    # Invalid trial file, reset it
-                    return self._start_new_trial(trial_file)
-                
-                start_date = datetime.fromisoformat(start_date_str)
-                now = datetime.now()
-                
-                # Calculate expiration (30 days)
-                expiration_date = start_date + timedelta(days=30)
-                days_left = (expiration_date - now).days
-                
-                if now > expiration_date:
-                    return {
-                        'status': 'expired',
-                        'is_valid': False,
-                        'message': 'Trial Expired - Please Purchase'
-                    }
-                
-                return {
-                    'status': 'trial',
-                    'is_valid': True,
-                    'days_left': days_left + 1, # +1 to include today
-                    'message': f'Trial Mode ({days_left + 1} days left)'
-                }
-            else:
-                # Start new trial
-                return self._start_new_trial(trial_file)
-                
+            if os.path.exists(fallback_file):
+                with open(fallback_file, 'r') as f:
+                    date_str = f.read().strip()
+                datetime.fromisoformat(date_str)   # validate
+                return date_str, False
+        except Exception:
+            pass
+        date_str = datetime.now().isoformat()
+        try:
+            with open(fallback_file, 'w') as f:
+                f.write(date_str)
         except Exception as e:
-            print(f"Trial check error: {e}")
-            # Fallback to expired if error
+            print(f'[License] Fallback file write error: {e}')
+        return date_str, True
+
+    def _compute_trial_response(self, start_date_str, expired_status, trial_status_label):
+        """Shared helper: compute days-left and build the trial/expired response dict."""
+        start_date = datetime.fromisoformat(start_date_str)
+        now = datetime.now()
+        expiration_date = start_date + timedelta(days=30)
+        days_left = (expiration_date - now).days
+
+        if now > expiration_date:
             return {
-                'status': 'error',
+                'status': 'expired',
                 'is_valid': False,
-                'message': 'License Error'
+                'message': expired_status
             }
 
-    def _start_new_trial(self, trial_file):
-        """Start a new 30-day trial"""
+        return {
+            'status': 'trial',
+            'is_valid': True,
+            'days_left': max(1, days_left + 1),   # +1 to include today
+            'message': f'{trial_status_label} ({days_left + 1} days left)'
+        }
+
+    def _check_trial_status(self):
+        """Check the 30-day trial for the PREMIUM (full) version.
+        Date is persisted in the Windows Registry — survives reinstallation."""
         try:
-            trial_data = {
-                'start_date': datetime.now().isoformat(),
-                'type': 'trial'
-            }
-            
-            os.makedirs(self.data_dir, exist_ok=True)
-            with open(trial_file, 'w', encoding='utf-8') as f:
-                json_lib.dump(trial_data, f, indent=2)
-                
-            return {
-                'status': 'trial',
-                'is_valid': True,
-                'days_left': 30,
-                'message': '30-Day Free Trial Started'
-            }
+            date_str, is_new = self._get_or_create_registry_date('PremiumTrialStart')
+            if date_str is None:
+                return {'status': 'error', 'is_valid': False, 'message': 'License Error'}
+
+            result = self._compute_trial_response(
+                date_str,
+                expired_status='Trial Expired - Please Purchase a License',
+                trial_status_label='Trial Mode'
+            )
+            if is_new:
+                result['message'] = '30-Day Free Trial Started'
+            print(f'[License] Premium trial status: {result}')
+            return result
         except Exception as e:
-            return {
-                'status': 'error',
-                'is_valid': False,
-                'message': f'Could not start trial: {str(e)}'
-            }
+            print(f'[License] Premium trial check error: {e}')
+            return {'status': 'error', 'is_valid': False, 'message': 'License Error'}
+
+    def _check_demo_trial_status(self):
+        """Check the 30-day trial for the DEMO version.
+        Date is persisted in the Windows Registry — survives reinstallation.
+        Demo cannot be licensed; on expiry the user must buy the full version."""
+        try:
+            date_str, is_new = self._get_or_create_registry_date('DemoTrialStart')
+            if date_str is None:
+                return {'status': 'expired', 'is_valid': False, 'message': 'License Error'}
+
+            result = self._compute_trial_response(
+                date_str,
+                expired_status='Demo Trial Expired - Please Download the Full Version',
+                trial_status_label='Demo Trial'
+            )
+            if is_new:
+                result['message'] = '30-Day Demo Trial Started'
+            print(f'[License] Demo trial status: {result}')
+            return result
+        except Exception as e:
+            print(f'[License] Demo trial check error: {e}')
+            return {'status': 'expired', 'is_valid': False, 'message': 'License Error'}
     
+    def _sign_license(self, data_dict):
+        """Compute HMAC-SHA256 signature for a license data dict."""
+        d = dict(data_dict)
+        d.pop('signature', None)
+        serialized = json_lib.dumps(d, sort_keys=True)
+        return hmac.new(LICENSE_SECRET.encode(), serialized.encode(), 'sha256').hexdigest()
+
+    def _verify_license_signature(self, data_dict):
+        """Verify HMAC-SHA256 signature of a license data dict.
+        Returns True if signature matches, or if no signature field exists (backward compatibility).
+        Returns False if signature field exists but does not match.
+        """
+        d = dict(data_dict)
+        stored_sig = d.pop('signature', None)
+        if stored_sig is None:
+            # No signature present - old license file, allow for backward compatibility
+            return True
+        expected_sig = self._sign_license(data_dict)
+        return hmac.compare_digest(stored_sig, expected_sig)
+
     # Trial mode removed - customers must purchase
     def _check_paid_license(self, license_data):
         """Validate paid license key"""
+        # Verify HMAC signature to detect tampering
+        if not self._verify_license_signature(license_data):
+            print('[License] ⚠️ License file signature mismatch - possible tampering detected')
+            return {
+                'status': 'invalid',
+                'is_valid': False,
+                'message': 'License file integrity check failed. Please re-activate your license.'
+            }
+
         license_key = license_data.get('key', '')
         email = license_data.get('email', '')
         provider = license_data.get('provider', 'legacy')
@@ -162,17 +248,91 @@ class LicenseManager:
         """Get unique machine identifier"""
         try:
             if sys.platform == 'win32':
-                cmd = 'wmic csproduct get uuid'
-                uuid = subprocess.check_output(cmd).decode().split('\n')[1].strip()
-                return uuid
-            else:
-                # Fallback for other OS
-                import uuid
-                return str(uuid.getnode())
-        except Exception:
-            # Fallback if wmic fails
+                try:
+                    import winreg
+                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography", 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
+                        val, _ = winreg.QueryValueEx(key, "MachineGuid")
+                        if val and str(val).strip():
+                            return str(val).strip()
+                except Exception:
+                    pass
+                try:
+                    cmd = 'wmic csproduct get uuid'
+                    uuid = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().split('\n')[1].strip()
+                    if uuid:
+                        return uuid
+                except Exception:
+                    pass
             import uuid
             return str(uuid.getnode())
+        except Exception:
+            import uuid
+            return str(uuid.getnode())
+
+    def get_machine_id_hash(self):
+        """Return SHA-256 hash of the machine ID (safe to store in DB)"""
+        raw = self.get_machine_id()
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    # ── Session Token System ────────────────────────────────────────────────────
+    # Tokens are HMAC-signed strings: base64(uid:machine_hash:expiry) + "." + HMAC
+    # They are stored in sessionStorage (cleared on window close) and sent as
+    # X-Session-Token header. The backend verifies every protected request.
+
+    _TOKEN_TTL_SECONDS = 24 * 60 * 60  # 24-hour tokens
+
+    def generate_session_token(self, uid: str, machine_id_hash: str) -> str:
+        """Issue a signed session token for a user on this machine."""
+        import time
+        expiry = int(time.time()) + self._TOKEN_TTL_SECONDS
+        payload = f'{uid}:{machine_id_hash}:{expiry}'
+        payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode()
+        sig = hmac.new(
+            LICENSE_SECRET.encode(),
+            payload_b64.encode(),
+            'sha256'
+        ).hexdigest()
+        return f'{payload_b64}.{sig}'
+
+    def verify_session_token(self, token: str, machine_id_hash: str):
+        """Verify a session token.
+        Returns (uid, machine_id_hash) on success.
+        Raises ValueError with a descriptive message on failure.
+        """
+        import time
+        try:
+            parts = token.split('.')
+            if len(parts) != 2:
+                raise ValueError('Malformed token')
+            payload_b64, provided_sig = parts
+
+            # Verify HMAC
+            expected_sig = hmac.new(
+                LICENSE_SECRET.encode(),
+                payload_b64.encode(),
+                'sha256'
+            ).hexdigest()
+            if not hmac.compare_digest(provided_sig, expected_sig):
+                raise ValueError('Invalid token signature')
+
+            # Decode payload
+            payload = base64.urlsafe_b64decode(payload_b64.encode()).decode()
+            uid, token_machine_hash, expiry_str = payload.split(':', 2)
+
+            # Check expiry
+            if int(time.time()) > int(expiry_str):
+                raise ValueError('Token expired')
+
+            # Check machine ID binding
+            if not hmac.compare_digest(token_machine_hash, machine_id_hash):
+                raise ValueError('Token was issued for a different machine')
+
+            return uid, token_machine_hash
+
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f'Token verification error: {e}')
 
     # Supabase validation removed - using Firebase instead
 
@@ -247,11 +407,12 @@ class LicenseManager:
             'type': 'paid',
             'key': clean_key,
             'email': clean_email,
-            'machine_id': machine_id,
+            'machine_id': hashlib.sha256(machine_id.encode()).hexdigest(),
             'activated_date': datetime.now().isoformat(),
-            'version': '2.0.0',
+            'version': '2.0.1',
             'provider': 'gumroad'
         }
+        license_data['signature'] = self._sign_license(license_data)
         
         try:
             # Ensure directory exists

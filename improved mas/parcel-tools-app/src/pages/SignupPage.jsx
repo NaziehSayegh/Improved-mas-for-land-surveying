@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, Mail, Lock, Key, AlertCircle, Loader, Eye, EyeOff, CheckCircle, X } from 'lucide-react';
+import { UserPlus, Mail, Lock, Key, AlertCircle, Loader, Eye, EyeOff, CheckCircle, X, Zap, Crown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const SignupPage = () => {
     const navigate = useNavigate();
     const { login } = useAuth();
+    const [accountType, setAccountType] = useState('premium'); // premium version only
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -38,31 +39,27 @@ const SignupPage = () => {
         e.preventDefault();
         setError('');
 
-        // Validation
-        if (password !== confirmPassword) {
-            setError('Passwords do not match');
-            return;
-        }
-
-        if (password.length < 8) {
-            setError('Password must be at least 8 characters long');
-            return;
-        }
-
+        if (password !== confirmPassword) { setError('Passwords do not match'); return; }
+        if (password.length < 8) { setError('Password must be at least 8 characters long'); return; }
+        const selectedAccountType = licenseKey.trim() ? 'premium' : 'demo';
         setLoading(true);
-
         try {
             const response = await fetch('http://localhost:5000/api/auth/signup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password, licenseKey })
+                body: JSON.stringify({ email, password, licenseKey, accountType: selectedAccountType })
             });
-
             const data = await response.json();
 
             if (response.ok && data.success) {
-                // Auto-login after successful signup
-                login(data.userId, email, licenseKey);
+                localStorage.setItem('saved_email', email);
+                localStorage.setItem('saved_password', password);
+                localStorage.setItem('remember_me', 'true');
+                login(
+                    data.userId, data.email, data.licenseKey,
+                    data.sessionToken, data.accountType || selectedAccountType,
+                    data.isAdmin || false
+                );
                 navigate('/');
             } else {
                 setError(data.error || 'Signup failed. Please try again.');
@@ -76,7 +73,7 @@ const SignupPage = () => {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+        <div className="page-container relative z-10">
             {/* Animated Background */}
             <div className="absolute inset-0 bg-gradient-to-br from-dark-900 via-dark-800 to-dark-900">
                 <div className="absolute inset-0 opacity-30">
@@ -94,14 +91,16 @@ const SignupPage = () => {
                 }} />
             </div>
 
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6 }}
-                className="w-full max-w-md relative z-10"
-            >
+            {/* Scrollable Wrapper */}
+            <div className="flex-1 overflow-y-auto scroll-area flex flex-col items-center p-3 sm:p-6 md:p-8 z-10">
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6 }}
+                    className="w-full max-w-sm sm:max-w-md md:max-w-lg my-auto py-4 sm:py-6 relative"
+                >
                 {/* Logo and Title */}
-                <div className="text-center mb-8">
+                <div className="text-center mb-5 sm:mb-8">
                     <motion.div
                         initial={{ scale: 0, rotate: -180 }}
                         animate={{ scale: 1, rotate: 0 }}
@@ -111,17 +110,17 @@ const SignupPage = () => {
                             damping: 20,
                             delay: 0.1
                         }}
-                        className="inline-block mb-4"
+                        className="inline-block mb-3 sm:mb-4"
                     >
-                        <div className="w-20 h-20 bg-gradient-to-br from-primary to-primary-dark rounded-2xl flex items-center justify-center shadow-2xl shadow-primary/50">
-                            <span className="text-4xl">📐</span>
+                        <div className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 bg-gradient-to-br from-primary to-primary-dark rounded-xl sm:rounded-2xl flex items-center justify-center shadow-2xl shadow-primary/50">
+                            <span className="text-2xl sm:text-3xl md:text-4xl">📐</span>
                         </div>
                     </motion.div>
                     <motion.h1
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         transition={{ delay: 0.3 }}
-                        className="text-4xl font-bold mb-2"
+                        className="text-2xl sm:text-3xl md:text-4xl font-bold mb-1 sm:mb-2"
                     >
                         <span className="gradient-text">Create Account</span>
                     </motion.h1>
@@ -129,7 +128,7 @@ const SignupPage = () => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         transition={{ delay: 0.4 }}
-                        className="text-dark-300"
+                        className="text-xs sm:text-sm md:text-base text-dark-300"
                     >
                         Join Parcel Tools today
                     </motion.p>
@@ -140,9 +139,9 @@ const SignupPage = () => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 }}
-                    className="bg-dark-800/80 backdrop-blur-xl border border-dark-600/50 rounded-2xl shadow-2xl p-8"
+                    className="bg-dark-800/80 backdrop-blur-xl border border-dark-600/50 rounded-xl sm:rounded-2xl shadow-2xl p-5 sm:p-6 md:p-8"
                 >
-                    <form onSubmit={handleSignup} className="space-y-5">
+                    <form onSubmit={handleSignup} className="space-y-3.5 sm:space-y-5">
                         {/* Error Message */}
                         <AnimatePresence>
                             {error && (
@@ -150,26 +149,26 @@ const SignupPage = () => {
                                     initial={{ opacity: 0, y: -10, height: 0 }}
                                     animate={{ opacity: 1, y: 0, height: 'auto' }}
                                     exit={{ opacity: 0, y: -10, height: 0 }}
-                                    className="bg-danger-dark/20 border border-danger rounded-xl p-4 flex items-start gap-3"
+                                    className="bg-danger-dark/20 border border-danger rounded-xl p-3.5 sm:p-4 flex items-start gap-2.5 sm:gap-3"
                                 >
-                                    <AlertCircle className="w-5 h-5 text-danger flex-shrink-0 mt-0.5" />
-                                    <p className="text-danger text-sm">{error}</p>
+                                    <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-danger flex-shrink-0 mt-0.5" />
+                                    <p className="text-danger text-xs sm:text-sm">{error}</p>
                                 </motion.div>
                             )}
                         </AnimatePresence>
 
                         {/* Email Input */}
                         <div>
-                            <label className="block text-sm font-medium text-dark-200 mb-2">
+                            <label className="block text-xs sm:text-sm font-medium text-dark-200 mb-1.5 sm:mb-2">
                                 Email Address
                             </label>
                             <div className="relative group">
-                                <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-dark-400 group-focus-within:text-primary transition-colors" />
+                                <Mail className="absolute left-3.5 sm:left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-dark-400 group-focus-within:text-primary transition-colors" />
                                 <input
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full pl-12 pr-4 py-3 bg-dark-700/50 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-400 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                                    className="w-full pl-10 sm:pl-12 pr-4 py-2.5 sm:py-3 bg-dark-700/50 border border-dark-600 rounded-lg sm:rounded-xl text-sm sm:text-base text-dark-100 placeholder-dark-400 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
                                     placeholder="your.email@example.com"
                                     required
                                     disabled={loading}
@@ -179,18 +178,17 @@ const SignupPage = () => {
 
                         {/* License Key Input */}
                         <div>
-                            <label className="block text-sm font-medium text-dark-200 mb-2">
-                                License Key
+                            <label className="block text-xs sm:text-sm font-medium text-dark-200 mb-1.5 sm:mb-2">
+                                License Key (Optional for Free Trial)
                             </label>
                             <div className="relative group">
-                                <Key className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-dark-400 group-focus-within:text-primary transition-colors" />
+                                <Key className="absolute left-3.5 sm:left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-dark-400 group-focus-within:text-primary transition-colors" />
                                 <input
                                     type="text"
                                     value={licenseKey}
                                     onChange={(e) => setLicenseKey(e.target.value)}
-                                    className="w-full pl-12 pr-4 py-3 bg-dark-700/50 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-400 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all font-mono"
-                                    placeholder="XXXX-XXXX-XXXX-XXXX"
-                                    required
+                                    className="w-full pl-10 sm:pl-12 pr-4 py-2.5 sm:py-3 bg-dark-700/50 border border-dark-600 rounded-lg sm:rounded-xl text-sm sm:text-base text-dark-100 placeholder-dark-400 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all font-mono"
+                                    placeholder="XXXX-XXXX-XXXX-XXXX (Optional)"
                                     disabled={loading}
                                 />
                             </div>
@@ -198,16 +196,16 @@ const SignupPage = () => {
 
                         {/* Password Input */}
                         <div>
-                            <label className="block text-sm font-medium text-dark-200 mb-2">
+                            <label className="block text-xs sm:text-sm font-medium text-dark-200 mb-1.5 sm:mb-2">
                                 Password
                             </label>
                             <div className="relative group">
-                                <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-dark-400 group-focus-within:text-primary transition-colors" />
+                                <Lock className="absolute left-3.5 sm:left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-dark-400 group-focus-within:text-primary transition-colors" />
                                 <input
                                     type={showPassword ? "text" : "password"}
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full pl-12 pr-12 py-3 bg-dark-700/50 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-400 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                                    className="w-full pl-10 sm:pl-12 pr-10 sm:pr-12 py-2.5 sm:py-3 bg-dark-700/50 border border-dark-600 rounded-lg sm:rounded-xl text-sm sm:text-base text-dark-100 placeholder-dark-400 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
                                     placeholder="Create a strong password"
                                     required
                                     disabled={loading}
@@ -215,9 +213,9 @@ const SignupPage = () => {
                                 <button
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-dark-400 hover:text-primary transition-colors"
+                                    className="absolute right-3.5 sm:right-4 top-1/2 transform -translate-y-1/2 text-dark-400 hover:text-primary transition-colors"
                                 >
-                                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                    {showPassword ? <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
                                 </button>
                             </div>
 
@@ -240,7 +238,7 @@ const SignupPage = () => {
                                             {passwordStrength.label}
                                         </span>
                                     </div>
-                                    <p className="text-xs text-dark-400">
+                                    <p className="text-[11px] sm:text-xs text-dark-400">
                                         Use 8+ characters with a mix of letters, numbers & symbols
                                     </p>
                                 </motion.div>
@@ -249,16 +247,16 @@ const SignupPage = () => {
 
                         {/* Confirm Password Input */}
                         <div>
-                            <label className="block text-sm font-medium text-dark-200 mb-2">
+                            <label className="block text-xs sm:text-sm font-medium text-dark-200 mb-1.5 sm:mb-2">
                                 Confirm Password
                             </label>
                             <div className="relative group">
-                                <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-dark-400 group-focus-within:text-primary transition-colors" />
+                                <Lock className="absolute left-3.5 sm:left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-dark-400 group-focus-within:text-primary transition-colors" />
                                 <input
                                     type={showConfirmPassword ? "text" : "password"}
                                     value={confirmPassword}
                                     onChange={(e) => setConfirmPassword(e.target.value)}
-                                    className="w-full pl-12 pr-12 py-3 bg-dark-700/50 border border-dark-600 rounded-xl text-dark-100 placeholder-dark-400 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                                    className="w-full pl-10 sm:pl-12 pr-10 sm:pr-12 py-2.5 sm:py-3 bg-dark-700/50 border border-dark-600 rounded-lg sm:rounded-xl text-sm sm:text-base text-dark-100 placeholder-dark-400 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
                                     placeholder="Confirm your password"
                                     required
                                     disabled={loading}
@@ -266,9 +264,9 @@ const SignupPage = () => {
                                 <button
                                     type="button"
                                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-dark-400 hover:text-primary transition-colors"
+                                    className="absolute right-3.5 sm:right-4 top-1/2 transform -translate-y-1/2 text-dark-400 hover:text-primary transition-colors"
                                 >
-                                    {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                                    {showConfirmPassword ? <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
                                 </button>
                             </div>
 
@@ -282,12 +280,12 @@ const SignupPage = () => {
                                     {password === confirmPassword ? (
                                         <>
                                             <CheckCircle className="w-4 h-4 text-green-400" />
-                                            <span className="text-xs text-green-400">Passwords match</span>
+                                            <span className="text-[11px] sm:text-xs text-green-400">Passwords match</span>
                                         </>
                                     ) : (
                                         <>
                                             <X className="w-4 h-4 text-red-400" />
-                                            <span className="text-xs text-red-400">Passwords don't match</span>
+                                            <span className="text-[11px] sm:text-xs text-red-400">Passwords don't match</span>
                                         </>
                                     )}
                                 </motion.div>
@@ -298,16 +296,16 @@ const SignupPage = () => {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary text-white font-semibold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg shadow-primary/30 flex items-center justify-center gap-2"
+                            className="w-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-dark hover:to-primary text-white text-sm sm:text-base font-semibold py-2.5 sm:py-3 px-4 sm:px-6 rounded-lg sm:rounded-xl transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg shadow-primary/30 flex items-center justify-center gap-2"
                         >
                             {loading ? (
                                 <>
-                                    <Loader className="w-5 h-5 animate-spin" />
+                                    <Loader className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                                     Creating account...
                                 </>
                             ) : (
                                 <>
-                                    <UserPlus className="w-5 h-5" />
+                                    <UserPlus className="w-4 h-4 sm:w-5 sm:h-5" />
                                     Create Account
                                 </>
                             )}
@@ -315,19 +313,19 @@ const SignupPage = () => {
                     </form>
 
                     {/* Divider */}
-                    <div className="relative my-6">
+                    <div className="relative my-4 sm:my-6">
                         <div className="absolute inset-0 flex items-center">
                             <div className="w-full border-t border-dark-600"></div>
                         </div>
-                        <div className="relative flex justify-center text-sm">
-                            <span className="px-4 bg-dark-800 text-dark-400">Already have an account?</span>
+                        <div className="relative flex justify-center text-xs sm:text-sm">
+                            <span className="px-3 sm:px-4 bg-dark-800 text-dark-400">Already have an account?</span>
                         </div>
                     </div>
 
                     {/* Login Link */}
                     <button
                         onClick={() => navigate('/login')}
-                        className="w-full bg-dark-700/50 hover:bg-dark-700 border border-dark-600 hover:border-primary/50 text-dark-100 font-semibold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
+                        className="w-full bg-dark-700/50 hover:bg-dark-700 border border-dark-600 hover:border-primary/50 text-dark-100 text-sm sm:text-base font-semibold py-2.5 sm:py-3 px-4 sm:px-6 rounded-lg sm:rounded-xl transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
                     >
                         Sign In Instead
                     </button>
@@ -338,7 +336,7 @@ const SignupPage = () => {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.7 }}
-                    className="mt-6 text-center text-sm text-dark-400"
+                    className="mt-4 sm:mt-6 text-center text-xs sm:text-sm text-dark-400"
                 >
                     <p>Need a license key? Purchase at{' '}
                         <a
@@ -352,6 +350,7 @@ const SignupPage = () => {
                     </p>
                 </motion.div>
             </motion.div>
+            </div>
 
             {/* Custom CSS for animations */}
             <style jsx>{`

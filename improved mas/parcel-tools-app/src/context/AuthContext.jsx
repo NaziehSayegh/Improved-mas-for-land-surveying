@@ -4,9 +4,7 @@ const AuthContext = createContext();
 
 export const useAuth = () => {
     const context = useContext(AuthContext);
-    if (!context) {
-        throw new Error('useAuth must be used within an AuthProvider');
-    }
+    if (!context) throw new Error('useAuth must be used within an AuthProvider');
     return context;
 };
 
@@ -15,38 +13,52 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Check for existing session on mount
         const checkSession = async () => {
-            const userId = localStorage.getItem('userId');
-            const userEmail = localStorage.getItem('userEmail');
-            const licenseKey = localStorage.getItem('licenseKey');
+            const userId      = localStorage.getItem('userId');
+            const userEmail   = localStorage.getItem('userEmail');
+            const accountType = localStorage.getItem('accountType') || 'premium';
+            // Session token stored in sessionStorage and localStorage for persistence
+            const sessionToken = sessionStorage.getItem('sessionToken') || localStorage.getItem('sessionToken');
 
             if (userId) {
                 try {
-                    // Verify session with backend
-                    const response = await fetch('http://localhost:5000/api/auth/verify', {
+                    const res = await fetch('http://localhost:5000/api/auth/verify', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId })
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(sessionToken ? { 'X-Session-Token': sessionToken } : {}),
+                        },
+                        body: JSON.stringify({ userId, sessionToken }),
                     });
 
-                    const data = await response.json();
+                    const data = await res.json();
 
-                    if (response.ok && data.valid) {
+                    if (res.ok && data.valid) {
+                        const tokenToUse = data.sessionToken || sessionToken;
+                        if (tokenToUse) {
+                            sessionStorage.setItem('sessionToken', tokenToUse);
+                            localStorage.setItem('sessionToken', tokenToUse);
+                        }
+                        if (data.accountType) {
+                            localStorage.setItem('accountType', data.accountType);
+                        }
                         setUser({
                             userId,
-                            email: data.email || userEmail,
-                            licenseKey: data.licenseKey || licenseKey
+                            email:        data.email || userEmail,
+                            accountType:  data.accountType || accountType,
+                            isAdmin:      data.isAdmin || false,
+                            licenseKey:   data.licenseKey || null,
+                            sessionToken: tokenToUse || null,
                         });
                     } else {
-                        // Session invalid, clear storage
                         logout();
                     }
-                } catch (error) {
-                    console.error('[Auth] Session verification failed:', error);
-                    // Keep user logged in offline
-                    if (userEmail && licenseKey) {
-                        setUser({ userId, email: userEmail, licenseKey });
+                } catch {
+                    // Keep user logged in offline if we have a stored session
+                    if (userEmail && sessionToken) {
+                        setUser({ userId, email: userEmail, accountType, isAdmin: false, sessionToken });
+                    } else {
+                        logout();
                     }
                 }
             }
@@ -55,34 +67,40 @@ export const AuthProvider = ({ children }) => {
         };
 
         checkSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const login = (userId, email, licenseKey) => {
-        localStorage.setItem('userId', userId);
-        localStorage.setItem('userEmail', email);
-        localStorage.setItem('licenseKey', licenseKey);
-        setUser({ userId, email, licenseKey });
+    /**
+     * login — called after successful /api/auth/login or /api/auth/signup.
+     * Stores persistent info in localStorage, token in sessionStorage.
+     */
+    const login = (userId, email, licenseKey, sessionToken, accountType = 'premium', isAdmin = false) => {
+        localStorage.setItem('userId',      userId);
+        localStorage.setItem('userEmail',   email);
+        localStorage.setItem('accountType', accountType);
+        sessionStorage.setItem('sessionToken', sessionToken || '');
+        localStorage.setItem('sessionToken', sessionToken || '');
+        setUser({ userId, email, licenseKey, sessionToken, accountType, isAdmin });
     };
 
     const logout = async () => {
         try {
-            // Call backend to deactivate device
             const userId = localStorage.getItem('userId');
             if (userId) {
                 await fetch('http://localhost:5000/api/auth/logout', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId })
+                    body: JSON.stringify({ userId }),
                 });
             }
-        } catch (error) {
-            console.error('[Auth] Logout error:', error);
+        } catch {
             // Continue with logout even if backend call fails
         } finally {
-            // Clear local storage
             localStorage.removeItem('userId');
             localStorage.removeItem('userEmail');
-            localStorage.removeItem('licenseKey');
+            localStorage.removeItem('accountType');
+            sessionStorage.removeItem('sessionToken');
+            localStorage.removeItem('sessionToken');
             setUser(null);
         }
     };
@@ -92,7 +110,9 @@ export const AuthProvider = ({ children }) => {
         loading,
         login,
         logout,
-        isAuthenticated: !!user
+        isAuthenticated: !!user,
+        isAdmin:         !!user?.isAdmin,
+        isDemo:          user?.accountType === 'demo',
     };
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

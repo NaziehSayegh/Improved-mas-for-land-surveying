@@ -5,358 +5,351 @@ import { useProject } from '../context/ProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import ConfirmDialog from '../components/ConfirmDialog';
+import LicenseBadge from '../components/LicenseBadge';
+import StatusBar from '../components/StatusBar';
+import {
+  Settings, FolderOpen, BarChart3, Calculator, Map,
+  HelpCircle, Save, LogOut, X, Key, FolderX, ChevronRight,
+  Shield
+} from 'lucide-react';
 
+// ── Menu Options ──────────────────────────────────────────────────────────────
+const MENU_OPTIONS = [
+  {
+    num: 1,
+    icon: <Settings className="w-7 h-7" />,
+    label: 'WORK MODE',
+    description: 'Configure survey & calculation settings',
+    path: '/work-mode',
+    color: 'from-blue-500/20 to-blue-600/10',
+    border: 'hover:border-blue-500/60',
+    iconColor: 'text-blue-400',
+  },
+  {
+    num: 2,
+    icon: <FolderOpen className="w-7 h-7" />,
+    label: 'DATA FILES',
+    description: 'Open, save, and manage projects & points',
+    path: '/data-files',
+    color: 'from-purple-500/20 to-purple-600/10',
+    border: 'hover:border-purple-500/60',
+    iconColor: 'text-purple-400',
+  },
+  {
+    num: 3,
+    icon: <BarChart3 className="w-7 h-7" />,
+    label: 'PLOTTING',
+    description: 'Visualize survey points in real coordinates',
+    path: '/plotting',
+    color: 'from-cyan-500/20 to-cyan-600/10',
+    border: 'hover:border-cyan-500/60',
+    iconColor: 'text-cyan-400',
+  },
+  {
+    num: 4,
+    icon: <Calculator className="w-7 h-7" />,
+    label: 'AREA CALCULATOR',
+    description: 'Calculate, save, and export parcel areas',
+    path: '/parcel-calculator',
+    color: 'from-primary/20 to-primary-dark/10',
+    border: 'hover:border-primary/60',
+    iconColor: 'text-primary',
+  },
+  {
+    num: 5,
+    icon: <Map className="w-7 h-7" />,
+    label: 'CAD IMPORT',
+    description: 'Import DXF / DWG drawings with layer control',
+    path: '/dxf-import',
+    color: 'from-orange-500/20 to-orange-600/10',
+    border: 'hover:border-orange-500/60',
+    iconColor: 'text-orange-400',
+  },
+];
+
+// ── Card ─────────────────────────────────────────────────────────────────────
+const MenuCard = ({ option, index, onClick }) => (
+  <motion.button
+    key={option.num}
+    initial={{ opacity: 0, y: 16 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ delay: index * 0.06 }}
+    onClick={() => onClick(option.path, option.num)}
+    className={`menu-card h-full min-h-[120px] group ${option.border}`}
+  >
+    {/* Number badge */}
+    <span className="menu-card-number">{option.num}</span>
+
+    {/* Icon */}
+    <div className={`${option.iconColor} transition-transform duration-300 group-hover:scale-110`}>
+      {option.icon}
+    </div>
+
+    {/* Text */}
+    <div className="flex-1 text-left">
+      <div className="font-bold text-dark-100 text-base tracking-wide group-hover:text-white transition-colors">
+        {option.label}
+      </div>
+      <div className="text-dark-400 text-xs mt-0.5 leading-relaxed group-hover:text-dark-300 transition-colors">
+        {option.description}
+      </div>
+    </div>
+
+    {/* Arrow */}
+    <ChevronRight className="w-4 h-4 text-dark-600 group-hover:text-primary group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+
+    {/* Gradient overlay on hover */}
+    <div className={`absolute inset-0 rounded-xl bg-gradient-to-br ${option.color} opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none`} />
+  </motion.button>
+);
+
+// ── Main Component ────────────────────────────────────────────────────────────
 const MainMenu = () => {
   const navigate = useNavigate();
   const { savedParcels, projectName, closeProject, pointsFileName } = useProject();
   const { user, logout } = useAuth();
   const toast = useToast();
 
-  // Dialog states
   const [showExitDialog, setShowExitDialog] = React.useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = React.useState(false);
-
-  // Menu options - renumbered to 1-5
-  const menuOptionsLeft = [
-    { num: 1, icon: '⚙️', label: 'WORK MODE', path: '/work-mode', description: 'Configure survey settings' },
-    { num: 3, icon: '📊', label: 'PLOTTING', path: '/plotting', description: 'Visualize points in real coordinates' },
-    { num: 5, icon: '🗺️', label: 'CAD IMPORT', path: '/dxf-import', description: 'Import DXF/DWG drawings' },
-  ];
-
-  const menuOptionsRight = [
-    { num: 2, icon: '📁', label: 'DATA FILES', path: '/data-files', description: 'Manage projects and points' },
-    { num: 4, icon: '📐', label: 'AREA CALCULATOR', path: '/parcel-calculator', description: 'Calculate parcel areas' },
-  ];
-
-  const handleSelect = (path, num) => {
-    // Check for expiration
-    if (licenseStatus && licenseStatus.status === 'expired') {
-      toast.error('Trial Expired! Please purchase a license to continue using Parcel Tools.');
-      navigate('/license');
-      return;
-    }
-
-    if (path !== '#') {
-      navigate(path);
-    } else {
-      toast.info(`Feature ${num} coming soon!`);
-    }
-  };
-
   const [licenseStatus, setLicenseStatus] = React.useState(null);
 
   useEffect(() => {
-    // Check license status
-    fetch('http://127.0.0.1:5000/api/license/status')
-      .then(res => res.json())
-      .then(data => setLicenseStatus(data))
-      .catch(err => console.error('License check failed:', err));
+    const token = sessionStorage.getItem('sessionToken');
+    const headers = {};
+    if (token) {
+      headers['X-Session-Token'] = token;
+    }
+    fetch('http://127.0.0.1:5000/api/license/status', { headers })
+      .then(r => r.json())
+      .then(d => setLicenseStatus(d))
+      .catch(() => {});
   }, []);
 
-  // Keyboard shortcuts 0-9 and Ctrl+X
+  // Keyboard shortcuts
   useEffect(() => {
-    const handleKeyPress = (e) => {
-      if (e.key === 'F1') {
-        e.preventDefault();
-        navigate('/assistant');
-        return;
-      }
-      // Ctrl+X to exit
-      if (e.ctrlKey && e.key === 'x') {
-        setShowExitDialog(true);
-        return;
-      }
-
-      // Number keys 0-9
-      const key = e.key;
-      if (key >= '0' && key <= '9') {
-        const num = parseInt(key);
-        const allOptions = [...menuOptionsLeft, ...menuOptionsRight];
-        const option = allOptions.find(opt => opt.num === num);
-        if (option) {
-          handleSelect(option.path, option.num);
-        }
+    const handler = (e) => {
+      if (e.key === 'F1') { e.preventDefault(); navigate('/assistant'); return; }
+      if (e.ctrlKey && e.key === 'x') { setShowExitDialog(true); return; }
+      const num = parseInt(e.key);
+      if (num >= 1 && num <= 5) {
+        const opt = MENU_OPTIONS.find(o => o.num === num);
+        if (opt) handleSelect(opt.path, opt.num);
       }
     };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [licenseStatus]);
 
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, []);
+  const handleSelect = (path, num) => {
+    if (licenseStatus?.status === 'expired') {
+      toast.error('Your trial has expired. Please purchase a license.');
+      navigate('/license');
+      return;
+    }
+    if (path !== '#') navigate(path);
+    else toast.info(`Option ${num} coming soon!`);
+  };
 
   return (
-    <div className="min-h-screen flex flex-col bg-dark-900 p-4 sm:p-6 md:p-8">
-      {/* Header - Responsive */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-4 sm:mb-6 md:mb-8"
-      >
-        <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-2 sm:mb-3">
-          <span className="text-primary">📐 PARCEL TOOLS</span>
-        </h1>
-        <p className="text-base sm:text-lg md:text-xl text-dark-300">Professional Surveying & Mapping Software</p>
-        <p className="text-sm text-dark-400 mt-1">Developed by <span className="text-primary font-semibold">Nazieh Sayegh</span></p>
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-2 sm:gap-3">
-          <span className="px-2 sm:px-3 py-1 bg-success-dark/20 border border-success rounded-full text-success text-xs sm:text-sm font-semibold">
+    <div className="page-container">
+      {/* ── Top Header Bar ──────────────────────────────────── */}
+      <header className="flex-shrink-0 px-5 py-3 border-b border-dark-700/60
+                         bg-dark-800/70 backdrop-blur-sm flex items-center gap-4">
+        {/* Logo + title */}
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-gradient-to-br from-primary to-primary-dark rounded-lg
+                          flex items-center justify-center shadow-glow flex-shrink-0">
+            <span className="text-lg">📐</span>
+          </div>
+          <div>
+            <h1 className="text-base font-bold text-white leading-none">PARCEL TOOLS</h1>
+            <p className="text-[11px] text-dark-400 leading-none mt-0.5">Professional Surveying Software</p>
+          </div>
+        </div>
+
+        {/* Badges row */}
+        <div className="flex items-center gap-2 ml-2">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold
+                           bg-primary/10 border border-primary/30 text-primary">
             v2.0 Premium
           </span>
-
-          {/* License Status Badge */}
-          {licenseStatus && (
-            <>
-              {licenseStatus.status === 'activated' ? (
-                <span className="px-2 sm:px-3 py-1 bg-green-500/20 border border-green-500 rounded-full text-green-400 text-xs sm:text-sm font-semibold flex items-center gap-1">
-                  ✅ Licensed
-                </span>
-              ) : licenseStatus.status === 'trial' ? (
-                <span className="px-2 sm:px-3 py-1 bg-yellow-500/20 border border-yellow-500 rounded-full text-yellow-400 text-xs sm:text-sm font-semibold flex items-center gap-1">
-                  ⏳ Trial: {licenseStatus.days_left} Days Left
-                </span>
-              ) : (
-                <span className="px-2 sm:px-3 py-1 bg-red-500/20 border border-red-500 rounded-full text-red-400 text-xs sm:text-sm font-semibold flex items-center gap-1 cursor-pointer hover:bg-red-500/30" onClick={() => navigate('/license')}>
-                  ⚠️ Unlicensed
-                </span>
-              )}
-            </>
-          )}
-
+          <LicenseBadge />
           {projectName && (
-            <span className="px-2 sm:px-3 py-1 bg-primary/20 border border-primary rounded-full text-primary text-xs sm:text-sm font-semibold">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold
+                             bg-dark-700 border border-dark-600 text-dark-200">
               📁 {projectName}
             </span>
           )}
         </div>
-        <div className="mt-3 sm:mt-4 flex justify-center gap-3">
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Header actions */}
+        <div className="flex items-center gap-2">
+          {user && (user.isAdmin || user.email === 'nsayegh2003@yahoo.com') && (
+            <button
+              onClick={() => navigate('/admin')}
+              className="btn-secondary text-sm py-1.5 px-3 border-primary/40 text-primary hover:bg-primary/10 flex items-center gap-1.5"
+              title="Admin Panel"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              Admin
+            </button>
+          )}
           <button
             onClick={() => navigate('/assistant')}
-            className="px-3 sm:px-4 py-1.5 sm:py-2 bg-dark-800 hover:bg-dark-700 border border-dark-600 hover:border-primary rounded-lg text-dark-100 text-sm sm:text-base transition-all"
-            title="Open Assistant (F1)"
+            className="btn-ghost text-sm py-1.5 px-3"
+            title="Help / Assistant (F1)"
           >
-            ❓ Help / Assistant (F1)
+            <HelpCircle className="w-4 h-4" />
+            Help
+            <kbd className="kbd ml-1">F1</kbd>
           </button>
           <button
             onClick={async () => {
               const { handleQuickSaveAs } = await import('../utils/quickSave');
               await handleQuickSaveAs();
             }}
-            className="px-3 sm:px-4 py-1.5 sm:py-2 bg-primary hover:bg-primary-dark border border-primary rounded-lg text-white text-sm sm:text-base transition-all font-semibold"
+            className="btn-primary text-sm py-1.5 px-3"
             title="Save Project As"
           >
-            💾 Save Project As
+            <Save className="w-4 h-4" />
+            Save As
           </button>
         </div>
-      </motion.div>
+      </header>
 
-      {/* Main Content Grid - Fully Responsive */}
-      <div className="flex-1 w-full max-w-[1920px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 md:gap-6">
-        {/* Main Menu - Responsive */}
-        <div className="col-span-1 lg:col-span-8 xl:col-span-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 md:gap-6 h-full">
-            {/* All menu items in one grid */}
-            {[...menuOptionsLeft, ...menuOptionsRight]
-              .sort((a, b) => a.num - b.num)
-              .map((option, index) => (
-                <motion.button
-                  key={option.num}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.08 }}
-                  onClick={() => handleSelect(option.path, option.num)}
-                  className="w-full bg-dark-800 hover:bg-dark-700 border-2 border-dark-600 hover:border-primary 
-                           text-dark-50 font-semibold text-base sm:text-lg md:text-xl py-6 sm:py-7 md:py-8 px-4 sm:px-5 md:px-6 rounded-xl
-                           transition-all duration-300 transform hover:scale-[1.02] hover:shadow-glow
-                           active:scale-98 flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 group 
-                           min-h-[120px] sm:min-h-[140px] md:min-h-[160px]"
-                >
-                  <span className="text-4xl sm:text-5xl md:text-6xl group-hover:scale-110 transition-transform flex-shrink-0">{option.icon}</span>
-                  <div className="flex-1 w-full">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-primary font-bold text-xl sm:text-2xl md:text-3xl">{option.num}</span>
-                      <span className="text-lg sm:text-xl md:text-2xl">{option.label}</span>
-                    </div>
-                    <p className="text-dark-400 text-xs sm:text-sm md:text-base mt-1 sm:mt-2">{option.description}</p>
-                  </div>
-                </motion.button>
-              ))}
-          </div>
+      {/* ── Main Content ────────────────────────────────────── */}
+      <div className="flex-1 min-h-0 grid grid-cols-12 gap-4 p-4 overflow-hidden">
+
+        {/* ── LEFT: Menu cards (2×3 responsive grid) ─── */}
+        <div className="col-span-12 lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-3 h-full overflow-y-auto scroll-area pr-1">
+          {MENU_OPTIONS.map((option, i) => (
+            <MenuCard key={option.num} option={option} index={i} onClick={handleSelect} />
+          ))}
+          {/* Empty sixth cell on sm breakpoint for visual balance */}
+          <div className="hidden sm:block lg:hidden" />
         </div>
 
-        {/* Right Sidebar - Responsive */}
-        <div className="col-span-1 lg:col-span-4 xl:col-span-4 space-y-4 sm:space-y-5 md:space-y-6">
-          {/* Quick Stats - Responsive */}
+        {/* ── RIGHT: Sidebar ──────────────────────────── */}
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-3 h-full overflow-y-auto no-scrollbar">
+
+          {/* Quick Stats */}
           <motion.div
-            initial={{ opacity: 0, x: 20 }}
+            initial={{ opacity: 0, x: 16 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-dark-800 border-2 border-dark-600 rounded-xl p-4 sm:p-5 md:p-6"
+            transition={{ delay: 0.25 }}
+            className="sidebar-section"
           >
-            <h2 className="text-lg sm:text-xl font-bold text-primary mb-3 sm:mb-4 flex items-center gap-2">
-              📊 Quick Stats
-            </h2>
-            <div className="space-y-3 sm:space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-dark-300 text-sm sm:text-base">Saved Parcels:</span>
-                <span className="text-xl sm:text-2xl md:text-3xl font-bold text-success">{savedParcels?.length || 0}</span>
+            <div className="sidebar-title">
+              <BarChart3 className="w-3.5 h-3.5" />
+              Quick Stats
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-dark-400">Saved Parcels</span>
+                <span className="text-2xl font-bold text-success">{savedParcels?.length || 0}</span>
               </div>
-              <div className="h-px bg-dark-600"></div>
-              <div className="flex justify-between items-center">
-                <span className="text-dark-300 text-sm sm:text-base">Active Project:</span>
-                <span className="text-primary font-semibold text-sm sm:text-base truncate max-w-[150px] sm:max-w-none">{projectName || 'None'}</span>
+              <div className="h-px bg-dark-700" />
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-dark-400">Active Project</span>
+                <span className="text-primary font-semibold text-xs truncate max-w-[120px]">
+                  {projectName || 'None'}
+                </span>
               </div>
-              {savedParcels && savedParcels.length > 0 && (
-                <>
-                  <div className="h-px bg-dark-600"></div>
-                  <div className="pt-2">
-                    <p className="text-dark-400 text-xs sm:text-sm mb-1 sm:mb-2">Total Area:</p>
-                    <p className="text-xl sm:text-2xl md:text-3xl font-bold text-primary">
-                      {savedParcels.reduce((sum, p) => sum + (p.area || 0), 0).toFixed(2)} m²
-                    </p>
-                  </div>
-                </>
-              )}
+
             </div>
           </motion.div>
 
-          {/* Quick Actions - Responsive */}
+          {/* Quick Actions */}
           <motion.div
-            initial={{ opacity: 0, x: 20 }}
+            initial={{ opacity: 0, x: 16 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.4 }}
-            className="bg-dark-800 border-2 border-dark-600 rounded-xl p-4 sm:p-5 md:p-6"
+            transition={{ delay: 0.32 }}
+            className="sidebar-section flex-1"
           >
-            <h2 className="text-lg sm:text-xl font-bold text-primary mb-3 sm:mb-4 flex items-center gap-2">
-              ⚡ Quick Actions
-            </h2>
-            <div className="space-y-2 sm:space-y-3">
-              <button
-                onClick={() => navigate('/parcel-calculator')}
-                className="w-full bg-primary/20 hover:bg-primary/30 border border-primary/50 rounded-lg p-2.5 sm:p-3 text-left transition-all group"
-              >
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <span className="text-lg sm:text-xl md:text-2xl">📐</span>
-                  <span className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-primary">New Parcel</span>
-                </div>
+            <div className="sidebar-title">
+              <Settings className="w-3.5 h-3.5" />
+              Quick Actions
+            </div>
+            <div className="space-y-1">
+              <button onClick={() => handleSelect('/parcel-calculator', 4)} className="quick-action">
+                <Calculator className="w-4 h-4 text-primary flex-shrink-0" />
+                <span className="text-sm text-dark-200 group-hover:text-white">New Parcel</span>
               </button>
-              <button
-                onClick={() => navigate('/data-files')}
-                className="w-full bg-primary/20 hover:bg-primary/30 border border-primary/50 rounded-lg p-2.5 sm:p-3 text-left transition-all group"
-              >
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <span className="text-lg sm:text-xl md:text-2xl">📁</span>
-                  <span className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-primary">Open Project</span>
-                </div>
+              <button onClick={() => handleSelect('/data-files', 2)} className="quick-action">
+                <FolderOpen className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                <span className="text-sm text-dark-200 group-hover:text-white">Open Project</span>
               </button>
-              <button
-                onClick={() => navigate('/assistant')}
-                className="w-full bg-primary/20 hover:bg-primary/30 border border-primary/50 rounded-lg p-2.5 sm:p-3 text-left transition-all group"
-              >
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <span className="text-lg sm:text-xl md:text-2xl">❓</span>
-                  <span className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-primary">Get Help</span>
-                </div>
+              <button onClick={() => navigate('/assistant')} className="quick-action">
+                <HelpCircle className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                <span className="text-sm text-dark-200 group-hover:text-white">Help / Assistant</span>
               </button>
-              <button
-                onClick={() => navigate('/license')}
-                className="w-full bg-yellow-600/20 hover:bg-yellow-600/30 border border-yellow-500/50 rounded-lg p-2.5 sm:p-3 text-left transition-all group"
-              >
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <span className="text-lg sm:text-xl md:text-2xl">🔑</span>
-                  <span className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-yellow-400">License</span>
-                </div>
+              <button onClick={() => navigate('/license')} className="quick-action">
+                <Key className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                <span className="text-sm text-dark-200 group-hover:text-white">License</span>
               </button>
 
-              {/* Close Project - only shown when a file/project is active */}
               {(pointsFileName || projectName) && (
                 <button
-                  onClick={() => {
-                    closeProject();
-                    toast.success('✅ Project closed.');
-                  }}
-                  className="w-full bg-red-700/20 hover:bg-red-700/30 border border-red-600/50 rounded-lg p-2.5 sm:p-3 text-left transition-all group"
+                  onClick={() => { closeProject(); toast.success('Project closed.'); }}
+                  className="quick-action group"
                 >
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-lg sm:text-xl md:text-2xl">📂</span>
-                    <div>
-                      <div className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-red-400">Close Project</div>
-                      {pointsFileName && <div className="text-dark-500 text-xs truncate max-w-[160px]">{pointsFileName}</div>}
-                    </div>
+                  <FolderX className="w-4 h-4 text-danger flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-dark-200 group-hover:text-danger">Close Project</div>
+                    {pointsFileName && (
+                      <div className="text-xs text-dark-500 truncate">{pointsFileName}</div>
+                    )}
                   </div>
                 </button>
               )}
 
               {user && (
-                <button
-                  onClick={() => setShowLogoutDialog(true)}
-                  className="w-full bg-red-600/20 hover:bg-red-600/30 border border-red-500/50 rounded-lg p-2.5 sm:p-3 text-left transition-all group"
-                >
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-lg sm:text-xl md:text-2xl">🚪</span>
-                    <div className="flex-1">
-                      <div className="text-dark-100 font-semibold text-sm sm:text-base group-hover:text-red-400">Sign Out</div>
-                      <div className="text-dark-400 text-xs">{user.email}</div>
-                    </div>
+                <button onClick={() => setShowLogoutDialog(true)} className="quick-action">
+                  <LogOut className="w-4 h-4 text-danger flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-dark-200 group-hover:text-danger">Sign Out</div>
+                    <div className="text-xs text-dark-500 truncate">{user.email}</div>
                   </div>
                 </button>
               )}
             </div>
           </motion.div>
 
-          {/* Keyboard Shortcuts - Responsive */}
+          {/* Keyboard Shortcuts */}
           <motion.div
-            initial={{ opacity: 0, x: 20 }}
+            initial={{ opacity: 0, x: 16 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.5 }}
-            className="bg-dark-800 border-2 border-dark-600 rounded-xl p-4 sm:p-5 md:p-6"
+            transition={{ delay: 0.4 }}
+            className="sidebar-section"
           >
-            <h2 className="text-lg sm:text-xl font-bold text-primary mb-3 sm:mb-4 flex items-center gap-2">
-              ⌨️ Shortcuts
-            </h2>
-            <div className="space-y-2 text-xs sm:text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-dark-300">1-5</span>
-                <span className="text-dark-100">Menu Items</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-dark-300">F1</span>
-                <span className="text-dark-100">Assistant</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-dark-300">F11</span>
-                <span className="text-dark-100">Fullscreen</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-dark-300">Ctrl+X</span>
-                <span className="text-dark-100">Exit</span>
-              </div>
+            <div className="sidebar-title text-xs">
+              <span>⌨</span> Keyboard Shortcuts
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+              {[
+                ['1 – 5', 'Menu items'],
+                ['F1', 'Assistant'],
+                ['Esc', 'Go back'],
+                ['Ctrl+X', 'Exit app'],
+              ].map(([key, desc]) => (
+                <React.Fragment key={key}>
+                  <kbd className="kbd justify-center">{key}</kbd>
+                  <span className="text-dark-400 self-center">{desc}</span>
+                </React.Fragment>
+              ))}
             </div>
           </motion.div>
         </div>
       </div>
 
-      {/* Footer - Responsive */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.6 }}
-        className="mt-4 sm:mt-6 md:mt-8 text-center text-dark-400 text-xs sm:text-sm space-y-1 sm:space-y-2 px-2"
-      >
-        <p className="flex flex-wrap items-center justify-center gap-1 sm:gap-2">
-          Press{' '}
-          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">1</kbd>,
-          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">2</kbd>,
-          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">3</kbd>,
-          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">4</kbd>, or
-          <kbd className="px-1.5 sm:px-2 py-0.5 sm:py-1 bg-dark-800 rounded border border-dark-600 font-mono text-primary text-xs sm:text-sm">5</kbd> for quick access
-        </p>
-        <p className="text-dark-500 text-xs sm:text-sm">
-          Professional Surveying Tools • Powered by React & Python
-        </p>
-        <p className="text-dark-600 text-xs mt-1">
-          © 2024 Nazieh Sayegh • All Rights Reserved
-        </p>
-      </motion.div>
+      {/* ── Status Bar ──────────────────────────────────────── */}
+      <StatusBar projectName={projectName} />
 
-      {/* Confirm Dialogs */}
+      {/* ── Dialogs ─────────────────────────────────────────── */}
       <ConfirmDialog
         isOpen={showExitDialog}
         onClose={() => setShowExitDialog(false)}
@@ -367,14 +360,10 @@ const MainMenu = () => {
         confirmText="Exit"
         cancelText="Cancel"
       />
-
       <ConfirmDialog
         isOpen={showLogoutDialog}
         onClose={() => setShowLogoutDialog(false)}
-        onConfirm={async () => {
-          await logout();
-          navigate('/login');
-        }}
+        onConfirm={async () => { await logout(); navigate('/login'); }}
         title="Sign Out"
         message={`Sign out from ${user?.email}?`}
         type="warning"
@@ -386,4 +375,3 @@ const MainMenu = () => {
 };
 
 export default MainMenu;
-

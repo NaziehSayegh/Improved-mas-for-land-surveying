@@ -1,0 +1,64 @@
+{
+  "appId": "com.parceltools.app",
+  "productName": "Parcel-Tools",
+  "publish": {
+    "provider": "github",
+    "owner": "NaziehSayegh",
+    "repo": "Improved-mas-for-land-surveying"
+  },
+  "directories": {
+    "output": "dist-electron"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "backend/**/*",
+    "!backend/**/__pycache__",
+    "!backend/**/venv",
+    "!backend/**/.pytest_cache"
+  ],
+  "asarUnpack": [
+    "backend/**"
+  ],
+  "extraResources": [
+    {
+      "from": "backend/",
+      "to": "backend/",
+      "filter": [
+        "**/*",
+        "!__pycache__",
+        "!venv",
+        "!.pytest_cache"
+      ]
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "build/app-icon.ico",
+    "sign": null,
+    "artifactName": "Parcel-Tools-Demo-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Parcel Tools"
+  },
+  "fileAssociations": [
+    {
+      "ext": "prcl",
+      "name": "Parcel Project",
+      "description": "Parcel Tools Project File",
+      "role": "Editor",
+      "icon": "build/file-icon.ico"
+    }
+  ]
+}

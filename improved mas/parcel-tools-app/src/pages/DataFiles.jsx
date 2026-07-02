@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, FolderOpen, File, Plus, Trash2, Edit2, Upload, Save, FileText, RefreshCw } from 'lucide-react';
@@ -17,12 +17,20 @@ const DataFiles = () => {
     setPointsFilePath,
     loadedPoints,
     setLoadedPoints,
+    savedParcels,
+    setSavedParcels,
+    projectPath,
+    setProjectPath,
+    hasUnsavedChanges,
     setHasUnsavedChanges,
     setProjectName,
-    setSavedParcels,
     fileHeading: globalFileHeading,
     setFileHeading: setGlobalFileHeading,
-    closeProject
+    recalculateAllParcels,
+    saveActiveProject,
+    closeProject,
+    setCurrentParcel,
+    loadProjectData
   } = useProject();
 
   // Local state for editing
@@ -148,6 +156,11 @@ const DataFiles = () => {
 
   // Close project - resets ALL project state and returns to main menu
   const handleCloseProject = async () => {
+    // Check if there are unsaved changes
+    if (hasUnsavedChanges && !(await customConfirm('You have unsaved changes. Are you sure you want to close this project?'))) {
+      return;
+    }
+
     // Auto-save points file if there are unsaved point edits
     if (hasUnsavedPoints && pointsFileName) {
       try {
@@ -172,17 +185,24 @@ const DataFiles = () => {
     navigate('/');
   };
 
+  const handleBackToMainMenu = useCallback(async () => {
+    if (hasUnsavedChanges && !(await customConfirm('You have unsaved changes. Are you sure you want to return to the Main Menu?'))) {
+      return;
+    }
+    navigate('/');
+  }, [navigate, hasUnsavedChanges]);
+
   // ESC key to go to main menu (only if no dialogs are open)
   useEffect(() => {
     const handleKeyPress = (e) => {
       if (e.key === 'Escape' && !showHeadingDialog) {
         e.preventDefault();
-        navigate('/');
+        handleBackToMainMenu();
       }
     };
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [navigate, showHeadingDialog]);
+  }, [handleBackToMainMenu, showHeadingDialog]);
 
   // Track when points are first loaded to sync only on initial load
   const [pointsSynced, setPointsSynced] = useState(false);
@@ -336,17 +356,7 @@ const DataFiles = () => {
             const result = await loadResponse.json();
             const projectData = result.projectData;
 
-            // IMPORTANT: Clear ALL current state FIRST to ensure complete isolation
-            setProjectName('');
-            setPointsFileName('');
-            setPointsFilePath('');
-            setLoadedPoints({});
-            setSavedParcels([]);
-            setGlobalFileHeading({
-              block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
-            });
-
-            // Also clear local editing state
+            // Clear local editing state
             setEditMode(false);
             setEditingPoints({});
             setNewPointId('');
@@ -354,18 +364,10 @@ const DataFiles = () => {
             setNewPointY('');
             setEditingPointId(null);
 
-            // Now load the NEW project's data - completely replace everything
-            setProjectName(projectData.projectName || '');
-            setPointsFileName(projectData.pointsFileName || '');
-            setPointsFilePath(projectData.pointsFilePath || '');
-            setLoadedPoints(projectData.loadedPoints || {});
-            setSavedParcels(projectData.savedParcels || []);
-            setGlobalFileHeading(projectData.fileHeading || {
-              block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
-            });
+            loadProjectData(projectData, result.filePath || file.path || '');
 
-            // Navigate to Parcel Calculator
-            navigate('/parcel-calculator');
+            const hasCad = Boolean(projectData.cadFilePath || (projectData.cadEntities && projectData.cadEntities.length > 0) || projectData.cadFileName);
+            navigate(hasCad ? '/dxf-import' : '/parcel-calculator');
           } catch (error) {
             console.error('Error loading project:', error);
             toast.error('Error loading project: ' + error.message);
@@ -402,18 +404,7 @@ const DataFiles = () => {
       const result = await loadResponse.json();
       const projectData = result.projectData;
 
-      // IMPORTANT: Clear ALL current state FIRST to ensure complete isolation
-      setProjectName('');
-      setPointsFileName('');
-      setPointsFilePath('');
-      setLoadedPoints({});
-      setSavedParcels([]);
-      setGlobalFileHeading({
-        block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
-      });
-      setHasUnsavedChanges(false);
-
-      // Also clear local editing state
+      // Clear local editing state
       setEditMode(false);
       setEditingPoints({});
       setNewPointId('');
@@ -421,25 +412,20 @@ const DataFiles = () => {
       setNewPointY('');
       setEditingPointId(null);
 
-      // Now load the NEW project's data - completely replace everything
-      setProjectName(projectData.projectName || '');
-      setPointsFileName(projectData.pointsFileName || '');
-      setPointsFilePath(projectData.pointsFilePath || '');
-      setLoadedPoints(projectData.loadedPoints || {});
-      setSavedParcels(projectData.savedParcels || []);
-      setGlobalFileHeading(projectData.fileHeading || {
-        block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
-      });
-      setHasUnsavedChanges(false);
+      loadProjectData(projectData, result.filePath || projectItem.filePath || '');
 
       // Refresh projects list after loading to clean up any deleted files
       setTimeout(() => {
         loadSavedProjects();
       }, 500);
 
+      const hasCad = Boolean(projectData.cadFilePath || (projectData.cadEntities && projectData.cadEntities.length > 0) || projectData.cadFileName);
+      const targetPage = hasCad ? '/dxf-import' : '/parcel-calculator';
+      const targetName = hasCad ? 'CAD map...' : 'calculator...';
+
       // Show success toast
       const toast = document.createElement('div');
-      toast.innerHTML = `✅ Project "${projectData.projectName}" loaded!<br/>Redirecting to calculator...`;
+      toast.innerHTML = `✅ Project "${projectData.projectName}" loaded!<br/>Redirecting to ${targetName}`;
       toast.style.cssText = `
         position: fixed;
         top: 20px;
@@ -455,7 +441,7 @@ const DataFiles = () => {
       document.body.appendChild(toast);
       setTimeout(() => {
         toast.remove();
-        navigate('/parcel-calculator');
+        navigate(targetPage);
       }, 1500);
     } catch (error) {
       console.error('Error loading project:', error);
@@ -514,7 +500,7 @@ const DataFiles = () => {
 
       sortedIds.forEach(id => {
         const pt = editingPoints[id];
-        lines.push(`${id}, ${pt.x.toFixed(2)}, ${pt.y.toFixed(2)}`);
+        lines.push(`${id}, ${pt.x}, ${pt.y}`);
       });
 
       const textData = lines.join('\n');
@@ -532,6 +518,12 @@ const DataFiles = () => {
       if (response.ok) {
         setLoadedPoints({ ...editingPoints });
         console.log('✅ Auto-saved points file:', pointsFileName);
+        
+        // If a project is open, recalculate and save project too to keep them in sync
+        if (projectPath) {
+          const recalculated = await recalculateAllParcels(editingPoints, savedParcels);
+          await saveActiveProject(projectPath, recalculated, editingPoints);
+        }
       }
     } catch (error) {
       console.error('Auto-save points failed:', error);
@@ -646,9 +638,51 @@ const DataFiles = () => {
 
     const updated = { ...editingPoints };
 
-    // If ID changed, delete old and add new
+    // If ID changed, delete old, add new, and rename references in all saved parcels
     if (editingPointId && editingPointId !== newPointId) {
       delete updated[editingPointId];
+      
+      const renamedParcels = (savedParcels || []).map(parcel => {
+        let parcelChanged = false;
+        
+        // Update point IDs list
+        const updatedIds = (parcel.ids || []).map(id => {
+          if (id === editingPointId) {
+            parcelChanged = true;
+            return newPointId;
+          }
+          return id;
+        });
+        
+        // Update curve references
+        const updatedCurves = (parcel.curves || []).map(curve => {
+          let curveChanged = false;
+          const newCurve = { ...curve };
+          if (curve.from === editingPointId) {
+            newCurve.from = newPointId;
+            curveChanged = true;
+          }
+          if (curve.to === editingPointId) {
+            newCurve.to = newPointId;
+            curveChanged = true;
+          }
+          if (curveChanged) {
+            parcelChanged = true;
+          }
+          return newCurve;
+        });
+        
+        if (parcelChanged) {
+          return {
+            ...parcel,
+            ids: updatedIds,
+            curves: updatedCurves
+          };
+        }
+        return parcel;
+      });
+      
+      setSavedParcels(renamedParcels);
     }
 
     updated[newPointId] = {
@@ -699,7 +733,7 @@ const DataFiles = () => {
 
       sortedIds.forEach(id => {
         const pt = editingPoints[id];
-        lines.push(`${id}, ${pt.x.toFixed(2)}, ${pt.y.toFixed(2)}`);
+        lines.push(`${id}, ${pt.x}, ${pt.y}`);
       });
 
       const textData = lines.join('\n');
@@ -774,7 +808,14 @@ const DataFiles = () => {
 
       // Update shared context
       setLoadedPoints({ ...editingPoints });
-      setHasUnsavedChanges(false);
+      
+      // If a project is open, recalculate and save project too to keep them in sync
+      if (projectPath) {
+        const recalculated = await recalculateAllParcels(editingPoints, savedParcels);
+        await saveActiveProject(projectPath, recalculated, editingPoints);
+      } else {
+        setHasUnsavedChanges(false);
+      }
 
       const location = filePathToUse ? `\nLocation: ${filePathToUse}` : `\nLocation: backend/data/${result.fileName}`;
       toast.success(`✅ Saved ${Object.keys(editingPoints).length} points to ${result.fileName}. File is being watched for external changes!`);
@@ -798,7 +839,7 @@ const DataFiles = () => {
   };
 
   return (
-    <div className="min-h-screen p-8 relative z-10">
+    <div className="h-screen flex flex-col overflow-hidden bg-dark-900 relative z-10">
       {/* File Heading Dialog */}
       {showHeadingDialog && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
@@ -884,11 +925,12 @@ const DataFiles = () => {
         </div>
       )}
 
+      <div className="flex-1 min-h-0 overflow-y-auto scroll-area p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
           <div className="flex gap-2 mb-6">
-            <button onClick={() => navigate('/')} className="btn-secondary flex items-center gap-2 group">
+            <button onClick={handleBackToMainMenu} className="btn-secondary flex items-center gap-2 group">
               <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
               ↩ MAIN MENU
             </button>
@@ -1239,6 +1281,7 @@ const DataFiles = () => {
             <li>6. <strong>Auto-watch</strong> - File monitored for external changes</li>
           </ul>
         </div>
+      </div>
       </div>
     </div>
   );

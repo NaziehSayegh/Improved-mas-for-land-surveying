@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowLeft, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, MousePointer, Eye, EyeOff } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
+import PageLayout from '../components/PageLayout';
 
 const Plotting = () => {
   const navigate = useNavigate();
@@ -11,13 +11,14 @@ const Plotting = () => {
 
   const { loadedPoints, savedParcels, projectName, pointsFileName } = useProject();
 
-  // All view state stored in refs so draw() always sees current values
+  // View state in refs (no re-render needed for drawing)
   const zoomRef = useRef(1);
   const panRef = useRef({ x: 0, y: 0 });
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
+  const initialMouseDownRef = useRef({ x: 0, y: 0 });
 
-  // React state only for UI re-renders (controls, labels, filter)
+  // React state for UI controls
   const [zoomDisplay, setZoomDisplay] = useState(1);
   const [showParcels, setShowParcels] = useState(true);
   const [showPointLabels, setShowPointLabels] = useState(true);
@@ -25,7 +26,7 @@ const Plotting = () => {
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [filterParcelId, setFilterParcelId] = useState('all');
 
-  // Refs for render options so draw() sees current values without re-mounting
+  // Mirror state to refs so draw() sees current values without closures
   const showParcelsRef = useRef(true);
   const showPointLabelsRef = useRef(true);
   const showCoordinatesRef = useRef(false);
@@ -34,7 +35,6 @@ const Plotting = () => {
   const loadedPointsRef = useRef(loadedPoints);
   const savedParcelsRef = useRef(savedParcels);
 
-  // Keep refs in sync with state/props
   useEffect(() => { showParcelsRef.current = showParcels; }, [showParcels]);
   useEffect(() => { showPointLabelsRef.current = showPointLabels; }, [showPointLabels]);
   useEffect(() => { showCoordinatesRef.current = showCoordinates; }, [showCoordinates]);
@@ -42,10 +42,82 @@ const Plotting = () => {
   useEffect(() => { filterParcelIdRef.current = filterParcelId; }, [filterParcelId]);
   useEffect(() => { loadedPointsRef.current = loadedPoints; }, [loadedPoints]);
   useEffect(() => { savedParcelsRef.current = savedParcels; }, [savedParcels]);
+  
+  useEffect(() => {
+    if (filterParcelId !== 'all' && !savedParcels.some(p => p.id.toString() === filterParcelId)) {
+      setFilterParcelId('all');
+      filterParcelIdRef.current = 'all';
+    }
+  }, [savedParcels, filterParcelId]);
 
   const hasPoints = Object.keys(loadedPoints).length > 0;
 
-  // ─── Coordinate helpers (read from refs, no closures) ─────────────────────
+  const getCentroid = (pts) => {
+    if (!pts || pts.length === 0) return { x: 0, y: 0 };
+    let sx = 0, sy = 0;
+    pts.forEach(p => {
+      sx += p.x;
+      sy += p.y;
+    });
+    return { x: sx / pts.length, y: sy / pts.length };
+  };
+
+  const getArcPoints = (A, B, M, sign, centroid) => {
+    const dx = B.x - A.x;
+    const dy = B.y - A.y;
+    const C = Math.hypot(dx, dy);
+    
+    if (C < 0.001 || M <= 0) {
+      return [A, B];
+    }
+    
+    const R = (C * C) / (8 * M) + M / 2;
+    const M_mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+    
+    // Normal vector to the chord (pointing to the left of A -> B)
+    const nx = -dy / C;
+    const ny = dx / C;
+    
+    // Find which direction points away from the centroid
+    const ux = M_mid.x - centroid.x;
+    const uy = M_mid.y - centroid.y;
+    const dot = ux * nx + uy * ny;
+    
+    let n_out_x = nx;
+    let n_out_y = ny;
+    if (dot < 0) {
+      n_out_x = -nx;
+      n_out_y = -ny;
+    }
+    
+    const bulge_dir = sign >= 0 ? 1 : -1;
+    const dx_arc = bulge_dir * n_out_x;
+    const dy_arc = bulge_dir * n_out_y;
+    
+    const cx = M_mid.x - (R - M) * dx_arc;
+    const cy = M_mid.y - (R - M) * dy_arc;
+    
+    const angleA = Math.atan2(A.y - cy, A.x - cx);
+    const angleB = Math.atan2(B.y - cy, B.x - cx);
+    
+    let diff = angleB - angleA;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    
+    const pts = [];
+    const steps = 30;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const angle = angleA + diff * t;
+      pts.push({
+        x: cx + R * Math.cos(angle),
+        y: cy + R * Math.sin(angle)
+      });
+    }
+    return pts;
+  };
+
+  // ── Coordinate helpers ───────────────────────────────────────
   const worldToScreen = (wx, wy) => ({
     x: wx * zoomRef.current + panRef.current.x,
     y: -wy * zoomRef.current + panRef.current.y,
@@ -56,123 +128,105 @@ const Plotting = () => {
     y: -(sy - panRef.current.y) / zoomRef.current,
   });
 
-  // ─── Bounds calculation ────────────────────────────────────────────────────
   const getBounds = () => {
     const points = loadedPointsRef.current;
     const parcels = savedParcelsRef.current;
     const filter = filterParcelIdRef.current;
-
     if (Object.keys(points).length === 0) return null;
-
-    let pointsToProcess = [];
-
+    let pts = [];
     if (filter !== 'all') {
       const parcel = parcels.find(p => p.id.toString() === filter);
-      if (parcel && parcel.ids) {
-        parcel.ids.forEach(id => {
-          if (points[id]) pointsToProcess.push({ id, pt: points[id] });
-        });
-      }
+      if (parcel?.ids) parcel.ids.forEach(id => { if (points[id]) pts.push({ id, pt: points[id] }); });
     }
-
-    if (pointsToProcess.length === 0) {
-      pointsToProcess = Object.entries(points).map(([id, pt]) => ({ id, pt }));
-    }
-    if (pointsToProcess.length === 0) return null;
-
-    const mapped = pointsToProcess.map(({ id, pt }) => ({ id, x: pt.y, y: pt.x }));
-    const xs = mapped.map(p => p.x);
-    const ys = mapped.map(p => p.y);
+    if (pts.length === 0) pts = Object.entries(points).map(([id, pt]) => ({ id, pt }));
+    if (pts.length === 0) return null;
+    const mapped = pts.map(({ id, pt }) => ({ id, x: pt.x, y: pt.y }));
+    const xs = mapped.map(p => p.x), ys = mapped.map(p => p.y);
     const minX = Math.min(...xs), maxX = Math.max(...xs);
     const minY = Math.min(...ys), maxY = Math.max(...ys);
-
-    return {
-      minX, maxX, minY, maxY,
-      width: maxX - minX,
-      height: maxY - minY,
-      centerX: (minX + maxX) / 2,
-      centerY: (minY + maxY) / 2,
-      points: mapped,
-    };
+    return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY,
+             centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2, points: mapped };
   };
 
-  // ─── Reset view ────────────────────────────────────────────────────────────
   const resetView = useCallback(() => {
     const bounds = getBounds();
     const canvas = canvasRef.current;
     if (!bounds || !canvas) return;
-
-    const padding = 50;
+    const padding = 60;
     const scaleX = (canvas.width - padding * 2) / Math.max(bounds.width, 1);
     const scaleY = (canvas.height - padding * 2) / Math.max(bounds.height, 1);
     const scale = Math.min(scaleX, scaleY, 100);
-
     zoomRef.current = scale;
-    panRef.current = {
-      x: canvas.width / 2 - bounds.centerX * scale,
-      y: canvas.height / 2 + bounds.centerY * scale,
-    };
+    panRef.current = { x: canvas.width / 2 - bounds.centerX * scale, y: canvas.height / 2 + bounds.centerY * scale };
     setZoomDisplay(scale);
     drawCanvas();
   }, []);
 
-  // ─── Draw helpers ──────────────────────────────────────────────────────────
-  const drawGrid = (ctx, width, height) => {
+  // ── Drawing ──────────────────────────────────────────────────
+  const drawGrid = (ctx, w, h) => {
     const zoom = zoomRef.current;
-    ctx.strokeStyle = '#21262d';
+    ctx.strokeStyle = '#1a1f26';
     ctx.lineWidth = 1;
-
     const step = 50 / zoom;
-    const startWorld = screenToWorld(0, 0);
-    const endWorld = screenToWorld(width, height);
-
-    const minX = Math.min(startWorld.x, endWorld.x);
-    const maxX = Math.max(startWorld.x, endWorld.x);
-    const minY = Math.min(startWorld.y, endWorld.y);
-    const maxY = Math.max(startWorld.y, endWorld.y);
-
-    const startX = Math.floor(minX / step) * step;
-    for (let x = startX; x <= maxX; x += step) {
+    const sw = screenToWorld(0, 0), ew = screenToWorld(w, h);
+    const minX = Math.min(sw.x, ew.x), maxX = Math.max(sw.x, ew.x);
+    const minY = Math.min(sw.y, ew.y), maxY = Math.max(sw.y, ew.y);
+    for (let x = Math.floor(minX / step) * step; x <= maxX; x += step) {
       const sx = worldToScreen(x, 0).x;
-      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, height); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
     }
-    const startY = Math.floor(minY / step) * step;
-    for (let y = startY; y <= maxY; y += step) {
+    for (let y = Math.floor(minY / step) * step; y <= maxY; y += step) {
       const sy = worldToScreen(0, y).y;
-      ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(width, sy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
     }
   };
 
   const drawParcel = (ctx, parcel, index) => {
     const points = loadedPointsRef.current;
     if (!parcel.ids || parcel.ids.length < 2) return;
-    const colors = ['#58a6ff', '#3fb950', '#f85149', '#f1e05a', '#a5a5a5'];
+    const colors = ['#58a6ff', '#3fb950', '#f85149', '#f1e05a', '#a5a5a5', '#c084fc'];
     const color = colors[index % colors.length];
+    ctx.strokeStyle = color; ctx.fillStyle = color + '18';
+    ctx.lineWidth = 2; ctx.beginPath();
 
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color + '20';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
+    const parcelPts = parcel.ids.map(id => points[id]).filter(Boolean);
+    const centroid = getCentroid(parcelPts);
 
     for (let i = 0; i < parcel.ids.length; i++) {
-      const pt = points[parcel.ids[i]];
-      if (!pt) continue;
-      const s = worldToScreen(pt.y, pt.x);
-      if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y);
-    }
-    ctx.closePath(); ctx.fill(); ctx.stroke();
+      const id1 = parcel.ids[i];
+      const id2 = parcel.ids[(i + 1) % parcel.ids.length];
+      const pt1 = points[id1];
+      const pt2 = points[id2];
+      if (!pt1 || !pt2) continue;
 
+      const curve = parcel.curves?.find(c => 
+        (c.from === id1 && c.to === id2) || 
+        (c.from === id2 && c.to === id1)
+      );
+
+      if (curve && curve.M > 0) {
+        const arcPts = getArcPoints(pt1, pt2, curve.M, curve.sign, centroid);
+        arcPts.forEach((ap, api) => {
+          const s = worldToScreen(ap.x, ap.y);
+          if (i === 0 && api === 0) ctx.moveTo(s.x, s.y);
+          else ctx.lineTo(s.x, s.y);
+        });
+      } else {
+        const s1 = worldToScreen(pt1.x, pt1.y);
+        const s2 = worldToScreen(pt2.x, pt2.y);
+        if (i === 0) ctx.moveTo(s1.x, s1.y);
+        ctx.lineTo(s2.x, s2.y);
+      }
+    }
+
+    ctx.closePath(); ctx.fill(); ctx.stroke();
     if (parcel.number) {
       let sx = 0, sy = 0, cnt = 0;
-      parcel.ids.forEach(id => {
-        if (points[id]) { sx += points[id].y; sy += points[id].x; cnt++; }
-      });
+      parcel.ids.forEach(id => { if (points[id]) { sx += points[id].x; sy += points[id].y; cnt++; } });
       if (cnt > 0) {
         const s = worldToScreen(sx / cnt, sy / cnt);
-        ctx.fillStyle = color;
-        ctx.font = 'bold 14px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(`Parcel ${parcel.number}`, s.x, s.y - 5);
+        ctx.fillStyle = color; ctx.font = 'bold 13px Inter, sans-serif';
+        ctx.textAlign = 'center'; ctx.fillText(`Parcel ${parcel.number}`, s.x, s.y);
       }
     }
   };
@@ -180,279 +234,222 @@ const Plotting = () => {
   const drawPoint = (ctx, point, isSelected) => {
     const s = worldToScreen(point.x, point.y);
     ctx.beginPath();
-    ctx.arc(s.x, s.y, isSelected ? 8 : 5, 0, Math.PI * 2);
+    ctx.arc(s.x, s.y, isSelected ? 9 : 5, 0, Math.PI * 2);
     ctx.fillStyle = isSelected ? '#f85149' : '#58a6ff';
     ctx.fill();
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
     if (showPointLabelsRef.current) {
-      ctx.fillStyle = '#c9d1d9';
-      ctx.font = '12px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(point.id, s.x, s.y - 12);
+      ctx.fillStyle = '#c9d1d9'; ctx.font = '11px Inter, monospace';
+      ctx.textAlign = 'center'; ctx.fillText(point.id, s.x, s.y - 13);
     }
     if (showCoordinatesRef.current) {
-      ctx.font = '10px monospace';
-      ctx.fillStyle = '#8b949e';
-      ctx.textAlign = 'center';
+      ctx.font = '9px monospace'; ctx.fillStyle = '#6e7681';
       ctx.fillText(`(${point.x.toFixed(2)}, ${point.y.toFixed(2)})`, s.x, s.y + 20);
     }
   };
 
-  // ─── Main draw ─────────────────────────────────────────────────────────────
   const drawCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvas = canvasRef.current; if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const bounds = getBounds();
-
-    ctx.fillStyle = '#0d1117';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
+    ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     if (!bounds || bounds.points.length === 0) {
-      ctx.fillStyle = '#8b949e';
-      ctx.font = '20px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('No points loaded', canvas.width / 2, canvas.height / 2);
+      ctx.fillStyle = '#484f58'; ctx.font = '16px Inter, sans-serif';
+      ctx.textAlign = 'center'; ctx.fillText('No points loaded', canvas.width / 2, canvas.height / 2);
       return;
     }
-
     drawGrid(ctx, canvas.width, canvas.height);
-
     if (showParcelsRef.current) {
       const parcels = savedParcelsRef.current;
       const filter = filterParcelIdRef.current;
-      const parcelsToDraw = filter === 'all' ? parcels : parcels.filter(p => p.id.toString() === filter);
-      parcelsToDraw.forEach((parcel) => drawParcel(ctx, parcel, savedParcelsRef.current.indexOf(parcel)));
+      const td = filter === 'all' ? parcels : parcels.filter(p => p.id.toString() === filter);
+      td.forEach((p) => drawParcel(ctx, p, savedParcelsRef.current.indexOf(p)));
     }
+    bounds.points.forEach(p => drawPoint(ctx, p, p.id === selectedPointRef.current));
 
-    bounds.points.forEach(point => drawPoint(ctx, point, point.id === selectedPointRef.current));
-
-    // Info panel
-    ctx.fillStyle = 'rgba(13,17,23,0.9)';
-    ctx.fillRect(10, 10, 300, 120);
-    ctx.fillStyle = '#58a6ff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText('Plot Information', 20, 30);
-    ctx.fillStyle = '#c9d1d9'; ctx.font = '12px sans-serif';
-    ctx.fillText(`Points: ${bounds.points.length}`, 20, 50);
-    ctx.fillText(`Parcels: ${savedParcelsRef.current.length}`, 20, 70);
-    ctx.fillText(`Zoom: ${zoomRef.current.toFixed(2)}x`, 20, 90);
-    ctx.fillText(`Bounds: X[${bounds.minX.toFixed(2)}, ${bounds.maxX.toFixed(2)}]`, 20, 110);
+    // Mini info overlay
+    ctx.fillStyle = 'rgba(13,17,23,0.85)';
+    ctx.beginPath(); ctx.roundRect?.(8, 8, 220, 80, 8); ctx.fill();
+    ctx.fillStyle = '#58a6ff'; ctx.font = 'bold 12px Inter, sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('Plot Info', 18, 28);
+    ctx.fillStyle = '#8b949e'; ctx.font = '11px Inter, sans-serif';
+    ctx.fillText(`Points: ${bounds.points.length}`, 18, 46);
+    ctx.fillText(`Parcels: ${savedParcelsRef.current.length}`, 18, 61);
+    ctx.fillText(`Zoom: ${zoomRef.current.toFixed(2)}×`, 18, 76);
   }, []);
 
-  // ─── Canvas setup + event wiring ──────────────────────────────────────────
+  // ── Canvas setup ─────────────────────────────────────────────
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
+    const canvas = canvasRef.current, container = containerRef.current;
     if (!canvas || !container) return;
-
-    const resizeCanvas = () => {
-      const rect = container.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-      drawCanvas();
-    };
-
+    const resize = () => { const r = container.getBoundingClientRect(); canvas.width = r.width; canvas.height = r.height; drawCanvas(); };
     const onWheel = (e) => {
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
       const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      const oldZoom = zoomRef.current;
-      const newZoom = Math.max(0.01, Math.min(200, oldZoom * delta));
-      const scale = newZoom / oldZoom;
-
-      panRef.current = {
-        x: mouseX - (mouseX - panRef.current.x) * scale,
-        y: mouseY - (mouseY - panRef.current.y) * scale,
-      };
-      zoomRef.current = newZoom;
-      setZoomDisplay(newZoom);
-      drawCanvas();
+      const oldZ = zoomRef.current, newZ = Math.max(0.01, Math.min(200, oldZ * delta)), scale = newZ / oldZ;
+      panRef.current = { x: mx - (mx - panRef.current.x) * scale, y: my - (my - panRef.current.y) * scale };
+      zoomRef.current = newZ; setZoomDisplay(newZ); drawCanvas();
     };
-
-    const onMouseDown = (e) => {
+    const onDown = (e) => {
       isDraggingRef.current = true;
       dragStartRef.current = { x: e.clientX, y: e.clientY };
+      initialMouseDownRef.current = { x: e.clientX, y: e.clientY };
       canvas.style.cursor = 'grabbing';
     };
-
-    const onMouseMove = (e) => {
+    const onMove = (e) => {
       if (!isDraggingRef.current) return;
-      const dx = e.clientX - dragStartRef.current.x;
-      const dy = e.clientY - dragStartRef.current.y;
-      panRef.current = { x: panRef.current.x + dx, y: panRef.current.y + dy };
-      dragStartRef.current = { x: e.clientX, y: e.clientY };
-      drawCanvas();
+      panRef.current = { x: panRef.current.x + (e.clientX - dragStartRef.current.x), y: panRef.current.y + (e.clientY - dragStartRef.current.y) };
+      dragStartRef.current = { x: e.clientX, y: e.clientY }; drawCanvas();
     };
-
-    const onMouseUp = () => {
-      isDraggingRef.current = false;
-      canvas.style.cursor = 'crosshair';
-    };
-
+    const onUp = () => { isDraggingRef.current = false; canvas.style.cursor = 'crosshair'; };
     const onClick = (e) => {
-      if (isDraggingRef.current) return;
-      const rect = canvas.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      const bounds = getBounds();
-      if (!bounds) return;
-      let closest = null, minDist = Infinity;
-      bounds.points.forEach(point => {
-        const s = worldToScreen(point.x, point.y);
-        const d = Math.hypot(s.x - cx, s.y - cy);
-        if (d < 15 && d < minDist) { minDist = d; closest = point.id; }
-      });
-      setSelectedPoint(closest);
-      selectedPointRef.current = closest;
-      drawCanvas();
+      const dragDist = Math.hypot(e.clientX - initialMouseDownRef.current.x, e.clientY - initialMouseDownRef.current.y);
+      if (dragDist > 5) return; // Prevent selection if mouse was dragged
+      const rect = canvas.getBoundingClientRect(), cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+      const bounds = getBounds(); if (!bounds) return;
+      let closest = null, minD = Infinity;
+      bounds.points.forEach(p => { const s = worldToScreen(p.x, p.y); const d = Math.hypot(s.x - cx, s.y - cy); if (d < 15 && d < minD) { minD = d; closest = p.id; } });
+      setSelectedPoint(closest); selectedPointRef.current = closest; drawCanvas();
     };
-
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+    resize();
+    window.addEventListener('resize', resize);
     canvas.addEventListener('wheel', onWheel, { passive: false });
-    canvas.addEventListener('mousedown', onMouseDown);
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('mouseup', onMouseUp);
-    canvas.addEventListener('mouseleave', onMouseUp);
+    canvas.addEventListener('mousedown', onDown);
+    canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('mouseup', onUp);
+    canvas.addEventListener('mouseleave', onUp);
     canvas.addEventListener('click', onClick);
-
     return () => {
-      window.removeEventListener('resize', resizeCanvas);
+      window.removeEventListener('resize', resize);
       canvas.removeEventListener('wheel', onWheel);
-      canvas.removeEventListener('mousedown', onMouseDown);
-      canvas.removeEventListener('mousemove', onMouseMove);
-      canvas.removeEventListener('mouseup', onMouseUp);
-      canvas.removeEventListener('mouseleave', onMouseUp);
+      canvas.removeEventListener('mousedown', onDown);
+      canvas.removeEventListener('mousemove', onMove);
+      canvas.removeEventListener('mouseup', onUp);
+      canvas.removeEventListener('mouseleave', onUp);
       canvas.removeEventListener('click', onClick);
     };
   }, [drawCanvas]);
 
-  // Redraw when data or display options change
   useEffect(() => { drawCanvas(); }, [loadedPoints, savedParcels, showParcels, showPointLabels, showCoordinates, selectedPoint, filterParcelId, drawCanvas]);
+  useEffect(() => { if (hasPoints) setTimeout(resetView, 100); }, [loadedPoints, resetView]);
 
-  // Auto fit when points are first loaded
-  useEffect(() => {
-    if (hasPoints) setTimeout(resetView, 100);
-  }, [loadedPoints, resetView]);
-
-  // ESC to go back
-  useEffect(() => {
-    const h = (e) => { if (e.key === 'Escape') navigate('/'); };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [navigate]);
-
+  // ── Empty state ──────────────────────────────────────────────
   if (!hasPoints) {
     return (
-      <div className="min-h-screen bg-dark-900 p-8">
-        <div className="max-w-4xl mx-auto">
-          <button onClick={() => navigate('/')} className="btn-secondary mb-6 flex items-center gap-2">
-            <ArrowLeft className="w-5 h-5" /> ↩ MAIN MENU
-          </button>
-          <div className="glass-effect rounded-xl p-8 text-center">
-            <div className="text-6xl mb-4">📊</div>
-            <h1 className="text-3xl font-bold text-primary mb-4">Plotting View</h1>
-            <p className="text-dark-300 mb-6">To use plotting, you need to:</p>
-            <div className="text-left max-w-md mx-auto space-y-3 mb-8">
-              <div className="flex items-center gap-3"><span className="text-2xl">1️⃣</span><span className="text-dark-200">Open a project in Parcel Calculator</span></div>
-              <div className="flex items-center gap-3"><span className="text-2xl">2️⃣</span><span className="text-dark-200">Load a points file (.pnt, .txt)</span></div>
-              <div className="flex items-center gap-3"><span className="text-2xl">3️⃣</span><span className="text-dark-200">Return here to visualize the points</span></div>
+      <PageLayout title="Plotting View" backPath="/" backLabel="Main Menu">
+        <div className="h-full flex items-center justify-center">
+          <div className="glass rounded-2xl p-10 text-center max-w-md">
+            <div className="text-5xl mb-4">📊</div>
+            <h2 className="text-xl font-bold text-primary mb-3">No Points Loaded</h2>
+            <p className="text-dark-400 text-sm mb-6">To use the plotting view, load survey points first.</p>
+            <div className="text-left space-y-3 mb-7 text-sm text-dark-300">
+              {[
+                'Open a project in Data Files',
+                'Load a points file (.pnt, .txt)',
+                'Return here to visualize',
+              ].map((step, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="w-6 h-6 rounded-full bg-primary/20 border border-primary/40
+                                   flex items-center justify-center text-primary text-xs font-bold flex-shrink-0">
+                    {i + 1}
+                  </span>
+                  {step}
+                </div>
+              ))}
             </div>
-            <button onClick={() => navigate('/parcel-calculator')} className="btn-primary px-6 py-3">
-              Go to Parcel Calculator
+            <button onClick={() => navigate('/parcel-calculator')} className="btn-primary w-full">
+              Go to Area Calculator
             </button>
           </div>
         </div>
-      </div>
+      </PageLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-dark-900 p-6">
-      <div className="max-w-full mx-auto">
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-          <button onClick={() => navigate('/')} className="btn-secondary mb-4 flex items-center gap-2">
-            <ArrowLeft className="w-5 h-5" /> ↩ MAIN MENU
+    <PageLayout title="Plotting View" backPath="/" backLabel="Main Menu">
+      <div className="h-full flex flex-col overflow-hidden p-3 gap-3">
+        {/* ── Toolbar (single line, no wrap) ──────────────────── */}
+        <div className="flex-shrink-0 glass rounded-xl px-4 py-2.5 flex items-center gap-2 flex-wrap">
+          {/* Zoom controls */}
+          <button onClick={() => { zoomRef.current = Math.min(200, zoomRef.current * 1.2); setZoomDisplay(zoomRef.current); drawCanvas(); }}
+            className="btn-secondary text-xs py-1.5 px-2.5">
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={() => { zoomRef.current = Math.max(0.01, zoomRef.current * 0.8); setZoomDisplay(zoomRef.current); drawCanvas(); }}
+            className="btn-secondary text-xs py-1.5 px-2.5">
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={resetView} className="btn-secondary text-xs py-1.5 px-3">
+            <RotateCcw className="w-3.5 h-3.5" /> Fit All
           </button>
 
-          <div className="glass-effect rounded-xl p-4">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h1 className="text-3xl font-bold text-primary mb-2">📊 Plotting View</h1>
-                <p className="text-dark-300">
-                  {projectName && `Project: ${projectName} • `}
-                  {pointsFileName && `File: ${pointsFileName} • `}
-                  {Object.keys(loadedPoints).length} points loaded
-                </p>
-              </div>
-            </div>
+          <span className="text-dark-500 text-xs font-mono ml-1">
+            {zoomDisplay.toFixed(2)}×
+          </span>
 
-            <div className="flex gap-2 flex-wrap items-center">
-              <button onClick={() => { zoomRef.current = Math.min(200, zoomRef.current * 1.2); setZoomDisplay(zoomRef.current); drawCanvas(); }} className="btn-secondary text-sm py-2 px-3">
-                <ZoomIn className="w-4 h-4 inline mr-1" /> Zoom In
-              </button>
-              <button onClick={() => { zoomRef.current = Math.max(0.01, zoomRef.current * 0.8); setZoomDisplay(zoomRef.current); drawCanvas(); }} className="btn-secondary text-sm py-2 px-3">
-                <ZoomOut className="w-4 h-4 inline mr-1" /> Zoom Out
-              </button>
-              <button onClick={resetView} className="btn-secondary text-sm py-2 px-3">
-                <RotateCcw className="w-4 h-4 inline mr-1" /> Fit All
-              </button>
+          <div className="h-5 w-px bg-dark-700 mx-1 flex-shrink-0" />
 
-              <div className="h-6 w-px bg-dark-600 mx-2" />
-
-              <select
-                value={filterParcelId}
-                onChange={(e) => { setFilterParcelId(e.target.value); filterParcelIdRef.current = e.target.value; drawCanvas(); }}
-                className="bg-dark-800 border border-dark-600 text-dark-300 text-sm rounded-lg focus:ring-primary focus:border-primary block p-2"
-              >
-                <option value="all">View All Parcels</option>
-                {savedParcels.map((p, idx) => (
-                  <option key={p.id} value={p.id}>
-                    Parcel {p.number}{savedParcels.filter(sp => sp.number === p.number).length > 1 ? ` (${idx + 1})` : ''}
-                  </option>
-                ))}
-              </select>
-
-              <div className="h-6 w-px bg-dark-600 mx-2" />
-
-              <label className="flex items-center gap-2 text-sm text-dark-300 cursor-pointer">
-                <input type="checkbox" checked={showParcels} onChange={(e) => { setShowParcels(e.target.checked); showParcelsRef.current = e.target.checked; drawCanvas(); }} className="w-4 h-4" />
-                Show Parcels
-              </label>
-              <label className="flex items-center gap-2 text-sm text-dark-300 cursor-pointer">
-                <input type="checkbox" checked={showPointLabels} onChange={(e) => { setShowPointLabels(e.target.checked); showPointLabelsRef.current = e.target.checked; drawCanvas(); }} className="w-4 h-4" />
-                Show Point IDs
-              </label>
-              <label className="flex items-center gap-2 text-sm text-dark-300 cursor-pointer">
-                <input type="checkbox" checked={showCoordinates} onChange={(e) => { setShowCoordinates(e.target.checked); showCoordinatesRef.current = e.target.checked; drawCanvas(); }} className="w-4 h-4" />
-                Show Coordinates
-              </label>
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-effect rounded-xl p-4">
-          <div
-            ref={containerRef}
-            className="w-full bg-dark-800 rounded-lg overflow-hidden border border-dark-700"
-            style={{ height: 'calc(100vh - 280px)', minHeight: '500px' }}
+          {/* Filter */}
+          <select
+            value={filterParcelId}
+            onChange={(e) => { setFilterParcelId(e.target.value); filterParcelIdRef.current = e.target.value; drawCanvas(); }}
+            className="bg-dark-700 border border-dark-600 text-dark-300 text-xs rounded-lg
+                       focus:ring-1 focus:ring-primary focus:border-primary px-2.5 py-1.5"
           >
-            <canvas
-              ref={canvasRef}
-              className="cursor-crosshair w-full h-full"
-              style={{ display: 'block' }}
-            />
+            <option value="all">All Parcels ({savedParcels.length})</option>
+            {savedParcels.map((p, i) => (
+              <option key={p.id} value={p.id}>
+                Parcel {p.number}{savedParcels.filter(s => s.number === p.number).length > 1 ? ` (${i + 1})` : ''}
+              </option>
+            ))}
+          </select>
+
+          <div className="h-5 w-px bg-dark-700 mx-1 flex-shrink-0" />
+
+          {/* Toggles */}
+          {[
+            { label: 'Parcels', checked: showParcels, onChange: (v) => { setShowParcels(v); showParcelsRef.current = v; drawCanvas(); } },
+            { label: 'Point IDs', checked: showPointLabels, onChange: (v) => { setShowPointLabels(v); showPointLabelsRef.current = v; drawCanvas(); } },
+            { label: 'Coords', checked: showCoordinates, onChange: (v) => { setShowCoordinates(v); showCoordinatesRef.current = v; drawCanvas(); } },
+          ].map(({ label, checked, onChange }) => (
+            <label key={label} className="flex items-center gap-1.5 text-xs text-dark-300 cursor-pointer select-none">
+              <input type="checkbox" checked={checked}
+                onChange={(e) => onChange(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-dark-600 bg-dark-700 text-primary" />
+              {label}
+            </label>
+          ))}
+
+          {/* Spacer + info */}
+          <div className="flex-1" />
+          <div className="text-xs text-dark-500 hidden md:flex items-center gap-1">
+            <MousePointer className="w-3 h-3" />
+            Drag to pan · Scroll to zoom · Click point to select
           </div>
-          <div className="mt-4 text-sm text-dark-400">
-            <p>🖱️ <strong>Mouse wheel:</strong> Zoom in/out • <strong>Click &amp; drag:</strong> Pan • <strong>Click point:</strong> Select</p>
-          </div>
-        </motion.div>
+
+          {/* Selected point info */}
+          {selectedPoint && (
+            <span className="text-xs text-primary font-mono">
+              Selected: #{selectedPoint}
+            </span>
+          )}
+        </div>
+
+        {/* ── Canvas ───────────────────────────────────────────── */}
+        <div
+          ref={containerRef}
+          className="flex-1 min-h-0 rounded-xl overflow-hidden border border-dark-700/60 bg-dark-900"
+        >
+          <canvas
+            ref={canvasRef}
+            className="cursor-crosshair w-full h-full block"
+          />
+        </div>
       </div>
-    </div>
+    </PageLayout>
   );
 };
 

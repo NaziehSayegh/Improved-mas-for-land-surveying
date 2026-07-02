@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { ToastProvider } from './context/ToastContext';
+import { ToastProvider, useToast } from './context/ToastContext';
 import MainMenu from './pages/MainMenu';
 import ParcelCalculator from './pages/ParcelCalculator';
 import DataFiles from './pages/DataFiles';
@@ -14,24 +14,32 @@ import LicensePage from './pages/LicensePage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import DxfImport from './pages/DxfImport';
+import LicenseGuard from './components/LicenseGuard';
+import TitleBar from './components/TitleBar';
+import AdminPanel from './pages/AdminPanel';
 
-// Inner component to handle file loading with access to context and navigation
+// ── Inner component with routing + file-open handling ────────────────────────
 function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, loading } = useAuth();
+  const toast = useToast();
   const {
-    setProjectName,
-    setPointsFileName,
-    setPointsFilePath,
-    setLoadedPoints,
-    setSavedParcels,
-    setFileHeading,
-    setHasUnsavedChanges,
-    setProjectPath
+    loadProjectData, setProjectPath
   } = useProject();
 
-  // Redirect to login if not authenticated
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
+
+  // Append is-electron class to body when in Electron mode
+  useEffect(() => {
+    if (isElectron) {
+      document.body.classList.add('is-electron');
+    } else {
+      document.body.classList.remove('is-electron');
+    }
+  }, [isElectron]);
+
+  // Redirect to login if not authenticated (both demo and premium require login)
   useEffect(() => {
     if (!loading && !user) {
       const publicPaths = ['/login', '/signup'];
@@ -41,197 +49,150 @@ function AppContent() {
     }
   }, [user, loading, location.pathname, navigate]);
 
+  // Wire up Electron file-open IPC
   useEffect(() => {
-    // Check if Electron API is available
-    console.log('[App] Checking for Electron API...');
-    console.log('[App] window.electronAPI exists:', typeof window !== 'undefined' && !!window.electronAPI);
-    if (typeof window !== 'undefined' && window.electronAPI) {
-      console.log('[App] ✅ Electron API is available');
-      console.log('[App] Available methods:', Object.keys(window.electronAPI));
+    if (typeof window === 'undefined' || !window.electronAPI) return;
 
-      // Set up listener for file open events
-      if (window.electronAPI.onLoadProjectFile) {
-        window.electronAPI.onLoadProjectFile(async (filePath) => {
-          console.log('[App] Loading project from file:', filePath);
-
-          try {
-            // Load the project from the file path
-            const response = await fetch('http://localhost:5000/api/project/load', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ filePath }),
-            });
-
-            if (!response.ok) {
-              let errorMessage = 'Failed to load project';
-              try {
-                const errorData = await response.json();
-                if (errorData?.error) {
-                  errorMessage = errorData.error;
-                }
-              } catch (parseError) {
-                console.warn('[App] Could not parse load error response', parseError);
-              }
-              throw new Error(errorMessage);
-            }
-
-            const result = await response.json();
-            const projectData = result.projectData;
-
-            // Clear existing state
-            setProjectName('');
-            setPointsFileName('');
-            setPointsFilePath('');
-            setLoadedPoints({});
-            setSavedParcels([]);
-            setFileHeading({
-              block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
-            });
-
-            // Load new project data
-            setProjectName(projectData.projectName || '');
-            setPointsFileName(projectData.pointsFileName || '');
-            setPointsFilePath(projectData.pointsFilePath || '');
-            setLoadedPoints(projectData.loadedPoints || {});
-            setSavedParcels(projectData.savedParcels || []);
-            setFileHeading(projectData.fileHeading || {
-              block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
-            });
-            setProjectPath(filePath);
-            setHasUnsavedChanges(false);
-
-            // Navigate to parcel calculator page
-            navigate('/parcel-calculator');
-
-            // Show success message using non-blocking toast
-            setTimeout(() => {
-              // Create success toast
-              const toast = document.createElement('div');
-              toast.innerHTML = `✅ Opened project: ${projectData.projectName || 'Untitled'}`;
-              toast.style.cssText = `
-                position: fixed;
-                top: 20px;
-                left: 50%;
-                transform: translateX(-50%);
-                right: auto;
-                text-align: center;
-                background: #238636;
-                color: white;
-                padding: 16px 24px;
-                border-radius: 12px;
-                font-weight: bold;
-                z-index: 10000;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-                animation: slideIn 0.3s ease-out;
-              `;
-              document.body.appendChild(toast);
-              setTimeout(() => {
-                toast.style.animation = 'slideOut 0.3s ease-out';
-                setTimeout(() => toast.remove(), 300);
-              }, 3000);
-
-              // CRITICAL: Focus parcel number input after file loads
-              setTimeout(() => {
-                const parcelInput = document.querySelector('input[placeholder="Enter parcel number"]');
-                if (parcelInput) {
-                  parcelInput.focus();
-                  parcelInput.select();
-                }
-              }, 500);
-            }, 300);
-          } catch (error) {
-            console.error('[App] Error loading project:', error);
-            // Show error toast instead of blocking alert
-            setTimeout(() => {
-              const toast = document.createElement('div');
-              toast.innerHTML = `❌ Error loading project: ${error.message}`;
-              toast.style.cssText = `
-                position: fixed;
-                top: 20px;
-                left: 50%;
-                transform: translateX(-50%);
-                right: auto;
-                text-align: center;
-                background: #da3633;
-                color: white;
-                padding: 16px 24px;
-                border-radius: 12px;
-                font-weight: bold;
-                z-index: 10000;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-                animation: slideIn 0.3s ease-out;
-              `;
-              document.body.appendChild(toast);
-              setTimeout(() => {
-                toast.style.animation = 'slideOut 0.3s ease-out';
-                setTimeout(() => toast.remove(), 300);
-              }, 4000);
-            }, 300);
-          }
+    const handleLoadFile = async (filePath) => {
+      try {
+        const res = await fetch('http://localhost:5000/api/project/load', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filePath }),
         });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error || 'Failed to load project');
+        }
+        const { projectData } = await res.json();
+
+        loadProjectData(projectData, filePath);
+
+        const hasCad = Boolean(projectData.cadFilePath || (projectData.cadEntities && projectData.cadEntities.length > 0) || projectData.cadFileName);
+        navigate(hasCad ? '/dxf-import' : '/parcel-calculator');
+        toast.success(`✅ Opened: ${projectData.projectName || 'Untitled'}`);
+
+        setTimeout(() => {
+          const inp = document.querySelector('input[placeholder="Enter parcel number"]');
+          if (inp) { inp.focus(); inp.select(); }
+        }, 500);
+      } catch (err) {
+        toast.error(`❌ Could not open project: ${err.message}`);
       }
-    } else {
-      console.warn('[App] ⚠️ Electron API is NOT available - Save As will not work');
-      console.warn('[App] Make sure you are running in Electron, not a browser');
+    };
+
+    if (window.electronAPI.onLoadProjectFile) {
+      window.electronAPI.onLoadProjectFile(handleLoadFile);
     }
 
-    // Cleanup listener on unmount
     return () => {
-      if (window.electronAPI && window.electronAPI.removeLoadProjectFileListener) {
+      if (window.electronAPI.removeLoadProjectFileListener) {
         window.electronAPI.removeLoadProjectFileListener();
       }
     };
-  }, [navigate, setProjectName, setPointsFileName, setPointsFilePath, setLoadedPoints, setSavedParcels, setFileHeading, setHasUnsavedChanges, setProjectPath]);
+  }, [navigate, toast, loadProjectData]);
 
   return (
-    <>
-      <BackgroundEffects />
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route path="/" element={<MainMenu />} />
-        <Route path="/assistant" element={<Assistant />} />
-        <Route path="/license" element={<LicensePage />} />
-        <Route path="/parcel-calculator" element={<ParcelCalculator />} />
-        <Route path="/data-files" element={<DataFiles />} />
-        <Route path="/work-mode" element={<WorkMode />} />
-        <Route path="/plotting" element={<Plotting />} />
-        <Route path="/dxf-import" element={<DxfImport />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </>
+    <div className="flex flex-col h-full overflow-hidden w-full">
+      {isElectron && <TitleBar />}
+      <div className="flex-1 overflow-hidden relative w-full">
+        <BackgroundEffects />
+        <Routes>
+          {/* Public routes */}
+          <Route path="/login"  element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="/license" element={<LicensePage />} />
+
+          {/* Admin route — accessible to admin users */}
+          <Route path="/admin" element={
+            user && (user.isAdmin || user.email === 'nsayegh2003@yahoo.com') ? <AdminPanel /> : <Navigate to="/" replace />
+          } />
+
+          {/* Protected routes — wrapped in LicenseGuard */}
+          <Route path="/" element={
+            <LicenseGuard><MainMenu /></LicenseGuard>
+          } />
+          <Route path="/assistant" element={
+            <LicenseGuard><Assistant /></LicenseGuard>
+          } />
+          <Route path="/parcel-calculator" element={
+            <LicenseGuard><ParcelCalculator /></LicenseGuard>
+          } />
+          <Route path="/data-files" element={
+            <LicenseGuard><DataFiles /></LicenseGuard>
+          } />
+          <Route path="/work-mode" element={
+            <LicenseGuard><WorkMode /></LicenseGuard>
+          } />
+          <Route path="/plotting" element={
+            <LicenseGuard><Plotting /></LicenseGuard>
+          } />
+          <Route path="/dxf-import" element={
+            <LicenseGuard><DxfImport /></LicenseGuard>
+          } />
+
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+    </div>
   );
 }
 
-function App() {
-  const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
-  const RouterComponent = isElectron ? HashRouter : BrowserRouter;
+// ── Loading screen ───────────────────────────────────────────────────────────
+function SplashScreen() {
+  return (
+    <div className="page-container items-center justify-center bg-dark-900">
+      <div className="flex flex-col items-center gap-5">
+        {/* Animated logo */}
+        <div className="relative">
+          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary to-primary-dark
+                          flex items-center justify-center shadow-glow animate-pulse-glow">
+            <span className="text-4xl">📐</span>
+          </div>
+          {/* Rotating ring */}
+          <div className="absolute -inset-2 rounded-[20px] border-2 border-primary/30
+                          border-t-primary animate-spin" style={{ animationDuration: '1.5s' }} />
+        </div>
 
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    // Quick loading - go straight to main menu
-    setTimeout(() => setIsLoading(false), 500);
-  }, []);
-
-  if (isLoading) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-dark-900">
         <div className="text-center">
-          <div className="text-6xl mb-4">📐</div>
-          <h2 className="text-2xl font-bold text-primary">PARCEL TOOLS</h2>
+          <h1 className="text-2xl font-bold gradient-text">PARCEL TOOLS</h1>
+          <p className="text-dark-400 text-sm mt-1">Professional Surveying Software</p>
+        </div>
+
+        <div className="flex gap-1.5 mt-2">
+          {[0, 1, 2].map(i => (
+            <div key={i}
+              className="w-2 h-2 rounded-full bg-primary/60 animate-bounce"
+              style={{ animationDelay: `${i * 0.15}s` }}
+            />
+          ))}
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
+// ── Root App ────────────────────────────────────────────────────────────────
+function App() {
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
+  const Router = isElectron ? HashRouter : BrowserRouter;
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    // Give the backend a moment to boot up
+    const t = setTimeout(() => setReady(true), 600);
+    return () => clearTimeout(t);
+  }, []);
+
+  if (!ready) return <SplashScreen />;
 
   return (
     <AuthProvider>
       <ToastProvider>
         <ProjectProvider>
-          <RouterComponent>
+          <Router>
             <AppContent />
-          </RouterComponent>
+          </Router>
         </ProjectProvider>
       </ToastProvider>
     </AuthProvider>
@@ -239,5 +200,3 @@ function App() {
 }
 
 export default App;
-
-

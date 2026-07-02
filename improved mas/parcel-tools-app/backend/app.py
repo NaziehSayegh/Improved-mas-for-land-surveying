@@ -62,9 +62,13 @@ CORS(app)  # Enable CORS for Electron frontend
 log_file = os.path.join(os.path.expanduser('~'), 'parcel_tools_backend_debug.log')
 try:
     # Open log file in append mode
-    log_f = open(log_file, 'w', encoding='utf-8', buffering=1)
+    log_f = open(log_file, 'a', encoding='utf-8', buffering=1)
     
-    def log_message(msg):
+    def log_message(*args, **kwargs):
+        # Extract print formatting options
+        sep = kwargs.get('sep', ' ')
+        msg = sep.join(str(arg) for arg in args)
+        
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         formatted = f"[{timestamp}] {msg}\n"
         try:
@@ -73,8 +77,10 @@ try:
         except:
             pass
         # Also print to original stdout/stderr for dev console
+        # Exclude keyword arguments that are not supported by original_print if needed,
+        # but original_print supports all standard kwargs.
         try:
-            _original_print(msg)
+            _original_print(*args, **kwargs)
         except:
             pass
 
@@ -259,56 +265,167 @@ def health_check():
 
 
 # ============================================================================
+# AUTH HELPERS
+# ============================================================================
+
+def _verify_firebase_password(email: str, password: str):
+    """
+    Verify password via Firebase REST API (sign-in-with-password).
+    Returns uid on success, raises Exception on failure.
+    Firebase Admin SDK cannot verify passwords — we must use the REST API.
+    """
+    import urllib.request, urllib.parse, urllib.error, json as _json
+    from firebase_config import get_firebase_api_key
+    api_key = get_firebase_api_key()
+    if not api_key:
+        raise Exception('Firebase API key not configured — cannot verify password')
+    url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}'
+    payload = _json.dumps({'email': email, 'password': password, 'returnSecureToken': True}).encode()
+    req = urllib.request.Request(url, data=payload,
+                                 headers={'Content-Type': 'application/json'}, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read())
+            return data['localId']  # Firebase uid
+    except urllib.error.HTTPError as e:
+        err_body = _json.loads(e.read().decode())
+        msg = err_body.get('error', {}).get('message', 'Authentication failed')
+        raise Exception(msg)
+
+
+def require_auth(f):
+    """
+    Decorator — validates X-Session-Token header on every protected endpoint.
+    Injects `g.uid` and `g.machine_id_hash` into the Flask request context.
+    Checks if user account is disabled.
+    """
+    from functools import wraps
+    from flask import g
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('X-Session-Token', '')
+        if not token:
+            return jsonify({'error': 'Authentication required', 'code': 'NO_TOKEN'}), 401
+        machine_hash = license_manager.get_machine_id_hash()
+        try:
+            uid, _ = license_manager.verify_session_token(token, machine_hash)
+            user_data = firebase_service.get_user(uid)
+            if user_data and user_data.get('is_active') is False:
+                return jsonify({
+                    'error': 'Your account has been disabled. Please contact support.',
+                    'code': 'ACCOUNT_DISABLED'
+                }), 403
+            g.uid = uid
+            g.machine_id_hash = machine_hash
+        except ValueError as e:
+            return jsonify({'error': str(e), 'code': 'INVALID_TOKEN'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ============================================================================
 # AUTHENTICATION ENDPOINTS
 # ============================================================================
 
 @app.route('/api/auth/signup', methods=['POST'])
 def auth_signup():
     """
-    Create a new user account with email, password, and license key
-    Expected JSON: { "email": "user@example.com", "password": "password123", "licenseKey": "XXXX-XXXX-XXXX-XXXX" }
+    Create a new user account.
+    Demo:    { "email": "...", "password": "...", "accountType": "demo" }
+    Premium: { "email": "...", "password": "...", "accountType": "premium", "licenseKey": "XXXX-..." }
     """
     try:
         data = request.get_json()
-        email = data.get('email', '').strip()
+        email = data.get('email', '').strip().lower()
         password = data.get('password', '')
+        account_type = data.get('accountType', 'premium')   # 'demo' | 'premium'
         license_key = data.get('licenseKey', '').strip()
-        
-        print(f'[Auth] Signup attempt for: {email}')
-        
-        # Validate inputs
-        if not email or not password or not license_key:
-            return jsonify({'error': 'Email, password, and license key are required'}), 400
-        
-        # Validate license key first
-        if not license_manager.validate_license_key(license_key, email):
-            # Try Gumroad validation
-            gumroad_result = license_manager.verify_gumroad_key(license_key)
-            if not gumroad_result.get('valid'):
-                return jsonify({'error': 'Invalid license key'}), 400
-        
-        # Create user in Firebase
-        result = firebase_service.create_user(email, password, license_key)
-        
-        if result['success']:
-            # Save license information
-            license_data = {
-                'key': license_key,
-                'email': email,
-                'activated_date': datetime.now().isoformat(),
-                'type': 'paid'
-            }
-            firebase_service.save_license(result['user_id'], license_data)
-            
-            print(f'[Auth] User created successfully: {email}')
-            return jsonify({
-                'success': True,
-                'message': 'Account created successfully',
-                'userId': result['user_id']
-            })
-        else:
+
+        print(f'[Auth] Signup attempt: {email}, type={account_type}')
+
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        if len(password) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters'}), 400
+
+        # If no license key is provided during signup, default to free trial (demo mode)
+        if not license_key:
+            account_type = 'demo'
+        elif account_type == 'premium':
+            # Validate the license
+            gumroad_ok = license_manager.verify_gumroad_key(license_key)
+            legacy_ok  = license_manager.validate_license_key(license_key, email)
+            if not gumroad_ok.get('valid') and not legacy_ok:
+                return jsonify({'error': 'Invalid license key. Please check your Gumroad email.'}), 400
+
+        # Collect machine binding info
+        machine_id_hash = license_manager.get_machine_id_hash()
+
+        # Get trial start from Registry (already set on first app launch)
+        trial_info = license_manager._check_demo_trial_status() if account_type == 'demo' \
+                     else license_manager._check_trial_status()
+        trial_start = trial_info.get('trial_start') or datetime.now().isoformat()
+
+        # Create Firebase user
+        result = firebase_service.create_user(
+            email, password, license_key,
+            account_type=account_type,
+            machine_id_hash=machine_id_hash,
+            trial_start=trial_start
+        )
+
+        if not result['success']:
             return jsonify({'error': result.get('error', 'Failed to create account')}), 400
-            
+
+        uid = result['user_id']
+
+        # Save license for premium accounts
+        if account_type == 'premium' and license_key:
+            firebase_service.save_license(uid, {
+                'key': license_key, 'email': email,
+                'activated_date': datetime.now().isoformat(), 'type': 'paid'
+            })
+
+        # Auto-activate license key locally if premium signup
+        if account_type == 'premium' and license_key:
+            try:
+                license_manager.activate_license(license_key, email)
+                print(f'[Auth] Auto-activated license key locally on signup for {email}')
+            except Exception as lic_err:
+                print(f'[Auth] Warning: Could not auto-activate license on signup: {lic_err}')
+
+        # Issue session token (machine-bound)
+        session_token = license_manager.generate_session_token(uid, machine_id_hash)
+
+        # Track PC device on signup
+        import socket, getpass, platform
+        try:
+            computer_name = socket.gethostname()
+            os_username = getpass.getuser()
+            os_platform = f"{platform.system()} {platform.release()}"
+            device_name = f"{computer_name} ({os_username}) [{os_platform}]"
+        except Exception:
+            computer_name = None
+            os_username = None
+            os_platform = None
+            device_name = "Windows PC"
+        firebase_service.add_device(
+            uid, machine_id_hash, device_name,
+            computer_name=computer_name,
+            os_user=os_username,
+            os_platform=os_platform
+        )
+
+        print(f'[Auth] Account created: {email} ({account_type})')
+        return jsonify({
+            'success': True,
+            'message': 'Account created successfully',
+            'userId': uid,
+            'email': email,
+            'accountType': account_type,
+            'sessionToken': session_token,
+        })
+
     except Exception as e:
         print(f'[Auth ERROR] Signup failed: {e}')
         return jsonify({'error': str(e)}), 500
@@ -317,53 +434,114 @@ def auth_signup():
 @app.route('/api/auth/login', methods=['POST'])
 def auth_login():
     """
-    Login with email and password
-    Expected JSON: { "email": "user@example.com", "password": "password123" }
+    Login — verifies password via Firebase REST API, checks machine binding,
+    issues a signed HMAC session token.
+    Expected JSON: { "email": "...", "password": "..." }
     """
     try:
         data = request.get_json()
-        email = data.get('email', '').strip()
+        email = data.get('email', '').strip().lower()
         password = data.get('password', '')
-        
+
         print(f'[Auth] Login attempt for: {email}')
-        
+
         if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
-        
-        # Verify credentials
-        result = firebase_service.verify_user_credentials(email, password)
-        
-        if result['success']:
-            # Get user data
-            user_data = firebase_service.get_user(result['user_id'])
-            
-            # Track device activation
-            machine_id = license_manager.get_machine_id()
-            device_result = firebase_service.add_device(
-                result['user_id'], 
-                machine_id, 
-                "Windows PC"  # Could be made dynamic
-            )
-            
-            if not device_result.get('success'):
-                # Device limit reached
-                return jsonify({
-                    'error': device_result.get('error', 'Device limit reached'),
-                    'device_count': device_result.get('device_count', 0)
-                }), 403
-            
-            print(f'[Auth] Login successful: {email} (Device {device_result.get("device_count", 0)}/2)')
+
+        # ── 1. Verify password via Firebase REST API ──────────────────────────
+        try:
+            uid = _verify_firebase_password(email, password)
+        except Exception as pw_err:
+            err_msg = str(pw_err)
+            if 'INVALID_PASSWORD' in err_msg or 'EMAIL_NOT_FOUND' in err_msg:
+                return jsonify({'error': 'Incorrect email or password'}), 401
+            # Fallback: try Admin SDK lookup (offline mode)
+            result = firebase_service.verify_user_credentials(email, password)
+            if not result['success']:
+                return jsonify({'error': 'Incorrect email or password'}), 401
+            uid = result['user_id']
+
+        # ── 2. Get user profile from Firestore ────────────────────────────────
+        user_data = firebase_service.get_user(uid)
+        if not user_data:
+            return jsonify({'error': 'User profile not found'}), 404
+
+        # ── 3. Check if account is active ────────────────────────────────────
+        if user_data.get('is_active') is False:
             return jsonify({
-                'success': True,
-                'message': 'Login successful',
-                'userId': result['user_id'],
-                'email': email,
-                'licenseKey': user_data.get('license_key') if user_data else None,
-                'deviceCount': device_result.get('device_count', 0)
-            })
-        else:
-            return jsonify({'error': result.get('error', 'Invalid credentials')}), 401
-            
+                'error': 'Your account has been disabled. Please contact support.',
+                'code': 'ACCOUNT_DISABLED'
+            }), 403
+
+        # ── 4. Machine ID binding check ───────────────────────────────────────
+        machine_id_hash = license_manager.get_machine_id_hash()
+        stored_hash = user_data.get('machine_id_hash', '')
+
+        if stored_hash and stored_hash != machine_id_hash:
+            # Account is bound to a different machine
+            return jsonify({
+                'error': 'This account is registered on a different computer. Contact support to transfer your account.',
+                'code': 'MACHINE_MISMATCH',
+                'machineId': machine_id_hash[-8:]   # last 8 chars for support reference
+            }), 403
+
+        # If no machine binding yet, bind now (first login after admin reset)
+        if not stored_hash:
+            firebase_service.db.collection('users').document(uid).update(
+                {'machine_id_hash': machine_id_hash}
+            ) if firebase_service._is_online() else None
+
+        # ── 5. Track device ───────────────────────────────────────────────────
+        import socket
+        import getpass
+        import platform
+        try:
+            computer_name = socket.gethostname()
+            os_username = getpass.getuser()
+            os_platform = f"{platform.system()} {platform.release()}"
+            device_name = f"{computer_name} ({os_username}) [{os_platform}]"
+        except Exception:
+            computer_name = None
+            os_username = None
+            os_platform = None
+            device_name = "Windows PC"
+        firebase_service.add_device(
+            uid, machine_id_hash, device_name,
+            computer_name=computer_name,
+            os_user=os_username,
+            os_platform=os_platform
+        )
+
+        # ── 6. Update last_login ──────────────────────────────────────────────
+        if firebase_service._is_online():
+            firebase_service.db.collection('users').document(uid).update(
+                {'last_login': datetime.now().isoformat()}
+            )
+
+        # ── 7. Auto-activate license key locally if present ───────────────────
+        license_key = user_data.get('license_key')
+        if license_key:
+            try:
+                license_manager.activate_license(license_key, email)
+                print(f'[Auth] Auto-activated license key locally for {email}')
+            except Exception as lic_err:
+                print(f'[Auth] Warning: Could not auto-activate license: {lic_err}')
+
+        # ── 8. Issue session token ────────────────────────────────────────────
+        session_token = license_manager.generate_session_token(uid, machine_id_hash)
+
+        print(f'[Auth] Login successful: {email} (type={user_data.get("account_type","?")})')
+        return jsonify({
+            'success': True,
+            'message': 'Login successful',
+            'userId': uid,
+            'email': email,
+            'accountType': user_data.get('account_type', 'premium'),
+            'isAdmin': user_data.get('is_admin', False),
+            'licenseKey': user_data.get('license_key'),
+            'sessionToken': session_token,
+        })
+
     except Exception as e:
         print(f'[Auth ERROR] Login failed: {e}')
         return jsonify({'error': str(e)}), 500
@@ -372,28 +550,55 @@ def auth_login():
 @app.route('/api/auth/verify', methods=['POST'])
 def auth_verify():
     """
-    Verify user session
-    Expected JSON: { "userId": "user_id_here" }
+    Verify session token validity.
+    Expected JSON: { "sessionToken": "...", "userId": "..." } (userId kept for backward-compat)
     """
     try:
         data = request.get_json()
+        session_token = data.get('sessionToken') or request.headers.get('X-Session-Token')
         user_id = data.get('userId')
-        
-        if not user_id:
-            return jsonify({'valid': False, 'error': 'User ID required'}), 400
-        
-        # Get user data
-        user_data = firebase_service.get_user(user_id)
-        
-        if user_data:
+
+        machine_hash = license_manager.get_machine_id_hash()
+
+        if session_token:
+            try:
+                uid, _ = license_manager.verify_session_token(session_token, machine_hash)
+                user_data = firebase_service.get_user(uid)
+                if user_data and user_data.get('is_active') is False:
+                    return jsonify({'valid': False, 'error': 'Account disabled'}), 403
+                email_val = user_data.get('email') if user_data else ''
+                account_type_val = user_data.get('account_type', 'premium') if user_data else 'premium'
+                is_admin_val = user_data.get('is_admin', False) or (email_val.lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']) if user_data else False
+                return jsonify({
+                    'valid': True,
+                    'email': email_val,
+                    'accountType': account_type_val,
+                    'isAdmin': is_admin_val,
+                    'licenseKey': user_data.get('license_key') if user_data else None,
+                })
+            except ValueError:
+                pass  # fall through to userId check
+
+        # Backward-compat: plain userId fallback
+        if user_id:
+            user_data = firebase_service.get_user(user_id)
+            if user_data and user_data.get('is_active') is False:
+                return jsonify({'valid': False, 'error': 'Account disabled'}), 403
+            email_val = user_data.get('email') if user_data else ''
+            account_type_val = user_data.get('account_type', 'premium') if user_data else 'premium'
+            is_admin_val = user_data.get('is_admin', False) or (email_val.lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']) if user_data else False
+            new_token = license_manager.generate_session_token(user_id, machine_hash)
             return jsonify({
                 'valid': True,
-                'email': user_data.get('email'),
-                'licenseKey': user_data.get('license_key')
+                'email': email_val,
+                'accountType': account_type_val,
+                'isAdmin': is_admin_val,
+                'licenseKey': user_data.get('license_key') if user_data else None,
+                'sessionToken': new_token,
             })
-        else:
-            return jsonify({'valid': False, 'error': 'User not found'}), 404
-            
+
+        return jsonify({'valid': False, 'error': 'Invalid or expired session'}), 401
+
     except Exception as e:
         print(f'[Auth ERROR] Verification failed: {e}')
         return jsonify({'valid': False, 'error': str(e)}), 500
@@ -401,33 +606,126 @@ def auth_verify():
 
 @app.route('/api/auth/logout', methods=['POST'])
 def auth_logout():
-    """
-    Logout and deactivate device
-    Expected JSON: { "userId": "user_id_here" }
-    """
+    """Logout and deactivate device. Expected JSON: { "userId": "..." }"""
     try:
         data = request.get_json()
         user_id = data.get('userId')
-        
         print(f'[Auth] Logout request for user: {user_id}')
-        
         if not user_id:
             return jsonify({'error': 'User ID required'}), 400
-        
-        # Get machine ID and remove device
         machine_id = license_manager.get_machine_id()
-        result = firebase_service.remove_device(user_id, machine_id)
-        
-        if result.get('success'):
-            print(f'[Auth] Device deactivated for user: {user_id}')
-            return jsonify({
-                'success': True,
-                'message': 'Logged out successfully'
-            })
-        else:
-            return jsonify({'error': result.get('error', 'Logout failed')}), 500
-            
+        firebase_service.remove_device(user_id, machine_id)
+        return jsonify({'success': True, 'message': 'Logged out successfully'})
     except Exception as e:
+        print(f'[Auth ERROR] Logout failed: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# ADMIN ENDPOINTS  (require_auth + is_admin check)
+# ============================================================================
+
+def _require_admin(f):
+    """Decorator that requires both a valid session token AND is_admin=True."""
+    from functools import wraps
+    from flask import g
+    @wraps(f)
+    @require_auth
+    def decorated(*args, **kwargs):
+        user_data = firebase_service.get_user(g.uid)
+        is_admin = False
+        if user_data:
+            is_admin = user_data.get('is_admin', False) or user_data.get('email', '').lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']
+        if not is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route('/api/admin/users', methods=['GET'])
+@_require_admin
+def admin_list_users():
+    """Admin: list all registered users."""
+    try:
+        users = firebase_service.get_all_users()
+        # Compute trial days_left and trial_expires_at for display
+        from datetime import datetime as _dt, timedelta as _td
+        for u in users:
+            ts = u.get('trial_start')
+            if ts:
+                try:
+                    start = _dt.fromisoformat(ts)
+                    expires = start + _td(days=30)
+                    left = (expires - _dt.now()).days + 1
+                    u['trial_days_left'] = max(0, left)
+                    u['trial_expires_at'] = expires.isoformat()
+                except Exception:
+                    u['trial_days_left'] = None
+                    u['trial_expires_at'] = None
+        return jsonify({'success': True, 'users': users})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<uid>/extend-trial', methods=['POST'])
+@_require_admin
+def admin_extend_trial(uid):
+    """Admin: extend a user's trial by resetting trial_start to today."""
+    try:
+        new_start = datetime.now().isoformat()
+        result = firebase_service.extend_user_trial(uid, new_start)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<uid>/toggle-active', methods=['POST'])
+@_require_admin
+def admin_toggle_active(uid):
+    """Admin: enable or disable a user account."""
+    try:
+        data = request.get_json()
+        is_active = bool(data.get('isActive', True))
+        result = firebase_service.set_user_active(uid, is_active)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<uid>/reset-machine', methods=['POST'])
+@_require_admin
+def admin_reset_machine(uid):
+    """Admin: clear machine binding — allows user to log in from a new PC."""
+    try:
+        result = firebase_service.reset_user_machine(uid)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<uid>/upgrade-premium', methods=['POST'])
+@_require_admin
+def admin_upgrade_premium(uid):
+    """Admin: upgrade a demo account to premium."""
+    try:
+        result = firebase_service.upgrade_user_to_premium(uid)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<uid>/deactivate-license', methods=['POST'])
+@_require_admin
+def admin_deactivate_license(uid):
+    """Admin: deactivate a user's license key, reverting them to demo status."""
+    try:
+        result = firebase_service.deactivate_user_license(uid)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
         print(f'[Auth ERROR] Logout failed: {e}')
         return jsonify({'error': str(e)}), 500
 
@@ -619,6 +917,98 @@ def calculate_area_error():
         return jsonify({'error': str(e)}), 500
 
 
+def parse_points_content(text_data):
+    """Parse raw points file content into a list of points dicts"""
+    points = []
+    for line in text_data.strip().split('\n'):
+        line = line.strip()
+        if not line or line.startswith('#') or line.startswith('//'):
+            continue
+        
+        # Replace semicolons with commas
+        line = line.replace(';', ',')
+        
+        # Split by comma or whitespace
+        parts = [p.strip() for p in (line.split(',') if ',' in line else line.split()) if p.strip()]
+        
+        if len(parts) >= 3:
+            try:
+                point_id = parts[0]
+                x = float(parts[1])
+                y = float(parts[2])
+                points.append({'id': point_id, 'x': x, 'y': y})
+            except ValueError:
+                continue
+    return points
+
+
+def calculate_single_parcel_metrics(parcel, points_map):
+    """Calculate area and perimeter for a single parcel using a points map"""
+    point_ids = parcel.get('ids', [])
+    curves = parcel.get('curves', [])
+    
+    # Prepare points for this parcel
+    parcel_points = []
+    for pid in point_ids:
+        pid_str = str(pid)
+        if pid_str in points_map:
+            parcel_points.append(points_map[pid_str])
+        else:
+            # Point not found, use default or skip
+            parcel_points.append({'x': 0, 'y': 0})
+    
+    area = 0.0
+    perimeter = 0.0
+    
+    if len(parcel_points) >= 3:
+        # If the last point is duplicate of the first point, slice it off to avoid duplicate calculation
+        pts = parcel_points
+        if len(pts) > 3 and pts[0]['x'] == pts[-1]['x'] and pts[0]['y'] == pts[-1]['y']:
+            pts = pts[:-1]
+        
+        n = len(pts)
+        sum1 = 0.0
+        sum2 = 0.0
+        for i in range(n):
+            j = (i + 1) % n
+            sum1 += pts[i]['x'] * pts[j]['y']
+            sum2 += pts[j]['x'] * pts[i]['y']
+        area = 0.5 * abs(sum1 - sum2)
+        
+        # Perimeter
+        for i in range(n):
+            j = (i + 1) % n
+            dx = pts[j]['x'] - pts[i]['x']
+            dy = pts[j]['y'] - pts[i]['y']
+            perimeter += math.sqrt(dx*dx + dy*dy)
+    
+    # Apply curves
+    for curve in curves:
+        try:
+            m = float(curve.get('M', 0))
+            sign = 1 if curve.get('sign', 1) == 1 else -1
+            from_id = str(curve.get('from'))
+            to_id = str(curve.get('to'))
+            
+            if from_id in points_map and to_id in points_map:
+                p1 = points_map[from_id]
+                p2 = points_map[to_id]
+                
+                dx = p2['x'] - p1['x']
+                dy = p2['y'] - p1['y']
+                chord = math.sqrt(dx*dx + dy*dy)
+                
+                if m > 0 and chord > 0:
+                    R = (chord**2)/(8*m) + (m/2)
+                    theta = 2 * math.asin(min(1.0, chord/(2*R)))
+                    segment_area = 0.5 * R**2 * (theta - math.sin(theta))
+                    area += sign * segment_area
+        except Exception:
+            pass # Ignore curve errors in batch
+            
+    return area, perimeter
+
+
 @app.route('/api/calculate-batch-areas', methods=['POST'])
 def calculate_batch_areas():
     """
@@ -636,68 +1026,7 @@ def calculate_batch_areas():
         results = []
         
         for parcel in parcels:
-            point_ids = parcel.get('ids', [])
-            curves = parcel.get('curves', [])
-            
-            # Prepare points for this parcel
-            parcel_points = []
-            for pid in point_ids:
-                if str(pid) in points_map:
-                    parcel_points.append(points_map[str(pid)])
-                else:
-                    # Point not found, use default or skip
-                    parcel_points.append({'x': 0, 'y': 0})
-            
-            # Calculate area (logic duplicated from calculate_area for speed/independence)
-            area = 0.0
-            perimeter = 0.0
-            
-            if len(parcel_points) >= 3:
-                # Shoelace formula
-                n = len(parcel_points)
-                sum1 = 0.0
-                sum2 = 0.0
-                
-                for i in range(n - 1):
-                    sum1 += parcel_points[i]['x'] * parcel_points[i+1]['y']
-                    sum2 += parcel_points[i]['y'] * parcel_points[i+1]['x']
-                
-                # Close the loop if last point != first point (though logic assumes closed)
-                # If the IDs list closes itself (1,2,3,4,1), the loop above handles it if n includes the last point
-                # The frontend sends closed loops (first ID repeated).
-                
-                area = 0.5 * abs(sum1 - sum2)
-                
-                # Perimeter
-                for i in range(n - 1):
-                    dx = parcel_points[i+1]['x'] - parcel_points[i]['x']
-                    dy = parcel_points[i+1]['y'] - parcel_points[i]['y']
-                    perimeter += math.sqrt(dx*dx + dy*dy)
-            
-            # Apply curves
-            for curve in curves:
-                try:
-                    m = float(curve.get('M', 0))
-                    sign = 1 if curve.get('sign', 1) == 1 else -1
-                    from_id = str(curve.get('from'))
-                    to_id = str(curve.get('to'))
-                    
-                    if from_id in points_map and to_id in points_map:
-                        p1 = points_map[from_id]
-                        p2 = points_map[to_id]
-                        
-                        dx = p2['x'] - p1['x']
-                        dy = p2['y'] - p1['y']
-                        chord = math.sqrt(dx*dx + dy*dy)
-                        
-                        if m > 0 and chord > 0:
-                            R = (chord**2)/(8*m) + (m/2)
-                            theta = 2 * math.asin(min(1.0, chord/(2*R)))
-                            segment_area = 0.5 * R**2 * (theta - math.sin(theta))
-                            area += sign * segment_area
-                except Exception:
-                    pass # Ignore curve errors in batch
-            
+            area, perimeter = calculate_single_parcel_metrics(parcel, points_map)
             results.append({
                 'id': parcel.get('id'),
                 'area': area,
@@ -988,6 +1317,40 @@ def load_project_file():
             error_msg = 'No file content, filePath, or fileName provided'
             print(f'[Load Project ERROR] {error_msg}')
             return jsonify({'error': error_msg}), 400
+        
+        # Synchronize with the latest points from pointsFilePath if it exists
+        points_file_path = project_data.get('pointsFilePath')
+        if points_file_path and os.path.exists(points_file_path):
+            print(f'[Load Project] Found associated points file: {points_file_path}')
+            try:
+                with open(points_file_path, 'r', encoding='utf-8') as pf:
+                    pnt_content = pf.read()
+                
+                imported_points = parse_points_content(pnt_content)
+                if imported_points:
+                    points_map = {p['id']: {'x': p['x'], 'y': p['y']} for p in imported_points}
+                    project_data['loadedPoints'] = points_map
+                    print(f'[Load Project] Synchronized {len(points_map)} points from points file.')
+                    
+                    # Recalculate areas and perimeters for all saved parcels
+                    saved_parcels = project_data.get('savedParcels', [])
+                    for parcel in saved_parcels:
+                        area, perimeter = calculate_single_parcel_metrics(parcel, points_map)
+                        parcel['area'] = area
+                        parcel['perimeter'] = perimeter
+                        
+                        # Also update point coordinates inside parcel points list if present
+                        if 'points' in parcel:
+                            parcel['points'] = [
+                                {
+                                    'id': str(pt.get('id')),
+                                    'x': points_map[str(pt.get('id'))]['x'] if str(pt.get('id')) in points_map else 0,
+                                    'y': points_map[str(pt.get('id'))]['y'] if str(pt.get('id')) in points_map else 0
+                                }
+                                for pt in parcel.get('points', [])
+                            ]
+            except Exception as sync_err:
+                print(f'[Load Project WARNING] Failed to sync points file: {sync_err}')
         
         # Add to recent files if we have a valid path
         if loaded_file_path:
@@ -1359,11 +1722,25 @@ def export_pdf():
         file_heading = data.get('fileHeading', {})
         error_results = data.get('errorResults', None)  # Current/Unsaved calculation
         saved_error_calculations = data.get('savedErrorCalculations', []) # List of saved calculations
+        is_buggy = data.get('isBuggy', False)
         
         # Create PDF in memory
         buffer = io.BytesIO()
         c = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
+        
+        def draw_bg_watermark(canvas_obj):
+            if is_buggy:
+                canvas_obj.saveState()
+                canvas_obj.setFillColorRGB(0.95, 0.8, 0.8)
+                canvas_obj.setFont("Helvetica-Bold", 36)
+                canvas_obj.translate(width / 2, height / 2)
+                canvas_obj.rotate(45)
+                canvas_obj.drawCentredString(0, 0, "DEMO VERSION - UNSAVED BUILD")
+                canvas_obj.restoreState()
+
+        # Draw watermark on first page
+        draw_bg_watermark(c)
         
         # Track if heading was added (only once) and page count
         heading_added = False
@@ -1383,6 +1760,7 @@ def export_pdf():
                     c.drawString((width - text_width) / 2, 50, page_text)
                     
                     c.showPage()
+                    draw_bg_watermark(c)
                     page_count += 1
                     y_position = height - 40
                 else:
@@ -1494,6 +1872,7 @@ def export_pdf():
                         c.drawString((width - text_width) / 2, 50, page_text)
                         
                         c.showPage()
+                        draw_bg_watermark(c)
                         page_count += 1
                         y_position = height - 40
                         
@@ -1547,6 +1926,7 @@ def export_pdf():
                             c.drawString((width - text_width) / 2, 50, page_text)
                             
                             c.showPage()
+                            draw_bg_watermark(c)
                             page_count += 1
                             y_position = height - 40
                             
@@ -1589,6 +1969,7 @@ def export_pdf():
                 text_width = c.stringWidth(page_text, "Courier-Bold", 10)
                 c.drawString((width - text_width) / 2, 50, page_text)
                 c.showPage()
+                draw_bg_watermark(c)
                 page_count += 1
                 y_position = height - 40
             else:
@@ -1607,6 +1988,7 @@ def export_pdf():
                     text_width = c.stringWidth(page_text, "Courier-Bold", 10)
                     c.drawString((width - text_width) / 2, 50, page_text)
                     c.showPage()
+                    draw_bg_watermark(c)
                     page_count += 1
                     y_position = height - 40
                 
@@ -1685,6 +2067,7 @@ def export_pdf():
                         c.drawString((width - text_width) / 2, 50, page_text)
                         
                         c.showPage()
+                        draw_bg_watermark(c)
                         page_count += 1
                         y_position = height - 40
                         c.setFont("Courier", 8)
@@ -1707,6 +2090,7 @@ def export_pdf():
                     c.drawString((width - text_width) / 2, 50, page_text)
                     
                     c.showPage()
+                    draw_bg_watermark(c)
                     page_count += 1
                     y_position = height - 40
                 
@@ -2020,19 +2404,71 @@ def get_license_status():
         print(f'[API] ═══ LICENSE STATUS CHECK ═══')
         print(f'[API] License file path: {license_file}')
         print(f'[API] File exists: {os.path.exists(license_file)}')
+        
+        # 1. First, check if user session token is passed in header
+        token = request.headers.get('X-Session-Token', '')
+        email_to_check = None
+        user_id_to_check = None
+        
+        if token:
+            try:
+                machine_hash = license_manager.get_machine_id_hash()
+                uid, _ = license_manager.verify_session_token(token, machine_hash)
+                user_id_to_check = uid
+                print(f'[API] Verified X-Session-Token. UID: {uid}')
+            except Exception as e:
+                print(f'[API] Warning: Session token verification failed: {e}')
+        
+        # 2. Check if local license file exists to read email
         if os.path.exists(license_file):
             print(f'[API] File size: {os.path.getsize(license_file)} bytes')
             try:
-                with open(license_file, 'r') as f:
-                    content = f.read()
-                    print(f'[API] File content (first 200 chars): {content[:200]}')
+                with open(license_file, 'r', encoding='utf-8') as f:
+                    license_data = json.load(f)
+                    email_to_check = license_data.get('email')
+                    print(f'[API] Email from license file: {email_to_check}')
             except Exception as e:
-                print(f'[API] Error reading file: {e}')
+                print(f'[API] Error reading license file: {e}')
         else:
             print(f'[API] ❌ License file NOT FOUND!')
-        
-        status = license_manager.get_license_info()
-        print(f'[API] Status result: {status}')
+            
+        # 3. Check online active status in Firestore
+        is_blocked = False
+        user_data = None
+        if user_id_to_check:
+            user_data = firebase_service.get_user(user_id_to_check)
+        elif email_to_check:
+            user_data = firebase_service.get_user_by_email(email_to_check)
+            
+        if user_data:
+            if user_data.get('is_active') is False:
+                is_blocked = True
+                print(f'[API] 🚨 USER ACCOUNT BLOCKED: {user_data.get("email")}')
+            elif user_data.get('account_type') == 'demo':
+                # License was deactivated online by admin
+                if os.path.exists(license_file):
+                    try:
+                        os.remove(license_file)
+                        print(f'[API] 🗑️ Local license file removed because account_type is demo (deactivated by admin)')
+                    except Exception as e:
+                        print(f'[API] Could not remove local license file: {e}')
+                
+        if is_blocked:
+            blocked_status = {
+                'status': 'blocked',
+                'is_valid': False,
+                'message': 'Your account has been disabled. Please contact support.'
+            }
+            print(f'[API] Blocked status returned: {blocked_status}')
+            print(f'[API] ═══════════════════════════')
+            return jsonify(blocked_status)
+            
+        mode = request.args.get('mode', 'premium')
+        if user_data and user_data.get('account_type') == 'demo':
+            status = license_manager._check_trial_status()
+        else:
+            status = license_manager.get_license_info()
+        print(f'[API] Status result (mode={mode}): {status}')
         print(f'[API] ═══════════════════════════')
         return jsonify(status)
     except Exception as e:
@@ -2079,6 +2515,16 @@ def activate_license():
         print(f'[API] ═══════════════════════════')
         
         if result.get('success'):
+            try:
+                user_record = firebase_service.get_user_by_email(email)
+                if user_record and user_record.get('uid'):
+                    firebase_service.save_license(user_record['uid'], {
+                        'key': license_key, 'email': email,
+                        'activated_date': datetime.now().isoformat(), 'type': 'paid'
+                    })
+                    print(f'[API] Updated user {email} account_type to premium in Firestore')
+            except Exception as db_err:
+                print(f'[API] Note: Could not update user in Firestore: {db_err}')
             return jsonify(result)
         else:
             return jsonify(result), 400
@@ -2127,35 +2573,106 @@ def _convert_dwg_to_dxf(dwg_path: str) -> str:
     """
     Convert a DWG file to DXF.
     Strategy:
-      1. AutoCAD COM automation (if AutoCAD is running or installed on Windows)
+      1. AutoCAD Core Console (accoreconsole.exe) - Headless, completely silent background converter.
       2. ODA File Converter (free CLI tool)
-      3. Raise helpful RuntimeError if neither available
+      3. AutoCAD COM automation (falls back to visible/running AutoCAD instance if Core Console fails)
+      4. Raise helpful RuntimeError if neither available
     Returns the absolute path to the generated DXF file.
     """
-    import tempfile, shutil, subprocess
+    import tempfile, shutil, subprocess, glob
+
+    def log_debug(msg):
+        print(f"[dwg-convert] {msg}")
+
+    log_debug(f"=== Starting _convert_dwg_to_dxf ===")
+    log_debug(f"Input path: {dwg_path}")
 
     out_dir = tempfile.mkdtemp(prefix="parcel_tools_dwg_")
-    fname = os.path.basename(dwg_path)
-    dxf_name = os.path.splitext(fname)[0] + ".dxf"
-    dxf_out = os.path.join(out_dir, dxf_name)
+    log_debug(f"Temp output directory: {out_dir}")
+    
+    # Create a separate temporary input directory with an ASCII path
+    # and copy the input DWG to "input.dwg" to bypass Unicode file path bugs in AutoCAD COM and ODA.
+    temp_in_dir = os.path.join(out_dir, "input_files")
+    os.makedirs(temp_in_dir, exist_ok=True)
+    temp_dwg_path = os.path.join(temp_in_dir, "input.dwg")
+    
+    try:
+        shutil.copy2(dwg_path, temp_dwg_path)
+        use_temp_paths = True
+        log_debug(f"Copied DWG successfully to: {temp_dwg_path}")
+    except Exception as e:
+        use_temp_paths = False
+        log_debug(f"Failed to copy DWG to temp paths: {e}")
+
+    dxf_out = os.path.join(out_dir, "input.dxf" if use_temp_paths else os.path.splitext(os.path.basename(dwg_path))[0] + ".dxf")
+    active_dwg_path = temp_dwg_path if use_temp_paths else dwg_path
+
+    # ── Method 1: AutoCAD Core Console (completely silent command-line converter) ──
+    if sys.platform == "win32":
+        try:
+            accore_candidates = glob.glob(r"C:\Program Files\Autodesk\AutoCAD *\accoreconsole.exe")
+            log_debug(f"AutoCAD accoreconsole candidates: {accore_candidates}")
+            accore_exe = next((p for p in accore_candidates if os.path.isfile(p)), None)
+            log_debug(f"Selected accore_exe: {accore_exe}")
+            
+            if accore_exe:
+                script_path = os.path.join(out_dir, "export.scr")
+                with open(script_path, "w", encoding="utf-8") as scr:
+                    # _DXFOUT -> output path -> 16 (decimal accuracy) -> _QUIT -> N (do not save changes)
+                    scr.write(f'_DXFOUT\n"{os.path.abspath(dxf_out)}"\n16\n_QUIT\nN\n')
+                
+                # Run accoreconsole silently
+                log_debug(f"Running accoreconsole command: {[accore_exe, '/i', os.path.abspath(active_dwg_path), '/s', script_path]}")
+                proc_res = subprocess.run(
+                    [accore_exe, "/i", os.path.abspath(active_dwg_path), "/s", script_path],
+                    check=True, capture_output=True, timeout=40
+                )
+                log_debug(f"accoreconsole stdout: {proc_res.stdout.decode(errors='replace')}")
+                if os.path.isfile(dxf_out):
+                    log_debug(f"Conversion successful via accoreconsole: {dxf_out}")
+                    return dxf_out
+                else:
+                    log_debug(f"dxf_out file was not generated: {dxf_out}")
+        except Exception as e:
+            log_debug(f"AutoCAD Core Console conversion failed with exception: {e}")
+
+    # ── Method 2: ODA File Converter ──────────────────────────────────────────
+    oda_candidates = [
+        r"C:\Program Files\ODA\ODAFileConverter\ODAFileConverter.exe",
+        r"C:\Program Files (x86)\ODA\ODAFileConverter\ODAFileConverter.exe",
+        shutil.which("ODAFileConverter"),
+    ]
+    oda_exe = next((p for p in oda_candidates if p and os.path.isfile(p)), None)
+
+    if oda_exe:
+        try:
+            in_dir = temp_in_dir if use_temp_paths else os.path.dirname(dwg_path)
+            fname = "input.dwg" if use_temp_paths else os.path.basename(dwg_path)
+            subprocess.run(
+                [oda_exe, in_dir, out_dir, "ACAD2018", "DXF", "0", "1", fname],
+                check=True, capture_output=True, timeout=60
+            )
+            if os.path.isfile(dxf_out):
+                print(f"[parse-cad] DWG→DXF via ODA: {dxf_out}")
+                return dxf_out
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"ODA conversion failed: {e.stderr.decode(errors='replace')}")
 
     acad_error = None
-    # ── Method 1: AutoCAD COM (works if AutoCAD is installed/running on Windows) ──
+    # ── Method 3: AutoCAD COM (fallback if Core Console/ODA not available) ──
     if sys.platform == "win32":
         try:
             import win32com.client
             import pythoncom
             pythoncom.CoInitialize()
-            # Try to connect to a running AutoCAD instance first (faster)
             try:
                 acad = win32com.client.GetActiveObject("AutoCAD.Application")
             except Exception:
-                # AutoCAD not running — launch it silently
                 acad = win32com.client.Dispatch("AutoCAD.Application")
                 acad.Visible = False
 
             # Open Read-Only to avoid locking issues if the user already has the file open
-            doc = acad.Documents.Open(os.path.abspath(dwg_path), True)
+            doc = acad.Documents.Open(os.path.abspath(active_dwg_path), True)
             
             # Suppress all dialogs and warnings (EXPERT=5 suppresses the custom objects version conflict dialog)
             try:
@@ -2189,27 +2706,6 @@ def _convert_dwg_to_dxf(dwg_path: str) -> str:
             acad_error = str(e)
             print(f"[parse-cad] AutoCAD COM unavailable: {e}")
 
-    # ── Method 2: ODA File Converter ──────────────────────────────────────────
-    oda_candidates = [
-        r"C:\Program Files\ODA\ODAFileConverter\ODAFileConverter.exe",
-        r"C:\Program Files (x86)\ODA\ODAFileConverter\ODAFileConverter.exe",
-        shutil.which("ODAFileConverter"),
-    ]
-    oda_exe = next((p for p in oda_candidates if p and os.path.isfile(p)), None)
-
-    if oda_exe:
-        try:
-            in_dir = os.path.dirname(dwg_path)
-            subprocess.run(
-                [oda_exe, in_dir, out_dir, "ACAD2018", "DXF", "0", "1", fname],
-                check=True, capture_output=True, timeout=60
-            )
-            if os.path.isfile(dxf_out):
-                print(f"[parse-cad] DWG→DXF via ODA: {dxf_out}")
-                return dxf_out
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"ODA conversion failed: {e.stderr.decode(errors='replace')}")
-
     # ── No converter available ────────────────────────────────────────────────
     error_msg = "Could not convert DWG file. "
     if acad_error:
@@ -2223,6 +2719,7 @@ def _convert_dwg_to_dxf(dwg_path: str) -> str:
 def _parse_dxf_file(dxf_path: str) -> dict:
     """Parse a DXF file and return entities + raw points."""
     try:
+        # pyrefly: ignore [missing-import]
         import ezdxf
     except ImportError as e:
         import sys
@@ -2240,16 +2737,16 @@ def _parse_dxf_file(dxf_path: str) -> dict:
     def add_raw_point(x, y, z=0):
         pid = f"DXF_{point_counter[0]}"
         point_counter[0] += 1
-        raw_points.append({"id": pid, "x": round(float(y), 4), "y": round(float(x), 4)})
+        raw_points.append({"id": pid, "x": round(float(x), 4), "y": round(float(y), 4)})
         return pid
 
-    def get_ent_color(entity, doc):
+    def get_ent_color(entity, doc, override_layer=None):
         try:
             aci = entity.dxf.color
-            # aci 256 is 'ByLayer'
-            if aci == 256:
+            # aci 256 is 'ByLayer', aci 0 is 'ByBlock'
+            if aci == 256 or aci == 0:
                 try:
-                    layer_name = entity.dxf.layer
+                    layer_name = override_layer if override_layer else getattr(entity.dxf, 'layer', '0')
                     if layer_name in doc.layers:
                         aci = doc.layers.get(layer_name).color
                 except:
@@ -2271,49 +2768,169 @@ def _parse_dxf_file(dxf_path: str) -> dict:
     except Exception as e:
         print(f"[parse-cad] Warning reading layouts: {e}")
 
-    def process_entity(entity):
+    def process_entity(entity, parent_layer=None):
         try:
             etype = entity.dxftype()
         except:
             return
 
+        try:
+            ent_layer = getattr(entity.dxf, 'layer', '0')
+            if parent_layer and (not ent_layer or ent_layer == '0' or ent_layer.lower() == 'defpoints'):
+                entity.dxf.layer = parent_layer
+        except Exception:
+            pass
+
         if etype == "INSERT":
             try:
-                # This correctly translates the block's internal entities to their actual coordinates in the drawing!
+                ins_layer = getattr(entity.dxf, 'layer', '0')
+                if parent_layer and (not ins_layer or ins_layer == '0' or ins_layer.lower() == 'defpoints'):
+                    ins_layer = parent_layer
                 for virt_ent in entity.virtual_entities():
-                    process_entity(virt_ent)
+                    process_entity(virt_ent, parent_layer=ins_layer)
+                if hasattr(entity, 'attribs'):
+                    for attrib in entity.attribs:
+                        process_entity(attrib, parent_layer=ins_layer)
             except Exception:
                 pass
             return
 
         if etype == "LWPOLYLINE":
             try:
-                pts = [{"x": round(float(p[1]), 4), "y": round(float(p[0]), 4)} for p in entity.get_points("xy")]
-                if len(pts) >= 2:
+                raw_pts = list(entity.get_points("xyb"))
+                closed = bool(entity.closed)
+                final_pts = []
+                segments = []   # for pixel-perfect arc rendering on the canvas
+
+                def _bulge_to_arc(px, py, nx, ny, bulge):
+                    """Convert bulge + two endpoints into arc params for canvas arc().
+                    Returns dict with cx, cy, r, startAngle, endAngle, ccw (all in radians).
+                    """
+                    theta = 4.0 * math.atan(abs(bulge))
+                    d = math.hypot(nx - px, ny - py)
+                    if d < 1e-9:
+                        return None
+                    r = d / (2.0 * math.sin(theta / 2.0))
+                    mx_c, my_c = (px + nx) / 2.0, (py + ny) / 2.0
+                    dx_c, dy_c = nx - px, ny - py
+                    perp_len = math.hypot(-dy_c, dx_c)
+                    if perp_len < 1e-9:
+                        return None
+                    pdx, pdy = -dy_c / perp_len, dx_c / perp_len
+                    s = math.sqrt(max(0.0, r * r - (d / 2.0) ** 2))
+                    sign = 1 if bulge > 0 else -1
+                    cx_arc = mx_c + sign * s * pdx
+                    cy_arc = my_c + sign * s * pdy
+                    a_start = math.atan2(py - cy_arc, px - cx_arc)
+                    a_end   = math.atan2(ny - cy_arc, nx - cx_arc)
+                    ccw = bool(bulge > 0)
+                    return {
+                        "cx": round(float(cx_arc), 6),
+                        "cy": round(float(cy_arc), 6),
+                        "r":  round(float(r), 6),
+                        "startAngle": round(float(a_start), 8),
+                        "endAngle":   round(float(a_end), 8),
+                        "ccw": ccw
+                    }
+
+                for idx, (px, py, bulge) in enumerate(raw_pts):
+                    final_pts.append({"x": round(float(px), 4), "y": round(float(py), 4)})
+
+                    if abs(bulge) > 1e-9:
+                        next_idx = (idx + 1) % len(raw_pts)
+                        nx, ny = raw_pts[next_idx][0], raw_pts[next_idx][1]
+                        arc_params = _bulge_to_arc(px, py, nx, ny, bulge)
+                        if arc_params:
+                            # Add the start point as a line-to segment, then the arc
+                            segments.append({"type": "line", "x": round(float(px), 4), "y": round(float(py), 4)})
+                            segments.append({"type": "arc", **arc_params})
+                            # Tessellate for point array (used in area calc + hit test)
+                            theta = 4.0 * math.atan(abs(bulge))
+                            a_start = arc_params["startAngle"]
+                            a_end   = arc_params["endAngle"]
+                            cx_arc  = arc_params["cx"]
+                            cy_arc  = arc_params["cy"]
+                            r       = arc_params["r"]
+                            if bulge > 0:
+                                if a_end <= a_start: a_end += 2 * math.pi
+                            else:
+                                if a_end >= a_start: a_end -= 2 * math.pi
+                            steps = max(24, int(abs(theta) / math.radians(2)))
+                            for si in range(1, steps):
+                                t = si / steps
+                                a = a_start + t * (a_end - a_start)
+                                final_pts.append({"x": round(float(cx_arc + r * math.cos(a)), 4),
+                                                  "y": round(float(cy_arc + r * math.sin(a)), 4)})
+                        else:
+                            segments.append({"type": "line", "x": round(float(px), 4), "y": round(float(py), 4)})
+                    else:
+                        segments.append({"type": "line", "x": round(float(px), 4), "y": round(float(py), 4)})
+
+                if len(final_pts) >= 2:
                     entities.append({
                         "type": "LWPOLYLINE",
-                        "closed": bool(entity.closed),
-                        "points": pts,
+                        "closed": closed,
+                        "points": final_pts,
+                        "segments": segments,
                         "layer": entity.dxf.layer,
                         "color": get_ent_color(entity, doc)
                     })
-            except Exception:
-                pass
+            except Exception as ex:
+                print(f"[parse-cad] LWPOLYLINE failed: {ex}")
 
         elif etype == "POLYLINE":
             try:
-                pts = [{"x": round(float(v.dxf.location.y), 4), "y": round(float(v.dxf.location.x), 4)}
-                       for v in entity.vertices]
-                if len(pts) >= 2:
+                final_pts = []
+                segments = []
+                verts = list(entity.vertices)
+                closed = bool(entity.is_closed)
+
+                for idx, v in enumerate(verts):
+                    px = float(v.dxf.location.x)
+                    py = float(v.dxf.location.y)
+                    final_pts.append({"x": round(px, 4), "y": round(py, 4)})
+                    bulge = float(v.dxf.get('bulge', 0.0))
+
+                    if abs(bulge) > 1e-9:
+                        next_idx = (idx + 1) % len(verts)
+                        nx = float(verts[next_idx].dxf.location.x)
+                        ny = float(verts[next_idx].dxf.location.y)
+                        arc_params = _bulge_to_arc(px, py, nx, ny, bulge)
+                        if arc_params:
+                            segments.append({"type": "line", "x": round(px, 4), "y": round(py, 4)})
+                            segments.append({"type": "arc", **arc_params})
+                            theta = 4.0 * math.atan(abs(bulge))
+                            a_start = arc_params["startAngle"]
+                            a_end   = arc_params["endAngle"]
+                            cx2     = arc_params["cx"]
+                            cy2     = arc_params["cy"]
+                            r2      = arc_params["r"]
+                            if bulge > 0:
+                                if a_end <= a_start: a_end += 2 * math.pi
+                            else:
+                                if a_end >= a_start: a_end -= 2 * math.pi
+                            steps2 = max(24, int(abs(theta) / math.radians(2)))
+                            for si2 in range(1, steps2):
+                                t2 = si2 / steps2
+                                a2 = a_start + t2 * (a_end - a_start)
+                                final_pts.append({"x": round(float(cx2 + r2 * math.cos(a2)), 4),
+                                                  "y": round(float(cy2 + r2 * math.sin(a2)), 4)})
+                        else:
+                            segments.append({"type": "line", "x": round(px, 4), "y": round(py, 4)})
+                    else:
+                        segments.append({"type": "line", "x": round(px, 4), "y": round(py, 4)})
+
+                if len(final_pts) >= 2:
                     entities.append({
                         "type": "POLYLINE",
-                        "closed": bool(entity.is_closed),
-                        "points": pts,
+                        "closed": closed,
+                        "points": final_pts,
+                        "segments": segments,
                         "layer": entity.dxf.layer,
                         "color": get_ent_color(entity, doc)
                     })
-            except Exception:
-                pass
+            except Exception as ex:
+                print(f"[parse-cad] POLYLINE failed: {ex}")
 
         elif etype == "LINE":
             try:
@@ -2322,8 +2939,8 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     "type": "LINE",
                     "closed": False,
                     "points": [
-                        {"x": round(float(s.y), 4), "y": round(float(s.x), 4)},
-                        {"x": round(float(e.y), 4), "y": round(float(e.x), 4)},
+                        {"x": round(float(s.x), 4), "y": round(float(s.y), 4)},
+                        {"x": round(float(e.x), 4), "y": round(float(e.y), 4)},
                     ],
                     "layer": entity.dxf.layer,
                     "color": get_ent_color(entity, doc)
@@ -2347,7 +2964,7 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     angle = start_angle + (end_angle - start_angle) * (i / steps)
                     px = center.x + radius * math.cos(angle)
                     py = center.y + radius * math.sin(angle)
-                    points.append({"x": round(float(py), 4), "y": round(float(px), 4)})
+                    points.append({"x": round(float(px), 4), "y": round(float(py), 4)})
                 
                 entities.append({
                     "type": "ARC",
@@ -2369,7 +2986,7 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     angle = 2 * math.pi * (i / steps)
                     px = center.x + radius * math.cos(angle)
                     py = center.y + radius * math.sin(angle)
-                    points.append({"x": round(float(py), 4), "y": round(float(px), 4)})
+                    points.append({"x": round(float(px), 4), "y": round(float(py), 4)})
                 points.append(points[0]) # Close circle
                 
                 entities.append({
@@ -2382,65 +2999,279 @@ def _parse_dxf_file(dxf_path: str) -> dict:
             except Exception:
                 pass
 
+        elif etype == "SPLINE":
+            try:
+                from ezdxf import path as ezdxf_path
+                sp = ezdxf_path.make_path(entity)
+                pts = []
+                for vertex in sp.flattening(0.1):
+                    pts.append({"x": round(float(vertex.x), 4), "y": round(float(vertex.y), 4)})
+                if len(pts) >= 2:
+                    closed_spline = entity.closed
+                    entities.append({
+                        "type": "LWPOLYLINE",
+                        "closed": bool(closed_spline),
+                        "points": pts,
+                        "layer": entity.dxf.layer,
+                        "color": get_ent_color(entity, doc)
+                    })
+            except Exception as ex:
+                print(f"[parse-cad] SPLINE failed: {ex}")
+
         elif etype == "POINT":
             try:
                 loc = entity.dxf.location
                 add_raw_point(loc.x, loc.y)
+                # Also add as a small drawable circle so it's visible on canvas
+                steps = 8
+                radius = 0.05 # Small point indicator
+                pts = []
+                for i in range(steps):
+                    angle = 2 * math.pi * (i / steps)
+                    px = loc.x + radius * math.cos(angle)
+                    py = loc.y + radius * math.sin(angle)
+                    pts.append({"x": round(float(px), 4), "y": round(float(py), 4)})
+                pts.append(pts[0])
+                entities.append({
+                    "type": "CIRCLE",
+                    "closed": True,
+                    "points": pts,
+                    "layer": entity.dxf.layer,
+                    "color": get_ent_color(entity, doc)
+                })
             except Exception:
                 pass
 
-        elif etype == "MTEXT":
+        elif etype == "DIMENSION":
             try:
-                # First try to explode MTEXT into simple lines and text
-                for virt in entity.virtual_entities():
-                    process_entity(virt)
-            except:
-                # If explosion fails, treat as single text below
+                # Path 1: try ezdxf explosion — works for most DXF dimension types
+                virts = list(entity.virtual_entities())
+                if virts:
+                    for virt in virts:
+                        process_entity(virt)
+                else:
+                    raise ValueError("virtual_entities() returned empty — using fallback")
+            except Exception:
+                # Path 2: manual fallback — extract geometry directly from DXF attributes
+                try:
+                    txt = ""
+                    try:
+                        txt = entity.plain_text()
+                    except Exception:
+                        txt = str(entity.dxf.get('text', ''))
+
+                    def _safe_pt(attr_name):
+                        """Return (x, y) from a DXF attribute regardless of Vec3 vs tuple."""
+                        v = entity.dxf.get(attr_name, None)
+                        if v is None:
+                            return None
+                        try:
+                            return (float(v.x), float(v.y))
+                        except AttributeError:
+                            try:
+                                return (float(v[0]), float(v[1]))
+                            except Exception:
+                                return None
+
+                    col = get_ent_color(entity, doc)
+                    lyr = entity.dxf.layer
+
+                    # Draw measurement line between defpoint2 and defpoint3 if available
+                    p1 = _safe_pt('defpoint2') or _safe_pt('defpoint')
+                    p2 = _safe_pt('defpoint3') or _safe_pt('defpoint4') or _safe_pt('defpoint2')
+                    if p1 and p2 and p1 != p2:
+                        entities.append({
+                            "type": "LINE", "closed": False,
+                            "points": [
+                                {"x": round(p1[0], 4), "y": round(p1[1], 4)},
+                                {"x": round(p2[0], 4), "y": round(p2[1], 4)},
+                            ],
+                            "layer": lyr, "color": col
+                        })
+
+                    # Draw dimension text at text_midpoint
+                    if txt:
+                        tp = _safe_pt('text_midpoint') or p1
+                        if tp:
+                            txt_h = float(entity.dxf.get('text_height', 2.5))
+                            entities.append({
+                                "type": "TEXT_LABEL",
+                                "text": txt,
+                                "x": round(tp[0], 4), "y": round(tp[1], 4),
+                                "halign": "center", "valign": "middle",
+                                "points": [{"x": round(tp[0], 4), "y": round(tp[1], 4)}],
+                                "layer": lyr, "color": col, "height": txt_h
+                            })
+                except Exception as fb_err:
+                    print(f"[parse-cad] DIMENSION fallback failed: {fb_err}")
+
+
+
+        elif etype == "LEADER":
+            try:
+                # Leaders are lines (often pointing to text)
+                pts = []
+                for p in entity.vertices:
+                    pts.append({"x": round(float(p.x), 4), "y": round(float(p.y), 4)})
+                if len(pts) >= 2:
+                    entities.append({
+                        "type": "LINE",
+                        "closed": False,
+                        "points": pts,
+                        "layer": entity.dxf.layer,
+                        "color": get_ent_color(entity, doc)
+                    })
+            except Exception:
                 pass
 
-        elif etype in ("TEXT", "MTEXT"):
+        elif etype == "HATCH":
             try:
-                from ezdxf.addons import text2path
                 from ezdxf import path
-                
-                # Get the actual text content and insertion
-                txt_content = entity.plain_text()
-                ins = entity.dxf.insert
-                
-                paths = text2path.make_paths_from_entity(entity)
-                if paths:
-                    for p in paths:
-                        points = []
-                        for vertex in path.flatten_path(p, distance=0.01):
-                            points.append({"x": round(float(vertex.y), 4), "y": round(float(vertex.x), 4)})
-                        
-                        if len(points) >= 2:
-                            entities.append({
-                                "type": "TEXT",
-                                "closed": False,
-                                "points": points,
-                                "layer": entity.dxf.layer,
-                                "color": get_ent_color(entity, doc)
-                            })
-                else:
-                    # FALLBACK: If vector text fails, send as a text label
+                hatch_paths = path.from_hatch(entity)
+                for p in hatch_paths:
+                    points = []
+                    # Increase flattening distance to improve performance on large files
+                    for vertex in p.flattening(0.5):
+                        points.append({"x": round(float(vertex.x), 4), "y": round(float(vertex.y), 4)})
+                    if len(points) >= 2:
+                        entities.append({
+                            "type": "POLYLINE",
+                            "closed": True,
+                            "points": points,
+                            "layer": entity.dxf.layer,
+                            "color": get_ent_color(entity, doc)
+                        })
+            except Exception as e:
+                print(f"[parse-cad] Hatch conversion failed: {e}")
+
+        elif etype == "SOLID":
+            # SOLID is a filled triangle/quadrilateral (3 or 4 vertices)
+            try:
+                pts = []
+                for attr in ('vtx0', 'vtx1', 'vtx2', 'vtx3'):
+                    try:
+                        v = entity.dxf.get(attr)
+                        if v is not None:
+                            pts.append({"x": round(float(v.x), 4), "y": round(float(v.y), 4)})
+                    except Exception:
+                        pass
+                if len(pts) >= 3:
+                    # DXF SOLID vertex order is: vtx0, vtx1, vtx3, vtx2 (Z pattern → correct winding)
+                    if len(pts) == 4:
+                        pts = [pts[0], pts[1], pts[3], pts[2]]
                     entities.append({
-                        "type": "TEXT_LABEL",
-                        "text": txt_content,
-                        "x": round(float(ins.y), 4),
-                        "y": round(float(ins.x), 4),
+                        "type": "LWPOLYLINE",
+                        "closed": True,
+                        "points": pts,
                         "layer": entity.dxf.layer,
                         "color": get_ent_color(entity, doc),
-                        "height": round(float(entity.dxf.height), 2) if hasattr(entity.dxf, 'height') else 10
+                        "filled": True
                     })
             except Exception as e:
+                print(f"[parse-cad] SOLID conversion failed: {e}")
+
+        elif etype == "ELLIPSE":
+            try:
+                cx = float(entity.dxf.center.x)
+                cy = float(entity.dxf.center.y)
+                # major axis vector
+                mx = float(entity.dxf.major_axis.x)
+                my = float(entity.dxf.major_axis.y)
+                major = math.hypot(mx, my)
+                ratio = float(entity.dxf.ratio)  # minor/major
+                minor = major * ratio
+                rotation = math.atan2(my, mx)
+                start_param = float(entity.dxf.get('start_param', 0))
+                end_param = float(entity.dxf.get('end_param', math.pi * 2))
+                steps = max(36, int(abs(end_param - start_param) * 18))
+                pts = []
+                for i in range(steps + 1):
+                    t = start_param + (end_param - start_param) * i / steps
+                    lx = math.cos(t) * major
+                    ly = math.sin(t) * minor
+                    rx = lx * math.cos(rotation) - ly * math.sin(rotation)
+                    ry = lx * math.sin(rotation) + ly * math.cos(rotation)
+                    pts.append({"x": round(cx + rx, 4), "y": round(cy + ry, 4)})
+                closed = abs(end_param - start_param) >= math.pi * 2 - 0.01
+                if len(pts) >= 2:
+                    entities.append({
+                        "type": "LWPOLYLINE",
+                        "closed": closed,
+                        "points": pts,
+                        "layer": entity.dxf.layer,
+                        "color": get_ent_color(entity, doc)
+                    })
+            except Exception as e:
+                print(f"[parse-cad] Ellipse conversion failed: {e}")
+
+        elif etype in ("TEXT", "MTEXT", "ATTRIB"):
+            try:
+                txt_content = entity.plain_text()
+                # Use insert for TEXT/ATTRIB, and insert or attachment_point for MTEXT
+                ins = entity.dxf.get('insert', (0,0,0))
+                if etype == "ATTRIB":
+                    # Attributes often use align_point if justified
+                    if entity.dxf.get('halign', 0) != 0 or entity.dxf.get('valign', 0) != 0:
+                        ins = entity.dxf.get('align_point', ins)
+                
+                halign_str = "left"
+                valign_str = "alphabetic"
+                if etype == "TEXT":
+                    halign = entity.dxf.get('halign', 0)
+                    valign = entity.dxf.get('valign', 0)
+                    if halign in (1, 4): halign_str = "center"
+                    elif halign == 2: halign_str = "right"
+                    if valign == 2: valign_str = "middle"
+                    elif valign == 3: valign_str = "top"
+                    if halign != 0 or valign != 0:
+                        ins = entity.dxf.get('align_point', ins)
+                elif etype == "MTEXT":
+                    attach = entity.dxf.get('attachment_point', 1)
+                    if attach in (2, 5, 8): halign_str = "center"
+                    elif attach in (3, 6, 9): halign_str = "right"
+                    if attach in (1, 2, 3): valign_str = "top"
+                    elif attach in (4, 5, 6): valign_str = "middle"
+                pt_x = round(float(ins.x), 4)
+                pt_y = round(float(ins.y), 4)
+                rot = entity.dxf.get('rotation', 0.0)
+                entities.append({
+                    "type": "TEXT_LABEL",
+                    "text": txt_content,
+                    "x": pt_x,
+                    "y": pt_y,
+                    "halign": halign_str,
+                    "valign": valign_str,
+                    "rotation": round(float(rot), 2),
+                    "points": [{"x": pt_x, "y": pt_y}],
+                    "layer": entity.dxf.layer,
+                    "color": get_ent_color(entity, doc),
+                    "height": round(float(
+                        # MTEXT uses char_height, TEXT/ATTRIB use height
+                        entity.dxf.get('char_height', 2.0) if etype == 'MTEXT'
+                        else entity.dxf.get('height', 2.0)
+                    ), 4)
+                })
+            except Exception as e:
                 print(f"[parse-cad] Text conversion failed: {e}")
-                pass
 
     for entity in all_entities:
         process_entity(entity)
 
-    return {"entities": entities, "raw_points": raw_points}
+    # Extract layer information
+    layers_data = []
+    for layer in doc.layers:
+        try:
+            layers_data.append({
+                "name": layer.dxf.name,
+                "color": layer.color,
+                "is_off": layer.is_off(),
+                "is_frozen": layer.is_frozen(),
+                "visible": not layer.is_off() and not layer.is_frozen()
+            })
+        except Exception:
+            pass
+
+    return {"entities": entities, "raw_points": raw_points, "layers": layers_data}
 
 
 @app.route('/api/parse-cad', methods=['POST'])
@@ -2465,6 +3296,9 @@ def parse_cad():
             try:
                 dxf_path = _convert_dwg_to_dxf(file_path)
             except RuntimeError as e:
+                import traceback
+                print(f"[parse-cad ERROR] DWG conversion failed: {e}")
+                traceback.print_exc()
                 return jsonify({"error": str(e), "oda_required": True}), 422
         elif ext == ".dxf":
             dxf_path = file_path
@@ -2478,6 +3312,9 @@ def parse_cad():
         return jsonify(result)
 
     except RuntimeError as e:
+        import traceback
+        print(f"[parse-cad ERROR] RuntimeError: {e}")
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 422
     except Exception as e:
         print(f"[parse-cad ERROR] {e}")

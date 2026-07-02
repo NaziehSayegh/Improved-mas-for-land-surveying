@@ -89,5 +89,47 @@ def get_firebase_auth():
         return None
 
 
+def get_firebase_api_key():
+    """
+    Return the Firebase Web API key (used for REST password verification).
+    Reads from:
+      1. FIREBASE_API_KEY environment variable
+      2. The 'api_key' field inside serviceAccountKey.json (if present)
+      3. A separate firebase_web_config.json with a 'apiKey' field
+    """
+    # 1. Env var (highest priority)
+    key = os.environ.get('FIREBASE_API_KEY', '').strip()
+    if key:
+        return key
+
+    # 2. Try reading from a web config file alongside the service account
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    web_config_path = os.path.join(backend_dir, 'firebase_web_config.json')
+    if os.path.exists(web_config_path):
+        try:
+            with open(web_config_path, 'r') as f:
+                cfg = json.load(f)
+            key = cfg.get('apiKey', '').strip()
+            if key:
+                return key
+        except Exception:
+            pass
+
+    # 3. Fallback: try service account JSON (some projects store it there)
+    sa_path = os.path.join(backend_dir, 'serviceAccountKey.json')
+    if os.path.exists(sa_path):
+        try:
+            with open(sa_path, 'r') as f:
+                sa = json.load(f)
+            key = sa.get('api_key', '').strip()
+            if key:
+                return key
+        except Exception:
+            pass
+
+    print('[Firebase] WARNING: Firebase API key not found — password verification will use fallback mode')
+    return None
+
+
 # Initialize on module import
 initialize_firebase()

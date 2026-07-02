@@ -1,493 +1,446 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Shield,
-  Check,
-  AlertCircle,
-  Clock,
-  CreditCard,
-  ExternalLink,
-  Key,
-  Mail,
-  Loader
+  Shield, Check, AlertCircle, Clock, CreditCard,
+  ExternalLink, Key, Mail, Loader, AlertTriangle,
+  RefreshCw, Lock, CheckCircle2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { customConfirm } from '../utils/dialogs';
+import PageLayout from '../components/PageLayout';
 
 export default function LicensePage() {
   const toast = useToast();
+  const navigate = useNavigate();
   const [licenseStatus, setLicenseStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState(false);
-
-  // Form state
   const [email, setEmail] = useState('');
   const [licenseKey, setLicenseKey] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showSupport, setShowSupport] = useState(false);
+  const [backendOnline, setBackendOnline] = useState(null);
 
+  // ESC to go back
   useEffect(() => {
-    const checkStatus = async () => {
-      try {
-        const response = await fetch('http://127.0.0.1:5000/api/license/status');
-        const data = await response.json();
-        setLicenseStatus(data);
-      } catch (err) {
-        console.error('Failed to check license status:', err);
-        // Keep default "no license" state if check fails
-        setLicenseStatus({
-          status: 'no_license',
-          is_valid: false,
-          message: 'Could not connect to license server'
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+    const h = (e) => { if (e.key === 'Escape') navigate('/'); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [navigate]);
 
-    checkStatus();
+  // Always fetch from backend — never trust only local state
+  const checkStatus = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('http://127.0.0.1:5000/api/license/status', { cache: 'no-store' });
+      const data = await res.json();
+      setLicenseStatus(data);
+      setBackendOnline(true);
+    } catch {
+      setBackendOnline(false);
+      setLicenseStatus({ status: 'no_license', is_valid: false, message: 'Could not connect to license server' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // ESC key to go back
-    const handleEscKey = (e) => {
-      if (e.key === 'Escape') {
-        window.history.back();
-      }
-    };
+  useEffect(() => { checkStatus(); }, []);
 
-    window.addEventListener('keydown', handleEscKey);
-    return () => window.removeEventListener('keydown', handleEscKey);
-  }, []);
+  // Auto-format license key as XXXX-XXXX-XXXX-XXXX
+  const handleKeyChange = (e) => {
+    const raw = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16);
+    const formatted = raw.match(/.{1,4}/g)?.join('-') ?? raw;
+    setLicenseKey(formatted);
+  };
 
   const handleBuyNow = () => {
-    // Open Gumroad directly
-    const gumroadUrl = 'https://sayegh8.gumroad.com/l/uaupi';
-
-    if (window.electronAPI && window.electronAPI.openExternal) {
-      // In Electron, open in system browser
-      window.electronAPI.openExternal(gumroadUrl);
-    } else {
-      // In browser, open new tab
-      window.open(gumroadUrl, '_blank');
-    }
+    const url = 'https://sayegh8.gumroad.com/l/uaupi';
+    if (window.electronAPI?.openExternal) window.electronAPI.openExternal(url);
+    else window.open(url, '_blank');
   };
-
-  const initializePayPalButtons_DISABLED = () => {
-    // PayPal buttons disabled - using simple buy button instead
-    if (!window.paypal) return;
-
-    // Common order creation logic
-    const createOrderConfig = (data, actions) => {
-      return actions.order.create({
-        purchase_units: [{
-          description: 'Parcel Tools - Lifetime License',
-          amount: {
-            currency_code: 'USD',
-            value: '29.99'
-          }
-        }]
-      });
-    };
-
-    // Common success handler
-    const onApproveHandler = async (data, actions) => {
-      const order = await actions.order.capture();
-
-      // Customer paid! Show success
-      const customerEmail = order.payer.email_address;
-      const transactionId = order.id;
-      const paymentMethod = order.purchase_units[0].payments.captures[0].payment_method_detail || 'PayPal';
-
-      setSuccess(`✅ Payment successful! Check ${customerEmail} for your license key.`);
-
-      // In a real app, your backend would:
-      // 1. Verify the payment with PayPal
-      // 2. Generate license key
-      // 3. Email it to customer
-
-      toast.success(`🎉 Payment Successful! Transaction ID: ${transactionId}. Your license key will be emailed to ${customerEmail}. Please check your inbox (and spam folder).`);
-    };
-
-    // Common error handler
-    const onErrorHandler = (err) => {
-      setError('Payment failed. Please try again.');
-      console.error('Payment error:', err);
-    };
-
-    // PayPal Button
-    if (document.getElementById('paypal-button-container')) {
-      window.paypal.Buttons({
-        style: {
-          layout: 'vertical',
-          color: 'blue',
-          shape: 'rect',
-          label: 'paypal',
-          tagline: false,
-          height: 45
-        },
-        fundingSource: window.paypal.FUNDING.PAYPAL,
-        createOrder: createOrderConfig,
-        onApprove: onApproveHandler,
-        onError: onErrorHandler
-      }).render('#paypal-button-container');
-    }
-
-    // Credit/Debit Card Button (separate)
-    if (document.getElementById('card-button-container')) {
-      window.paypal.Buttons({
-        style: {
-          layout: 'vertical',
-          color: 'black',
-          shape: 'rect',
-          label: 'pay',
-          tagline: false,
-          height: 45
-        },
-        fundingSource: window.paypal.FUNDING.CARD,  // Dedicated card button
-        createOrder: createOrderConfig,
-        onApprove: onApproveHandler,
-        onError: onErrorHandler
-      }).render('#card-button-container').catch(err => {
-        // Card button might not be available in all regions
-        console.log('Card button not available:', err);
-      });
-    }
-  };
-
-  // Backend check removed - not needed for purchase flow
-
-  // Trial mode removed - no free trials
 
   const handleActivateLicense = async (e) => {
     e.preventDefault();
-
-    if (!email || !licenseKey) {
-      setError('Please enter both email and license key');
-      return;
-    }
-
+    if (!email || !licenseKey) { setError('Please enter both email and license key.'); return; }
+    setActivating(true); setError(''); setSuccess('');
     try {
-      setActivating(true);
-      setError('');
-      setSuccess('');
-
-      const response = await fetch('http://127.0.0.1:5000/api/license/activate', {
+      const res = await fetch('http://127.0.0.1:5000/api/license/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim(),
-          license_key: licenseKey.trim()
-        })
+        body: JSON.stringify({ email: email.trim(), license_key: licenseKey.trim() })
       });
-
-      const data = await response.json();
-
+      const data = await res.json();
       if (data.success) {
         setSuccess('License activated successfully! 🎉');
-        setEmail('');
-        setLicenseKey('');
-        setLicenseStatus({
-          status: 'activated',
-          is_valid: true,
-          email: email,
-          message: 'Licensed version'
-        });
+        setEmail(''); setLicenseKey('');
+        await checkStatus(); // re-fetch from backend
+        toast.success('✅ License activated! Enjoy Parcel Tools.');
       } else {
-        setError(data.error || 'Invalid license key or email');
+        setError(data.error || 'Invalid license key or email.');
       }
-    } catch (err) {
-      setError('Activation failed. Please check your internet connection and try again.');
+    } catch {
+      setError('Activation failed. Check your internet connection and try again.');
     } finally {
       setActivating(false);
     }
   };
 
   const handleDeactivate = async () => {
-    if (!(await customConfirm('Are you sure you want to deactivate this license?'))) {
-      return;
-    }
-
+    const confirmed = await customConfirm('Are you sure you want to deactivate this license? You will need your key to re-activate.');
+    if (!confirmed) return;
+    setActivating(true); setError('');
     try {
-      setActivating(true);
-      setError('');
-      const response = await fetch('http://127.0.0.1:5000/api/license/deactivate', {
-        method: 'POST',
-      });
-
-      const data = await response.json();
-
+      const res = await fetch('http://127.0.0.1:5000/api/license/deactivate', { method: 'POST' });
+      const data = await res.json();
       if (data.success) {
-        setSuccess('License deactivated');
-        // Update license status to reflect deactivation
-        setLicenseStatus({
-          status: 'no_license',
-          is_valid: false,
-          message: 'No active license'
-        });
+        toast.success('License deactivated.');
+        await checkStatus();
       } else {
-        setError(data.error || 'Deactivation failed');
+        setError(data.error || 'Deactivation failed.');
       }
-    } catch (err) {
-      setError('Deactivation failed: ' + err.message);
+    } catch {
+      setError('Deactivation failed: network error.');
     } finally {
       setActivating(false);
     }
   };
 
-  const handlePayPalPayment = () => {
-    // PayPal payment will be embedded in the app
-    setError('');
-    toast.info('PayPal payment will open below. After payment, you\'ll receive your license key via email.');
-  };
+  // ── Status helpers ───────────────────────────────────────────
+  const isActivated = licenseStatus?.status === 'activated';
+  const isTrial = licenseStatus?.status === 'trial';
+  const isExpired = licenseStatus?.status === 'expired';
+  const isNoLicense = !isActivated && !isTrial;
 
   if (loading) {
     return (
-      <div className="p-8 flex items-center justify-center">
-        <div className="flex items-center gap-3">
-          <Loader className="w-6 h-6 animate-spin text-blue-500" />
-          <span className="text-gray-400">Checking license...</span>
+      <div className="page-container items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader className="w-10 h-10 text-primary animate-spin" />
+          <p className="text-dark-300 text-sm">Verifying license…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      {/* Back Button */}
-      <button
-        onClick={() => window.history.back()}
-        className="mb-6 flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
-      >
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-        Back to Main Menu (ESC)
-      </button>
-
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-          <Shield className="w-8 h-8 text-blue-400" />
-          License Management
-        </h1>
-        <p className="text-gray-400">
-          Purchase and activate your Parcel Tools license
-        </p>
-        <p className="text-sm text-gray-500 mt-2">
-          Developed by <span className="text-blue-400 font-semibold">Nazieh Sayegh</span>
-        </p>
-      </div>
-
-      {/* Current Status Card */}
-      <div className="bg-gray-800 rounded-lg p-6 mb-6 border border-gray-700">
-        <h2 className="text-xl font-semibold text-white mb-4">Current Status</h2>
-
-        {licenseStatus && (
-          <div className="space-y-3">
-            {/* Status Badge */}
-            <div className="flex items-center gap-3">
-              {licenseStatus.status === 'activated' && (
-                <>
-                  <div className="flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500 rounded-lg">
-                    <Check className="w-5 h-5 text-green-400" />
-                    <span className="text-green-400 font-semibold">Licensed</span>
-                  </div>
-                  <span className="text-gray-400">{licenseStatus.email}</span>
-                </>
-              )}
-
-              {licenseStatus.status === 'trial' && (
-                <div className="flex items-center gap-2 px-4 py-2 bg-yellow-500/20 border border-yellow-500 rounded-lg">
-                  <Clock className="w-5 h-5 text-yellow-400" />
-                  <span className="text-yellow-400 font-semibold">Free Trial ({licenseStatus.days_left} days left)</span>
-                </div>
-              )}
-
-              {(!licenseStatus.status || licenseStatus.status === 'no_license' || licenseStatus.status === 'expired') && (
-                <div className="flex items-center gap-2 px-4 py-2 bg-red-500/20 border border-red-500 rounded-lg">
-                  <AlertCircle className="w-5 h-5 text-red-400" />
-                  <span className="text-red-400 font-semibold">
-                    {licenseStatus.status === 'expired' ? 'Trial Expired' : 'No License'}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <p className="text-gray-400">{licenseStatus.message}</p>
-
-            {licenseStatus.status === 'activated' && licenseStatus.activated_date && (
-              <p className="text-sm text-gray-500">
-                Activated: {new Date(licenseStatus.activated_date).toLocaleDateString()}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Alerts */}
-      {error && (
-        <div className="mb-6 p-4 bg-red-500/10 border border-red-500 rounded-lg flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-          <span className="text-red-400">{error}</span>
-        </div>
-      )}
-
-      {success && (
-        <div className="mb-6 p-4 bg-green-500/10 border border-green-500 rounded-lg flex items-start gap-3">
-          <Check className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-          <span className="text-green-400">{success}</span>
-        </div>
-      )}
-
-      {/* Purchase Card - No Trial! */}
-      <div className="mb-6">
-        <div className="bg-gradient-to-br from-green-900/20 to-emerald-900/20 rounded-lg p-8 border-2 border-green-600">
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold text-white mb-3 flex items-center justify-center gap-2">
-              <CreditCard className="w-7 h-7 text-green-400" />
-              Purchase Parcel Tools License
-            </h2>
-            <div className="mb-4">
-              <span className="text-5xl font-bold text-white">$29.99</span>
-              <span className="text-gray-400 text-xl ml-2">one-time payment</span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-left max-w-md mx-auto mb-6">
-              <div className="flex items-start gap-2">
-                <Check className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                <span className="text-gray-300">Lifetime license</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <Check className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                <span className="text-gray-300">All features unlocked</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <Check className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                <span className="text-gray-300">Free updates forever</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <Check className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                <span className="text-gray-300">Priority support</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Big Buy Now Button */}
-          <button
-            onClick={handleBuyNow}
-            className="w-full py-5 px-8 bg-green-600 hover:bg-green-700 text-white text-2xl font-bold rounded-xl transition-all transform hover:scale-105 shadow-2xl flex items-center justify-center gap-3"
-          >
-            <CreditCard className="w-8 h-8" />
-            Buy Now - $29.99
-            <ExternalLink className="w-6 h-6" />
-          </button>
-
-          <div className="text-center mt-4 space-y-1">
-            <p className="text-sm text-gray-400 flex items-center justify-center gap-2">
-              <span>💳</span>
-              <span>Accepts: PayPal • Visa • Mastercard • Amex • Discover</span>
-            </p>
-            <p className="text-xs text-gray-500">
-              Secure payment • Instant license key delivery via email
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Activation Form */}
-      <div className="mt-6 bg-gray-800 rounded-lg p-6 border border-gray-700">
-        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-          <Key className="w-6 h-6 text-yellow-400" />
-          Activate License Key
-        </h3>
-        <p className="text-gray-400 mb-6">
-          Already purchased? Enter your license key below to activate.
-        </p>
-
-        <form onSubmit={handleActivateLicense} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              <Mail className="w-4 h-4 inline mr-2" />
-              Email Address
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
-              className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-              disabled={activating || licenseStatus?.status === 'activated'}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              <Key className="w-4 h-4 inline mr-2" />
-              License Key
-            </label>
-            <input
-              type="text"
-              value={licenseKey}
-              onChange={(e) => setLicenseKey(e.target.value)}
-              placeholder="XXXX-XXXX-XXXX-XXXX"
-              className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono"
-              disabled={activating || licenseStatus?.status === 'activated'}
-            />
-          </div>
-
-          {licenseStatus?.status !== 'activated' && (
-            <button
-              type="submit"
-              disabled={activating || !email || !licenseKey}
-              className="w-full px-6 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {activating ? 'Activating...' : 'Activate License'}
-            </button>
+    <PageLayout
+      title="License Management"
+      backPath="/"
+      backLabel="Main Menu"
+      showLicense={false}
+      headerRight={
+        <div className="flex items-center gap-2">
+          {backendOnline === false && (
+            <span className="flex items-center gap-1.5 text-xs text-yellow-400 bg-yellow-900/30
+                             border border-yellow-700/50 px-2.5 py-1 rounded-full">
+              <AlertTriangle className="w-3 h-3" /> Offline
+            </span>
           )}
-        </form>
+          {backendOnline === true && (
+            <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-900/20
+                             border border-green-700/40 px-2.5 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" /> Engine Connected
+            </span>
+          )}
+          <button onClick={checkStatus} disabled={loading}
+            className="btn-ghost py-1.5 px-2.5 text-xs" title="Re-check status">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      }
+    >
+      {/* ── Main 2-column layout ─────────────────────────────── */}
+      <div className="h-full flex gap-4 p-4 overflow-hidden">
 
-        {licenseStatus?.status === 'activated' && (
-          <div className="mt-4 pt-4 border-t border-gray-700">
+        {/* ── Left Column: Status + Activation ─────────────── */}
+        <div className="flex flex-col gap-4 w-full lg:w-[52%] overflow-y-auto no-scrollbar">
+
+          {/* Status Card */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass rounded-xl p-5"
+          >
+            <h2 className="text-sm font-bold text-dark-300 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Shield className="w-4 h-4" /> Current License Status
+            </h2>
+
+            {isActivated && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 p-3 bg-green-900/20 border border-green-700/50 rounded-lg">
+                  <div className="w-10 h-10 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center flex-shrink-0 animate-badge-pulse">
+                    <CheckCircle2 className="w-5 h-5 text-green-400" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-green-400">Licensed ✓</p>
+                    <p className="text-xs text-dark-400">{licenseStatus.message}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-dark-700/50 rounded-lg p-3">
+                    <p className="text-dark-400 mb-1">Licensed Email</p>
+                    <p className="text-dark-100 font-medium truncate">{licenseStatus.email || 'N/A'}</p>
+                  </div>
+                  <div className="bg-dark-700/50 rounded-lg p-3">
+                    <p className="text-dark-400 mb-1">Activated On</p>
+                    <p className="text-dark-100 font-medium">
+                      {licenseStatus.activated_date
+                        ? new Date(licenseStatus.activated_date).toLocaleDateString()
+                        : 'N/A'}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-xs text-dark-500 flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> License is machine-locked to this device.
+                </p>
+                <button onClick={handleDeactivate} disabled={activating}
+                  className="text-xs text-red-500 hover:text-red-400 transition-colors flex items-center gap-1">
+                  {activating ? <Loader className="w-3 h-3 animate-spin" /> : null}
+                  Deactivate license on this device
+                </button>
+              </div>
+            )}
+
+            {isTrial && (
+              <div className="flex items-center gap-3 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
+                <div className="w-10 h-10 rounded-full bg-yellow-500/20 border border-yellow-500/40 flex items-center justify-center flex-shrink-0 animate-warn-pulse">
+                  <Clock className="w-5 h-5 text-yellow-400" />
+                </div>
+                <div>
+                  <p className="font-bold text-yellow-400">Free Trial — {licenseStatus.days_left} days left</p>
+                  <p className="text-xs text-dark-400">{licenseStatus.message}</p>
+                </div>
+              </div>
+            )}
+
+            {isNoLicense && (
+              <div className="flex items-center gap-3 p-3 bg-red-900/20 border border-red-700/50 rounded-lg">
+                <div className="w-10 h-10 rounded-full bg-red-500/20 border border-red-500/40 flex items-center justify-center flex-shrink-0 animate-danger-pulse">
+                  <AlertCircle className="w-5 h-5 text-red-400" />
+                </div>
+                <div>
+                  <p className="font-bold text-red-400">
+                    {isExpired ? 'Trial Expired' : 'No License'}
+                  </p>
+                  <p className="text-xs text-dark-400">{licenseStatus?.message}</p>
+                </div>
+              </div>
+            )}
+          </motion.div>
+
+          {/* Alerts */}
+          <AnimatePresence>
+            {error && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="bg-red-900/20 border border-red-700/50 rounded-xl p-4 flex items-start gap-3">
+                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                <span className="text-red-300 text-sm">{error}</span>
+              </motion.div>
+            )}
+            {success && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="bg-green-900/20 border border-green-700/50 rounded-xl p-4 flex items-start gap-3">
+                <Check className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                <span className="text-green-300 text-sm">{success}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Activation Form */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="glass rounded-xl p-5"
+          >
+            <h3 className="text-sm font-bold text-dark-300 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Key className="w-4 h-4 text-yellow-400" /> Activate License Key
+            </h3>
+
+            {isActivated ? (
+              <p className="text-dark-400 text-sm">
+                ✅ Your license is already active. No action needed.
+              </p>
+            ) : (
+              <>
+                <p className="text-dark-400 text-xs mb-4">
+                  Already purchased? Enter your email and license key below.
+                  <br />Your key was emailed after payment on Gumroad.
+                </p>
+                <form onSubmit={handleActivateLicense} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-dark-300 mb-1.5">
+                      <Mail className="w-3.5 h-3.5 inline mr-1.5 mb-0.5" />
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="your@email.com"
+                      className="input-field text-sm"
+                      disabled={activating}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-dark-300 mb-1.5">
+                      <Key className="w-3.5 h-3.5 inline mr-1.5 mb-0.5" />
+                      License Key
+                    </label>
+                    <input
+                      type="text"
+                      value={licenseKey}
+                      onChange={handleKeyChange}
+                      placeholder="XXXX-XXXX-XXXX-XXXX"
+                      className="input-field text-sm font-mono tracking-widest"
+                      disabled={activating}
+                      maxLength={19}
+                      spellCheck={false}
+                    />
+                    <p className="text-xs text-dark-500 mt-1">
+                      Key is auto-formatted as you type.
+                    </p>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={activating || !email || licenseKey.replace(/-/g, '').length < 16}
+                    className="btn-primary w-full py-2.5"
+                  >
+                    {activating ? (
+                      <><Loader className="w-4 h-4 animate-spin" /> Activating…</>
+                    ) : (
+                      <><Key className="w-4 h-4" /> Activate License</>
+                    )}
+                  </button>
+                </form>
+              </>
+            )}
+          </motion.div>
+
+          {/* Support (collapsible) */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="glass rounded-xl overflow-hidden"
+          >
             <button
-              onClick={handleDeactivate}
-              className="text-red-400 hover:text-red-300 text-sm"
+              onClick={() => setShowSupport(v => !v)}
+              className="w-full flex items-center justify-between px-5 py-3 text-sm font-medium
+                         text-dark-300 hover:text-dark-100 transition-colors"
             >
-              Deactivate License
+              <span className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-primary" /> Need Help?
+              </span>
+              {showSupport ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
-          </div>
-        )}
-      </div>
+            <AnimatePresence>
+              {showSupport && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="px-5 pb-4 space-y-2 text-xs text-dark-400 border-t border-dark-700">
+                    <div className="pt-3" />
+                    <p>📧 <strong className="text-dark-200">Email:</strong>{' '}
+                      <a href="mailto:nsayegh2003@gmail.com" className="text-primary hover:underline">
+                        nsayegh2003@gmail.com
+                      </a>
+                    </p>
+                    <p>⏱ <strong className="text-dark-200">Response:</strong> Usually within 2–4 hours</p>
+                    <ul className="list-disc list-inside space-y-1 mt-2 text-dark-500">
+                      <li>Lost key? Email us with your Gumroad receipt.</li>
+                      <li>Activation issue? Make sure you're online.</li>
+                      <li>Refund? 30-day money-back guarantee.</li>
+                    </ul>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        </div>
 
-      {/* Help & Support Section */}
-      <div className="mt-8 p-6 bg-gradient-to-br from-blue-900/30 to-purple-900/30 border border-blue-500/30 rounded-xl">
-        <h3 className="text-xl font-semibold text-white mb-3 flex items-center gap-2">
-          <Mail className="w-5 h-5 text-blue-400" />
-          Need Help with Your License?
-        </h3>
-        <div className="space-y-3 text-gray-300">
-          <p className="text-sm">
-            <strong className="text-white">📧 Email Support:</strong>{' '}
-            <a href="mailto:nsayegh2003@gmail.com" className="text-blue-400 hover:text-blue-300 underline">
-              nsayegh2003@gmail.com
-            </a>
-          </p>
-          <p className="text-sm">
-            <strong className="text-white">💬 Response Time:</strong> Usually within 2-4 hours
-          </p>
-          <div className="pt-3 border-t border-gray-700">
-            <p className="text-xs text-gray-400 mb-2"><strong>Common Issues:</strong></p>
-            <ul className="text-xs text-gray-400 space-y-1 list-disc list-inside">
-              <li>Lost license key? Email us with your purchase receipt</li>
-              <li>Activation problems? Make sure you're connected to the internet</li>
-              <li>Payment questions? Contact us with your transaction details</li>
-              <li>Refund requests? 30-day money-back guarantee (email us)</li>
-            </ul>
-          </div>
+        {/* ── Right Column: Purchase Card ───────────────────── */}
+        <div className="hidden lg:flex lg:w-[48%] flex-col gap-4 overflow-y-auto no-scrollbar">
+          <motion.div
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.15 }}
+            className="flex-1 rounded-xl border-2 border-green-600/60 overflow-hidden
+                       bg-gradient-to-br from-green-900/20 via-dark-800 to-dark-800
+                       flex flex-col"
+          >
+            {/* Header */}
+            <div className="px-6 pt-6 pb-4 border-b border-green-700/30">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold
+                              bg-green-500/20 border border-green-500/40 text-green-400 mb-3">
+                🔒 SECURE CHECKOUT via Gumroad
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-5xl font-black text-white">$29.99</span>
+                <span className="text-dark-400 text-base">one-time</span>
+              </div>
+              <p className="text-dark-300 text-sm mt-1">Lifetime license — no subscriptions.</p>
+            </div>
+
+            {/* Features */}
+            <div className="px-6 py-4 flex-1 space-y-2.5">
+              {[
+                'Lifetime license — never expires',
+                'All features unlocked immediately',
+                'Free updates forever',
+                'Priority email support',
+                '30-day money-back guarantee',
+                'Machine-locked for your security',
+              ].map((f) => (
+                <div key={f} className="flex items-center gap-2.5 text-sm text-dark-200">
+                  <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
+                  {f}
+                </div>
+              ))}
+            </div>
+
+            {/* CTA */}
+            <div className="px-6 pb-6">
+              <button
+                onClick={handleBuyNow}
+                className="w-full py-4 px-6 bg-green-600 hover:bg-green-500 active:scale-[0.98]
+                           text-white text-lg font-bold rounded-xl transition-all duration-200
+                           flex items-center justify-center gap-3 shadow-glow-green"
+              >
+                <CreditCard className="w-5 h-5" />
+                Buy Now — $29.99
+                <ExternalLink className="w-4 h-4 opacity-70" />
+              </button>
+              <p className="text-center text-xs text-dark-500 mt-3">
+                💳 Accepts PayPal · Visa · Mastercard · Amex<br />
+                Instant license key delivery via email
+              </p>
+            </div>
+          </motion.div>
+
+          {/* Already purchased hint */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="glass rounded-xl p-4 text-center"
+          >
+            <p className="text-dark-400 text-xs">
+              Already purchased?{' '}
+              <span className="text-primary">Enter your key in the Activate form on the left.</span>
+              <br />Check your email inbox (and spam folder) for the license key.
+            </p>
+          </motion.div>
         </div>
       </div>
-
-      {/* Footer Copyright */}
-      <div className="mt-6 text-center text-sm text-gray-500 pb-4">
-        <p>© 2024 <strong className="text-blue-400">Nazieh Sayegh</strong>. All rights reserved.</p>
-        <p className="text-xs text-gray-600 mt-1">Parcel Tools™ is a trademark of Nazieh Sayegh</p>
-      </div>
-    </div>
+    </PageLayout>
   );
 }
-

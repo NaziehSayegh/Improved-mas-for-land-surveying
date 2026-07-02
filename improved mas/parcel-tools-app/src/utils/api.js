@@ -1,12 +1,23 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://127.0.0.1:5000/api';
+const API_BASE_URL = 'http://localhost:5000';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: `${API_BASE_URL}/api`,
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+// Interceptor to auto-inject X-Session-Token on all axios requests
+api.interceptors.request.use((config) => {
+  const token = sessionStorage.getItem('sessionToken') || '';
+  if (token) {
+    config.headers['X-Session-Token'] = token;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
 });
 
 // Health check
@@ -90,6 +101,15 @@ export const clearRecentFiles = async (type = null) => {
   return response.data;
 };
 
+// Central fetch API wrapper for modern fetch requests
+export const apiFetch = async (path, options = {}) => {
+  const token = sessionStorage.getItem('sessionToken') || '';
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'X-Session-Token': token } : {}),
+    ...(options.headers || {}),
+  };
+  return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+};
+
 export default api;
-
-
