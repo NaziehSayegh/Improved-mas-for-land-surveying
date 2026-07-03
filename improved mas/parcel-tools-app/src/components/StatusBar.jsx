@@ -38,7 +38,7 @@ const StatusBar = ({ projectName }) => {
   return (
     <div className="status-bar">
       {/* Version */}
-      <span className="text-dark-500 font-mono">v2.0.5</span>
+      <span className="text-dark-500 font-mono">v2.0.6</span>
 
       <span className="text-dark-700">·</span>
 

@@ -690,7 +690,7 @@ const ParcelCalculator = () => {
             p.number.trim().toLowerCase() === parcelNumber.trim().toLowerCase() &&
             p.id !== editingParcelId
           );
-          if (currentParcels.length > 0 && parcelNumber.trim() === currentParcels[0].number.trim() && !editingParcelId) {
+          if (currentParcels.length > 0 && parcelNumber.trim().toLowerCase() === currentParcels[0].number.trim().toLowerCase() && !editingParcelId) {
             // Only show dialog if it's not already showing for this parcel number
             if (!showDuplicateDialog || pendingParcelNumber.trim().toLowerCase() !== parcelNumber.trim().toLowerCase()) {
               setDuplicateParcel(currentParcels[0]); // Show first duplicate as example
@@ -1131,34 +1131,88 @@ const ParcelCalculator = () => {
   // Handle duplicate parcel dialog - Replace option
   const handleReplaceDuplicate = () => {
     if (duplicateParcel) {
-      // Load the existing parcel for editing
-      handleLoadSavedParcel(duplicateParcel);
-      // Close dialog
-      setShowDuplicateDialog(false);
-      setDuplicateParcel(null);
-      setPendingParcelNumber('');
+      if (enteredIds.length >= 3 && area) {
+        // We have a newly drawn parcel in the editor! Overwrite/replace the existing duplicate parcel with this data.
+        const updatedParcels = savedParcels.map(p => {
+          if (p.id === duplicateParcel.id) {
+            return {
+              ...p,
+              number: pendingParcelNumber || parcelNumber,
+              ids: [...enteredIds],
+              area: area || p.area,
+              perimeter: perimeter || p.perimeter,
+              curves: [...curves],
+              pointCount: enteredIds.length
+            };
+          }
+          return p;
+        });
 
-      // Show toast notification
-      const toast = document.createElement('div');
-      toast.innerHTML = `📝 Loaded parcel "${duplicateParcel.number}" for editing`;
-      toast.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #1f6feb;
-        color: white;
-        padding: 16px 24px;
-        border-radius: 12px;
-        font-weight: bold;
-        z-index: 10000;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-        animation: slideIn 0.3s ease-out;
-      `;
-      document.body.appendChild(toast);
-      setTimeout(() => {
-        toast.style.animation = 'slideOut 0.3s ease-out';
-        setTimeout(() => toast.remove(), 300);
-      }, 3000);
+        setSavedParcels(updatedParcels);
+        setHasUnsavedChanges(true);
+
+        // Reset editor state
+        setEditingParcelId(null);
+        setParcelNumber('');
+        setEnteredIds([]);
+        setArea(null);
+        setPerimeter(null);
+        setCurves([]);
+        setIsClosed(false);
+        setShowDuplicateDialog(false);
+        setDuplicateParcel(null);
+        setPendingParcelNumber('');
+
+        // Show toast notification
+        const toast = document.createElement('div');
+        toast.innerHTML = `✅ Overwrote existing parcel "${duplicateParcel.number}" with new drawing!`;
+        toast.style.cssText = `
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          background: #238636;
+          color: white;
+          padding: 16px 24px;
+          border-radius: 12px;
+          font-weight: bold;
+          z-index: 10000;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+          animation: slideIn 0.3s ease-out;
+        `;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.style.animation = 'slideOut 0.3s ease-out';
+          setTimeout(() => toast.remove(), 300);
+        }, 3000);
+      } else {
+        // Load the existing parcel for editing
+        handleLoadSavedParcel(duplicateParcel);
+        setShowDuplicateDialog(false);
+        setDuplicateParcel(null);
+        setPendingParcelNumber('');
+
+        // Show toast notification
+        const toast = document.createElement('div');
+        toast.innerHTML = `📝 Loaded parcel "${duplicateParcel.number}" for editing`;
+        toast.style.cssText = `
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          background: #1f6feb;
+          color: white;
+          padding: 16px 24px;
+          border-radius: 12px;
+          font-weight: bold;
+          z-index: 10000;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+          animation: slideIn 0.3s ease-out;
+        `;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+          toast.style.animation = 'slideOut 0.3s ease-out';
+          setTimeout(() => toast.remove(), 300);
+        }, 3000);
+      }
     }
   };
 

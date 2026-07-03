@@ -431,6 +431,30 @@ def auth_signup():
         return jsonify({'error': str(e)}), 500
 
 
+def _ensure_premium_license_activated(uid, user_data, email_val):
+    if not user_data or user_data.get('account_type') != 'premium':
+        return
+    try:
+        lic_key = user_data.get('license_key')
+        if not lic_key and email_val:
+            lic_key = license_manager.generate_license_key(email_val)
+            if firebase_service._is_online() and uid:
+                try:
+                    firebase_service.db.collection('users').document(uid).set({'license_key': lic_key}, merge=True)
+                except Exception as db_e:
+                    print(f'[Auth] Warning: Could not update Firestore license_key: {db_e}')
+            all_u = firebase_service._load_users_from_json()
+            if uid and uid in all_u:
+                all_u[uid]['license_key'] = lic_key
+                firebase_service._save_users_to_json(all_u)
+            user_data['license_key'] = lic_key
+        if lic_key and email_val:
+            license_manager.activate_license(lic_key, email_val)
+            print(f'[Auth] Auto-activated license key locally for {email_val}')
+    except Exception as e:
+        print(f'[Auth] Warning in _ensure_premium_license_activated: {e}')
+
+
 @app.route('/api/auth/login', methods=['POST'])
 def auth_login():
     """
@@ -518,14 +542,8 @@ def auth_login():
                 {'last_login': datetime.now().isoformat()}
             )
 
-        # ── 7. Auto-activate license key locally if present ───────────────────
-        license_key = user_data.get('license_key')
-        if license_key:
-            try:
-                license_manager.activate_license(license_key, email)
-                print(f'[Auth] Auto-activated license key locally for {email}')
-            except Exception as lic_err:
-                print(f'[Auth] Warning: Could not auto-activate license: {lic_err}')
+        # ── 7. Auto-activate license key locally if present or premium ────────
+        _ensure_premium_license_activated(uid, user_data, email)
 
         # ── 8. Issue session token ────────────────────────────────────────────
         session_token = license_manager.generate_session_token(uid, machine_id_hash)
@@ -569,6 +587,7 @@ def auth_verify():
                 email_val = user_data.get('email') if user_data else ''
                 account_type_val = user_data.get('account_type', 'premium') if user_data else 'premium'
                 is_admin_val = user_data.get('is_admin', False) or (email_val.lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']) if user_data else False
+                _ensure_premium_license_activated(uid, user_data, email_val)
                 return jsonify({
                     'valid': True,
                     'email': email_val,
@@ -587,6 +606,7 @@ def auth_verify():
             email_val = user_data.get('email') if user_data else ''
             account_type_val = user_data.get('account_type', 'premium') if user_data else 'premium'
             is_admin_val = user_data.get('is_admin', False) or (email_val.lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']) if user_data else False
+            _ensure_premium_license_activated(user_id, user_data, email_val)
             new_token = license_manager.generate_session_token(user_id, machine_hash)
             return jsonify({
                 'valid': True,
@@ -724,10 +744,6 @@ def admin_deactivate_license(uid):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
-
-        print(f'[Auth ERROR] Logout failed: {e}')
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calculate-area', methods=['POST'])
 def calculate_area():
@@ -2466,6 +2482,32 @@ def get_license_status():
         mode = request.args.get('mode', 'premium')
         if user_data and user_data.get('account_type') == 'demo':
             status = license_manager._check_trial_status()
+        elif user_data and user_data.get('account_type') == 'premium':
+            status = license_manager.get_license_info()
+            if not status.get('is_valid'):
+                email_val = user_data.get('email', email_to_check or 'premium_user@parceltools.com')
+                try:
+                    lic_key = user_data.get('license_key')
+                    if not lic_key:
+                        lic_key = license_manager.generate_license_key(email_val)
+                        if firebase_service._is_online() and user_id_to_check:
+                            firebase_service.db.collection('users').document(user_id_to_check).set({'license_key': lic_key}, merge=True)
+                        all_users = firebase_service._load_users_from_json()
+                        if user_id_to_check and user_id_to_check in all_users:
+                            all_users[user_id_to_check]['license_key'] = lic_key
+                            firebase_service._save_users_to_json(all_users)
+                    license_manager.activate_license(lic_key, email_val)
+                    print(f'[API] Auto-created local license for online premium user: {email_val}')
+                except Exception as e:
+                    print(f'[API] Warning: auto-create license failed: {e}')
+                
+                status = {
+                    'status': 'activated',
+                    'is_valid': True,
+                    'email': email_val,
+                    'activated_date': user_data.get('upgraded_at', user_data.get('created_at', datetime.now().isoformat())),
+                    'message': 'Licensed version (Premium Account)'
+                }
         else:
             status = license_manager.get_license_info()
         print(f'[API] Status result (mode={mode}): {status}')

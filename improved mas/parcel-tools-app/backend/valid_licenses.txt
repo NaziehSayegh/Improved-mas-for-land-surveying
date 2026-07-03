@@ -2,9 +2,9 @@
 # Format: email:license_key
 # Add one line per customer
 
-# Example (remove this line when adding real customers):
-# customer@example.com:ABCD-1234-EFGH-5678
-
-# Your paid customers will be added here:
-
-
+# ─── Ready-to-Use Test / Admin License Keys ─────────────────────────────────
+test@example.com:1111-2222-3333-4444
+admin@example.com:8888-8888-8888-8888
+demo@parceltools.com:DEMO-PRO0-2026-KEY0
+surveyor@parceltools.com:PRO0-2026-FULL-LIC0
+nsayegh2003@yahoo.com:0000-0000-255D-5D55

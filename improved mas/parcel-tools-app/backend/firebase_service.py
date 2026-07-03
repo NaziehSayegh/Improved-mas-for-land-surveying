@@ -629,22 +629,28 @@ class FirebaseService:
     # ==================== ADMIN OPERATIONS ====================
 
     def get_all_users(self):
-        """Admin: return list of all user records from Firestore."""
+        """Admin: return list of all user records, merging Firestore and local JSON."""
         try:
+            users_map = self._load_users_from_json()
             if self._is_online():
-                docs = self.db.collection('users').stream()
-                result = []
-                for doc in docs:
-                    data = self._normalize_user(doc.to_dict())
-                    data['uid'] = doc.id
-                    # Mask machine_id_hash to last 8 chars for display
-                    mhash = data.get('machine_id_hash', '')
-                    data['machine_id_masked'] = f'...{mhash[-8:]}' if len(mhash) >= 8 else mhash
-                    result.append(data)
-                return result
-            # Offline fallback
-            users = self._load_users_from_json()
-            return [dict(self._normalize_user(v), uid=k) for k, v in users.items()]
+                try:
+                    docs = self.db.collection('users').stream()
+                    for doc in docs:
+                        data = doc.to_dict() if doc else {}
+                        users_map[doc.id] = data
+                    # Sync merged data back to local JSON backup
+                    self._save_users_to_json(users_map)
+                except Exception as db_err:
+                    print(f'[Firebase Admin] Firestore stream warning: {db_err}')
+            
+            result = []
+            for uid, val in users_map.items():
+                data = self._normalize_user(dict(val) if val else {})
+                data['uid'] = uid
+                mhash = data.get('machine_id_hash', '')
+                data['machine_id_masked'] = f'...{mhash[-8:]}' if len(mhash) >= 8 else mhash
+                result.append(data)
+            return result
         except Exception as e:
             print(f'[Firebase Admin] get_all_users error: {e}')
             return []
@@ -655,6 +661,13 @@ class FirebaseService:
             if self._is_online():
                 self.db.collection('users').document(uid).set({'is_active': is_active}, merge=True)
             users = self._load_users_from_json()
+            if uid not in users and self._is_online():
+                try:
+                    doc = self.db.collection('users').document(uid).get()
+                    if doc.exists:
+                        users[uid] = doc.to_dict()
+                except Exception:
+                    pass
             if uid not in users:
                 users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
             users[uid]['is_active'] = is_active
@@ -672,6 +685,13 @@ class FirebaseService:
                     'trial_extended_at': datetime.now().isoformat()
                 }, merge=True)
             users = self._load_users_from_json()
+            if uid not in users and self._is_online():
+                try:
+                    doc = self.db.collection('users').document(uid).get()
+                    if doc.exists:
+                        users[uid] = doc.to_dict()
+                except Exception:
+                    pass
             if uid not in users:
                 users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
             users[uid]['trial_start'] = new_trial_start_iso
@@ -690,6 +710,13 @@ class FirebaseService:
                     'machine_reset_at': datetime.now().isoformat()
                 }, merge=True)
             users = self._load_users_from_json()
+            if uid not in users and self._is_online():
+                try:
+                    doc = self.db.collection('users').document(uid).get()
+                    if doc.exists:
+                        users[uid] = doc.to_dict()
+                except Exception:
+                    pass
             if uid not in users:
                 users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
             users[uid]['machine_id_hash'] = ''
@@ -700,17 +727,49 @@ class FirebaseService:
             return {'success': False, 'error': str(e)}
 
     def upgrade_user_to_premium(self, uid):
-        """Admin: upgrade a demo account to premium (waives license key requirement)."""
+        """Admin: upgrade a demo account to premium and generate license key."""
         try:
-            if self._is_online():
-                self.db.collection('users').document(uid).set({
-                    'account_type': 'premium',
-                    'upgraded_at': datetime.now().isoformat()
-                }, merge=True)
             users = self._load_users_from_json()
+            if uid not in users and self._is_online():
+                try:
+                    doc = self.db.collection('users').document(uid).get()
+                    if doc.exists:
+                        users[uid] = doc.to_dict()
+                except Exception:
+                    pass
             if uid not in users:
                 users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
+            
+            email = users[uid].get('email', '')
+            if not email and self._is_online():
+                try:
+                    doc = self.db.collection('users').document(uid).get()
+                    if doc.exists:
+                        email = doc.to_dict().get('email', '')
+                except Exception:
+                    pass
+            
+            lic_key = users[uid].get('license_key', '')
+            if not lic_key and email:
+                try:
+                    from license_manager import generate_key_for_email
+                    lic_key = generate_key_for_email(email)
+                except Exception as gen_err:
+                    print(f'[Admin] Could not generate license key for {email}: {gen_err}')
+            
+            update_data = {
+                'account_type': 'premium',
+                'upgraded_at': datetime.now().isoformat()
+            }
+            if lic_key:
+                update_data['license_key'] = lic_key
+                
+            if self._is_online():
+                self.db.collection('users').document(uid).set(update_data, merge=True)
+                
             users[uid]['account_type'] = 'premium'
+            if lic_key:
+                users[uid]['license_key'] = lic_key
             self._save_users_to_json(users)
             return {'success': True}
         except Exception as e:
@@ -726,6 +785,13 @@ class FirebaseService:
                     'license_deactivated_at': datetime.now().isoformat()
                 }, merge=True)
             users = self._load_users_from_json()
+            if uid not in users and self._is_online():
+                try:
+                    doc = self.db.collection('users').document(uid).get()
+                    if doc.exists:
+                        users[uid] = doc.to_dict()
+                except Exception:
+                    pass
             if uid not in users:
                 users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
             target_email = users[uid].get('email', '')

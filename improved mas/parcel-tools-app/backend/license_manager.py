@@ -409,7 +409,7 @@ class LicenseManager:
             'email': clean_email,
             'machine_id': hashlib.sha256(machine_id.encode()).hexdigest(),
             'activated_date': datetime.now().isoformat(),
-            'version': '2.0.5',
+            'version': '2.0.6',
             'provider': 'gumroad'
         }
         license_data['signature'] = self._sign_license(license_data)

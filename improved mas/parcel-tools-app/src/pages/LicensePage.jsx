@@ -34,7 +34,9 @@ export default function LicensePage() {
   const checkStatus = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:5000/api/license/status', { cache: 'no-store' });
+      const token = sessionStorage.getItem('sessionToken') || localStorage.getItem('sessionToken');
+      const headers = token ? { 'X-Session-Token': token } : {};
+      const res = await fetch('http://127.0.0.1:5000/api/license/status', { cache: 'no-store', headers });
       const data = await res.json();
       setLicenseStatus(data);
       setBackendOnline(true);
