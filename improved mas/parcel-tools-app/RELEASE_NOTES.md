@@ -1,6 +1,24 @@
-# 📦 Parcel Tools v2.0.0 - Release Notes
+# 📦 Parcel Tools - Release Notes
 
-## 🎉 What's New
+## 🎉 What's New in v2.0.2 (July 2026)
+
+### ✨ New Features & Enhancements
+- ✅ **DWG File Handling**: Added support for importing and handling DWG CAD files with a new, redesigned DWG import page.
+- ✅ **GIS Layer Filtering**: Restrict parcel selection to GIS layer and automatically explode non-GIS boundaries for cleaner analysis.
+- ✅ **CAD Block Attribute Parsing**: Enhanced CAD file importing with improved block attribute parsing and proportional text scaling.
+- ✅ **Save Project As**: Added convenient "Save Project As" option to the main menu.
+- ✅ **Computer-Wide Scan**: Added scanning capability for locating `.prcl` project files across the system.
+
+### 🐛 Bug Fixes & Stability
+- 🔧 Fixed double-click project opening errors and improved native file dialog handling.
+- 🔧 Prevented UI freezing during intensive file processing.
+- 🔧 Resolved blank screen issues by improving path resolution in packaged Electron production builds.
+- 🔧 Added comprehensive error logging to the backend API for faster debugging.
+- 🔧 Bundled embedded Python runtime with auto-starting backend for seamless offline operation.
+
+---
+
+## 🚀 Previous Release: v2.0.0 (November 2025)
 
 ### Major Features
 ✅ **Professional Area Calculator**
@@ -87,8 +105,8 @@ Built with ❤️ for surveying professionals.
 
 ---
 
-**Version**: 2.0.0  
-**Release Date**: November 17, 2025  
+**Version**: 2.0.2  
+**Release Date**: July 2026  
 **Build**: Stable Release
 
 

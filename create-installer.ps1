@@ -26,7 +26,7 @@ if (Test-Path $sourcePath) {
     # Create a simple ZIP-based installer
     Write-Host "Creating installer package..." -ForegroundColor Cyan
     
-    $installerZip = "Parcel-Tools-Setup-2.0.0.zip"
+    $installerZip = "Parcel-Tools-Setup-2.0.3.zip"
     
     if (Test-Path $installerZip) {
         Remove-Item $installerZip -Force

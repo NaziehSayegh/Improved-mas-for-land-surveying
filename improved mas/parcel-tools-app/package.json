@@ -1,6 +1,6 @@
 {
   "name": "parcel-tools-app",
-  "version": "2.0.1",
+  "version": "2.0.3",
   "description": "Professional Surveying & Mapping Desktop Application",
   "main": "electron/main.js",
   "type": "module",
@@ -95,7 +95,10 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Parcel Tools"
+      "shortcutName": "Parcel Tools",
+      "deleteAppDataOnUninstall": false,
+      "uninstallDisplayName": "Parcel Tools",
+      "include": "build/installer.nsh"
     },
     "fileAssociations": [
       {
