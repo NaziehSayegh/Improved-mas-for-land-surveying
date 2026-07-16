@@ -170,73 +170,73 @@ export const ProjectProvider = ({ children }) => {
     };
   }, [pointsFilePath]); // Removed savedParcels from dependencies to prevent infinite loop
 
-  // Recalculate all parcel areas when points change - OPTIMIZED WITH BATCHING
+  // Remove points file from project while keeping all saved parcels intact
+  const removePointsFile = React.useCallback(() => {
+    setPointsFileName('');
+    setPointsFilePath('');
+    setLoadedPoints({});
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // Recalculate all parcel areas and recoordinate points when points map changes
   const recalculateAllParcels = React.useCallback(async (newPoints, parcelsToRecalculate) => {
     try {
       const parcels = parcelsToRecalculate || savedParcelsRef.current;
-
       if (parcels.length === 0) return [];
 
       console.time('Batch Recalculation');
+      const ptsMap = newPoints || {};
+      const hasPoints = Object.keys(ptsMap).length > 0;
 
-      // Use the new batch endpoint to calculate all at once
-      const response = await fetch('http://localhost:5000/api/calculate-batch-areas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          parcels: parcels,
-          points: newPoints
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-
-        // Map results back to parcels
-        // We create a map for O(1) lookup
-        const resultMap = new Map();
-        if (data.results) {
-          data.results.forEach(res => resultMap.set(res.id, res));
-        }
-
-        let hasAnyChanges = false;
-        const updatedParcels = parcels.map(parcel => {
-          const result = resultMap.get(parcel.id);
-          if (result) {
-            const areaDiff = Math.abs((parcel.area || 0) - result.area);
-            const perimeterDiff = Math.abs((parcel.perimeter || 0) - result.perimeter);
-            if (areaDiff > 0.0001 || perimeterDiff > 0.01) {
-              hasAnyChanges = true;
-            }
-            return {
-              ...parcel,
-              area: result.area,
-              perimeter: result.perimeter
-            };
-          }
-          return parcel;
+      const resultMap = new Map();
+      if (hasPoints) {
+        const response = await fetch('http://localhost:5000/api/calculate-batch-areas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            parcels: parcels,
+            points: ptsMap
+          }),
         });
 
-        if (hasAnyChanges) {
-          setSavedParcels(updatedParcels);
-          setHasUnsavedChanges(true);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.results) {
+            data.results.forEach(res => resultMap.set(res.id, res));
+          }
         }
-        console.timeEnd('Batch Recalculation');
-        return updatedParcels;
       }
 
+      const updatedParcels = parcels.map(parcel => {
+        const result = resultMap.get(parcel.id);
+        const updatedPointsList = parcel.ids ? parcel.ids.map(id => ({
+          id: String(id),
+          x: ptsMap[id]?.x || 0,
+          y: ptsMap[id]?.y || 0
+        })) : [];
+
+        return {
+          ...parcel,
+          area: result ? result.area : (hasPoints ? parcel.area : 0),
+          perimeter: result ? result.perimeter : (hasPoints ? parcel.perimeter : 0),
+          points: updatedPointsList
+        };
+      });
+
+      setSavedParcels(updatedParcels);
+      setHasUnsavedChanges(true);
       console.timeEnd('Batch Recalculation');
-      return parcels;
+      return updatedParcels;
     } catch (error) {
       console.error('Error recalculating parcels:', error);
       return parcelsToRecalculate || savedParcelsRef.current || [];
     }
   }, []);
 
-  // Automatically recalculate saved parcels when loadedPoints changes
+  // Automatically recalculate saved parcels when loadedPoints changes (either cleared or replaced)
   useEffect(() => {
     const currentParcels = savedParcelsRef.current;
-    if (currentParcels.length > 0 && Object.keys(loadedPoints).length > 0) {
+    if (currentParcels.length > 0) {
       recalculateAllParcels(loadedPoints, currentParcels);
     }
   }, [loadedPoints, recalculateAllParcels]);
@@ -287,7 +287,7 @@ export const ProjectProvider = ({ children }) => {
         savedAt: new Date().toISOString(),
         isEmpty: !parcels || parcels.length === 0,
         pointsCount: Object.keys(points || {}).length,
-        version: '2.0.6'
+        version: '2.0.7'
       };
 
       const response = await fetch('http://localhost:5000/api/project/save', {
@@ -380,6 +380,7 @@ export const ProjectProvider = ({ children }) => {
     savedErrorCalculations,
     setSavedErrorCalculations,
     recalculateAllParcels,
+    removePointsFile,
     saveActiveProject,
     closeProject,
     loadProjectData,
@@ -406,6 +407,8 @@ export const ProjectProvider = ({ children }) => {
     isWatchingFile,
     fileHeading,
     savedErrorCalculations,
+    recalculateAllParcels,
+    removePointsFile,
     closeProject,
     loadProjectData,
     currentParcel,

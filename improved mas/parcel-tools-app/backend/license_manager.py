@@ -279,7 +279,7 @@ class LicenseManager:
     # They are stored in sessionStorage (cleared on window close) and sent as
     # X-Session-Token header. The backend verifies every protected request.
 
-    _TOKEN_TTL_SECONDS = 24 * 60 * 60  # 24-hour tokens
+    _TOKEN_TTL_SECONDS = 365 * 24 * 60 * 60  # 365-day persistent session timestamp
 
     def generate_session_token(self, uid: str, machine_id_hash: str) -> str:
         """Issue a signed session token for a user on this machine."""
@@ -408,8 +408,9 @@ class LicenseManager:
             'key': clean_key,
             'email': clean_email,
             'machine_id': hashlib.sha256(machine_id.encode()).hexdigest(),
-            'activated_date': datetime.now().isoformat(),
-            'version': '2.0.6',
+            'status': 'licensed' if license_data and self._verify_signature(license_data) else 'unlicensed',
+            'version': '2.0.7',
+            'app_id': self.APP_ID,
             'provider': 'gumroad'
         }
         license_data['signature'] = self._sign_license(license_data)

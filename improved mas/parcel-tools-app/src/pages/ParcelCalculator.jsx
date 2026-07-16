@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff, CheckSquare, Square } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { customConfirm, customPrompt } from '../utils/dialogs';
 
@@ -37,7 +37,8 @@ const ParcelCalculator = () => {
     cadFileName,
     cadEntities,
     cadLayers,
-    cadVisibleLayers
+    cadVisibleLayers,
+    removePointsFile
   } = useProject();
 
   // Store the last saved file path locally
@@ -54,6 +55,7 @@ const ParcelCalculator = () => {
   const [area, setArea] = useState(null);
   const [perimeter, setPerimeter] = useState(null);
   const [activeTab, setActiveTab] = useState('map'); // default to visual map tab for instant feedback
+  const [selectedIds, setSelectedIds] = useState([]); // Selected parcel IDs for multi-export
 
   // Error calculations state
   const [selectedParcelsForError, setSelectedParcelsForError] = useState([]); // Array of parcel IDs
@@ -257,6 +259,16 @@ const ParcelCalculator = () => {
       showErrorToast('❌ Error calculating area');
     }
   }, [loadedPoints, enteredIds, curves]);
+
+  // Update active area and perimeter when points map changes (e.g., when points file is replaced or removed)
+  useEffect(() => {
+    if (enteredIds.length >= 3 && Object.keys(loadedPoints).length > 0) {
+      updateCalculatedArea(enteredIds, curves);
+    } else if (Object.keys(loadedPoints).length === 0 && enteredIds.length >= 3) {
+      setArea(null);
+      setPerimeter(null);
+    }
+  }, [loadedPoints, enteredIds, curves, updateCalculatedArea]);
 
 
 
@@ -2748,6 +2760,23 @@ const ParcelCalculator = () => {
         if (saveResult && saveResult.success) {
           showSuccessToast(`✅ Exported Parcel #${parcel.number} to PDF!`);
         }
+      } else {
+        // Fallback: Download the PDF via blob (web browser)
+        const pdfData = atob(result.pdfData);
+        const bytes = new Uint8Array(pdfData.length);
+        for (let i = 0; i < pdfData.length; i++) {
+          bytes[i] = pdfData.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Parcel_${parcel.number}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        showSuccessToast(`✅ Exported Parcel #${parcel.number} to PDF!`);
       }
     } catch (error) {
       console.error('Error exporting parcel:', error);
@@ -2755,23 +2784,142 @@ const ParcelCalculator = () => {
     }
   };
 
-  // Export all parcels to PDF (including error calculations if available)
-  const handleExportAll = async () => {
-    if (savedParcels.length === 0) {
-      showErrorToast('⚠️ No saved parcels to export!');
+  // Helper to toggle selection of one parcel
+  const handleToggleSelect = useCallback((id) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  }, []);
+
+  // Helper to toggle select all / deselect all for visible list
+  const handleToggleSelectAll = (parcelsList) => {
+    const allIds = parcelsList.map(p => p.id);
+    const allSelected = allIds.length > 0 && allIds.every(id => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds(prev => prev.filter(id => !allIds.includes(id)));
+    } else {
+      setSelectedIds(prev => Array.from(new Set([...prev, ...allIds])));
+    }
+  };
+
+  // Export multiple selected (or all) parcels into a single PDF file
+  const handleExportMulti = async (parcelsList = null) => {
+    const listToExport = Array.isArray(parcelsList) ? parcelsList : savedParcels.filter(p => selectedIds.includes(p.id));
+    if (!listToExport || listToExport.length === 0) {
+      showErrorToast('⚠️ No parcels selected to export!');
       return;
     }
+
+    // Create custom dialog for heading input
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75); z-index: 10000;
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    `;
+
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+      background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+      padding: 24px; max-width: min(600px, 90vw); width: 100%; color: #c9d1d9;
+      font-family: system-ui, -apple-system, sans-serif; box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+    `;
+
+    const titleText = listToExport.length > 1 ? `Export ${listToExport.length} Selected Parcels to 1 PDF File` : `Export Parcel #${listToExport[0].number} to PDF`;
+    const descText = listToExport.length > 1
+      ? `All ${listToExport.length} selected parcels will be combined and formatted into a single professional surveying report file.`
+      : `Exporting Parcel #${listToExport[0].number} to a PDF surveying report.`;
+
+    dialog.innerHTML = `
+      <h3 style="margin: 0 0 12px 0; font-size: 18px; font-weight: bold; color: #58a6ff;">📄 ${titleText}</h3>
+      <p style="margin: 0 0 16px 0; font-size: 13px; color: #8b949e; line-height: 1.4;">${descText}</p>
+      <div style="margin-bottom: 16px;">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #c9d1d9; font-size: 14px; font-weight: 500;">
+          <input type="checkbox" id="include-heading-check" ${fileHeading && (fileHeading.block || fileHeading.quarter || fileHeading.parcels || fileHeading.place) ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px;" />
+          <span>Include File Heading on Report Header</span>
+        </label>
+      </div>
+      <div id="heading-fields" style="display: ${fileHeading && (fileHeading.block || fileHeading.quarter || fileHeading.parcels || fileHeading.place) ? 'block' : 'none'}; margin-bottom: 20px; padding-left: 20px; border-left: 2px solid #30363d;">
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Block</label>
+          <input type="text" id="heading-block" value="${fileHeading?.block || ''}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Quarter</label>
+          <input type="text" id="heading-quarter" value="${fileHeading?.quarter || ''}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Parcels</label>
+          <input type="text" id="heading-parcels" value="${fileHeading?.parcels || ''}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Place</label>
+          <input type="text" id="heading-place" value="${fileHeading?.place || ''}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+        </div>
+        <div>
+          <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Additional Info</label>
+          <input type="text" id="heading-additional" value="${fileHeading?.additionalInfo || ''}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+        </div>
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <button id="export-cancel" style="background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500;">
+          Cancel
+        </button>
+        <button id="export-confirm" style="background: #238636; border: 1px solid #238636; color: white; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600;">
+          📄 Export ${listToExport.length > 1 ? `All ${listToExport.length} to 1 File` : 'PDF'}
+        </button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const checkbox = document.getElementById('include-heading-check');
+    const headingFields = document.getElementById('heading-fields');
+    checkbox.addEventListener('change', () => {
+      headingFields.style.display = checkbox.checked ? 'block' : 'none';
+    });
+
+    const userChoice = await new Promise((resolve) => {
+      document.getElementById('export-confirm').onclick = () => {
+        const includeHeading = checkbox.checked;
+        const heading = includeHeading ? {
+          block: document.getElementById('heading-block').value,
+          quarter: document.getElementById('heading-quarter').value,
+          parcels: document.getElementById('heading-parcels').value,
+          place: document.getElementById('heading-place').value,
+          additionalInfo: document.getElementById('heading-additional').value
+        } : null;
+        if (includeHeading && setFileHeading) {
+          setFileHeading(heading);
+        }
+        document.body.removeChild(overlay);
+        resolve({ confirmed: true, heading });
+      };
+      document.getElementById('export-cancel').onclick = () => {
+        document.body.removeChild(overlay);
+        resolve({ confirmed: false });
+      };
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          document.body.removeChild(overlay);
+          resolve({ confirmed: false });
+        }
+      };
+    });
+
+    if (!userChoice.confirmed) return;
 
     try {
       const response = await fetch('http://localhost:5000/api/export-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          parcels: savedParcels,
+          parcels: listToExport,
           points: loadedPoints,
-          fileHeading: fileHeading,
-          errorResults: errorResults,  // Keeping this for backward compatibility or current view
-          savedErrorCalculations: savedErrorCalculations, // Sending all saved calculations
+          fileHeading: userChoice.heading,
+          errorResults: errorResults,
+          savedErrorCalculations: savedErrorCalculations,
           isBuggy: false
         }),
       });
@@ -2792,12 +2940,14 @@ const ParcelCalculator = () => {
         return;
       }
 
-      // Use Electron API to save and open PDF if available
+      const fileName = listToExport.length === 1
+        ? `Parcel_${listToExport[0].number}.pdf`
+        : `Parcels_Export_${listToExport.length}_Items.pdf`;
+
       let electronAPI = null;
       if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.saveAndOpenPDF === 'function') {
         electronAPI = window.electronAPI;
       } else {
-        // Wait a bit for Electron API to load
         for (let i = 0; i < 5; i++) {
           await new Promise(resolve => setTimeout(resolve, 100));
           if (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.saveAndOpenPDF === 'function') {
@@ -2809,56 +2959,18 @@ const ParcelCalculator = () => {
 
       if (electronAPI && electronAPI.saveAndOpenPDF) {
         try {
-          console.log('[Renderer] Calling saveAndOpenPDF...');
-          const saveResult = await electronAPI.saveAndOpenPDF(result.pdfData, result.fileName);
-          console.log('[Renderer] saveResult:', saveResult);
-
-          if (saveResult && saveResult.canceled) {
-            console.log('[Renderer] User canceled save dialog');
-            return; // User canceled the save dialog
-          }
-
+          const saveResult = await electronAPI.saveAndOpenPDF(result.pdfData, fileName);
+          if (saveResult && saveResult.canceled) return;
           if (saveResult && saveResult.success) {
-            // Show success toast
-            const toast = document.createElement('div');
-            const errorText = errorResults ? '<br/>📊 Error calculations included!' : '';
-            toast.innerHTML = `✅ Exported ${savedParcels.length} parcels to PDF!${errorText}<br/>Opening PDF...`;
-            toast.style.cssText = `
-              position: fixed;
-              top: 20px;
-              right: 20px;
-              background: #238636;
-              color: white;
-              padding: 16px 24px;
-              border-radius: 12px;
-              font-weight: bold;
-              z-index: 10000;
-              box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-            `;
-            document.body.appendChild(toast);
-            setTimeout(() => {
-              toast.style.animation = 'slideOut 0.3s ease-out';
-              setTimeout(() => toast.remove(), 300);
-            }, 3000);
+            showSuccessToast(`✅ Exported ${listToExport.length} parcel(s) to 1 PDF file successfully!`);
             return;
-          } else {
-            console.warn('[Renderer] PDF save failed:', saveResult?.error);
-            // Still try to open the file if it was saved but opening failed
-            if (saveResult && saveResult.filePath) {
-              console.log('[Renderer] File was saved but opening failed, filePath:', saveResult.filePath);
-            }
-            // Fall through to blob download
           }
         } catch (error) {
           console.error('[Renderer] Error using Electron PDF save:', error);
-          console.error('[Renderer] Error details:', error.stack);
-          // Fall through to blob download
         }
-      } else {
-        console.log('[Renderer] Electron API not available, using blob download');
       }
 
-      // Fallback: Download the PDF via blob (web browser)
+      // Fallback download
       const pdfData = atob(result.pdfData);
       const bytes = new Uint8Array(pdfData.length);
       for (let i = 0; i < pdfData.length; i++) {
@@ -2869,18 +2981,26 @@ const ParcelCalculator = () => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = result.fileName;
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
 
-      const errorText = errorResults ? '\n📊 Error calculations included!' : '';
-      showSuccessToast(`✅ Exported ${savedParcels.length} parcels to PDF successfully!${errorText}`);
+      showSuccessToast(`✅ Exported ${listToExport.length} parcel(s) to 1 PDF file successfully!`);
     } catch (error) {
       console.error('Error exporting:', error);
       showErrorToast(`❌ Error exporting parcels: ${error.message}`);
     }
+  };
+
+  // Export all parcels to PDF
+  const handleExportAll = async () => {
+    if (savedParcels.length === 0) {
+      showErrorToast('⚠️ No saved parcels to export!');
+      return;
+    }
+    await handleExportMulti(savedParcels);
   };
 
   // ESC key to go to main menu (only if no dialogs are open) or close duplicate dialog
@@ -3044,6 +3164,18 @@ const ParcelCalculator = () => {
             <div className="text-xs bg-success/10 border border-success/30 px-2.5 py-1 rounded-lg text-success flex items-center gap-1.5">
               <span>📁 {pointsFileName} ({Object.keys(loadedPoints).length} pts)</span>
               {isWatchingFile && <span className="animate-pulse">🔄 watched</span>}
+              <button
+                onClick={async () => {
+                  if (await customConfirm(`Remove "${pointsFileName}" from this project?\n\nAll saved parcels will stay in your project and will recoordinate when you load a new points file.`)) {
+                    removePointsFile();
+                    showSuccessToast('🗑️ Points file removed. Load a new points file to recoordinate your parcels.');
+                  }
+                }}
+                className="ml-1 text-success/70 hover:text-red-400 p-0.5 rounded transition-colors"
+                title="Remove Points File from Project"
+              >
+                ✕
+              </button>
             </div>
           )}
         </div>
@@ -3073,9 +3205,24 @@ const ParcelCalculator = () => {
           </button>
 
           <input type="file" accept=".pnt,.txt,.csv" onChange={handleLoadFile} style={{ display: 'none' }} id="load-points" />
-          <label htmlFor="load-points" className="btn-secondary py-1.5 px-3 text-xs cursor-pointer flex items-center gap-1.5 mb-0 font-medium bg-dark-700/60">
-            <Upload className="w-3.5 h-3.5" /> Load Points
+          <label htmlFor="load-points" className="btn-secondary py-1.5 px-3 text-xs cursor-pointer flex items-center gap-1.5 mb-0 font-medium bg-dark-700/60" title="Load or replace the .pnt coordinates file for this project">
+            <Upload className="w-3.5 h-3.5" /> {pointsFileName ? 'Replace Points File' : 'Load Points'}
           </label>
+
+          {pointsFileName && (
+            <button
+              onClick={async () => {
+                if (await customConfirm(`Remove "${pointsFileName}" from this project?\n\nAll saved parcels will stay saved in your project and will recoordinate when you load a new points file.`)) {
+                  removePointsFile();
+                  showSuccessToast('🗑️ Points file removed. Load a new points file to recoordinate your parcels.');
+                }
+              }}
+              className="btn-secondary py-1.5 px-2.5 text-xs flex items-center gap-1 bg-red-600/10 hover:bg-red-600/20 border-red-600/30 text-red-400"
+              title="Remove points file while preserving all saved parcels"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Remove Points File
+            </button>
+          )}
 
           <button onClick={handleExportAll} disabled={savedParcels.length === 0} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5">
             <FileDown className="w-3.5 h-3.5" /> Export PDF
@@ -3524,15 +3671,78 @@ const ParcelCalculator = () => {
             {activeTab === 'saved' && (
               <div className="w-full h-full overflow-y-auto p-6 bg-dark-900/30">
                 <div className="max-w-4xl mx-auto">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-4 pb-3 border-b border-dark-700">
                     <div>
                       <h2 className="text-lg font-bold text-white leading-none">Saved Unique Parcels</h2>
-                      <p className="text-dark-400 text-xs mt-1">Showing one version per parcel number. Check "All Versions" to see history.</p>
+                      <p className="text-dark-400 text-xs mt-1">Showing one version per parcel number. Check boxes to export multiple items in 1 file.</p>
                     </div>
                     {savedParcels.length > 0 && (
-                      <button onClick={handleExportAll} className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5 font-bold">
-                        <FileDown className="w-3.5 h-3.5" /> Export All PDF
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(() => {
+                          const unique = [];
+                          const seen = new Set();
+                          for (let i = savedParcels.length - 1; i >= 0; i--) {
+                            const p = savedParcels[i];
+                            const k = p.number.trim().toLowerCase();
+                            if (!seen.has(k)) { seen.add(k); unique.push(p); }
+                          }
+                          const allSelected = unique.length > 0 && unique.every(p => selectedIds.includes(p.id));
+                          return (
+                            <button
+                              onClick={() => handleToggleSelectAll(unique)}
+                              className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 font-medium"
+                              title="Select / Deselect all visible parcels"
+                            >
+                              <CheckSquare className="w-3.5 h-3.5 text-primary" />
+                              {allSelected ? 'Deselect All' : `Select All (${unique.length})`}
+                            </button>
+                          );
+                        })()}
+
+                        {selectedIds.length > 0 ? (
+                          <button
+                            onClick={() => {
+                              const unique = [];
+                              const seen = new Set();
+                              for (let i = savedParcels.length - 1; i >= 0; i--) {
+                                const p = savedParcels[i];
+                                const k = p.number.trim().toLowerCase();
+                                if (!seen.has(k)) { seen.add(k); unique.push(p); }
+                              }
+                              const selectedUnique = unique.filter(p => selectedIds.includes(p.id));
+                              handleExportMulti(selectedUnique);
+                            }}
+                            className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5 font-bold bg-success hover:bg-success/90 border-success text-white shadow-lg shadow-success/20 animate-pulse"
+                            title="Export all selected items in one single file"
+                          >
+                            <FileDown className="w-3.5 h-3.5" /> Export Selected ({selectedIds.length}) to 1 File
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              const unique = [];
+                              const seen = new Set();
+                              for (let i = savedParcels.length - 1; i >= 0; i--) {
+                                const p = savedParcels[i];
+                                const k = p.number.trim().toLowerCase();
+                                if (!seen.has(k)) { seen.add(k); unique.push(p); }
+                              }
+                              handleExportMulti(unique);
+                            }}
+                            className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5 font-bold"
+                            title="Export all unique parcels to a single PDF document"
+                          >
+                            <FileDown className="w-3.5 h-3.5" /> Export All ({(() => {
+                              const seen = new Set();
+                              return savedParcels.filter(p => {
+                                const k = p.number.trim().toLowerCase();
+                                if (!seen.has(k)) { seen.add(k); return true; }
+                                return false;
+                              }).length;
+                            })()}) to 1 File
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -3543,6 +3753,8 @@ const ParcelCalculator = () => {
                     }}
                     onDelete={handleDeleteSaved}
                     onExport={handleExportSingle}
+                    selectedIds={selectedIds}
+                    onToggleSelect={handleToggleSelect}
                   />
                 </div>
               </div>
@@ -3552,15 +3764,43 @@ const ParcelCalculator = () => {
             {activeTab === 'all' && (
               <div className="w-full h-full overflow-y-auto p-6 bg-dark-900/30">
                 <div className="max-w-4xl mx-auto">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-4 pb-3 border-b border-dark-700">
                     <div>
                       <h2 className="text-lg font-bold text-white leading-none">All Saved Versions</h2>
-                      <p className="text-dark-400 text-xs mt-1">Full change log of all saves (including duplicates and updates).</p>
+                      <p className="text-dark-400 text-xs mt-1">Full change log of all saves. Check boxes to export selected versions in 1 file.</p>
                     </div>
                     {savedParcels.length > 0 && (
-                      <button onClick={handleExportAll} className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5 font-bold">
-                        <FileDown className="w-3.5 h-3.5" /> Export All PDF
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={() => handleToggleSelectAll(savedParcels)}
+                          className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 font-medium"
+                          title="Select / Deselect all visible parcels"
+                        >
+                          <CheckSquare className="w-3.5 h-3.5 text-primary" />
+                          {savedParcels.length > 0 && savedParcels.every(p => selectedIds.includes(p.id)) ? 'Deselect All' : `Select All (${savedParcels.length})`}
+                        </button>
+
+                        {selectedIds.length > 0 ? (
+                          <button
+                            onClick={() => {
+                              const selectedList = savedParcels.filter(p => selectedIds.includes(p.id));
+                              handleExportMulti(selectedList);
+                            }}
+                            className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5 font-bold bg-success hover:bg-success/90 border-success text-white shadow-lg shadow-success/20 animate-pulse"
+                            title="Export all selected items in one single file"
+                          >
+                            <FileDown className="w-3.5 h-3.5" /> Export Selected ({selectedIds.length}) to 1 File
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleExportMulti(savedParcels)}
+                            className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5 font-bold"
+                            title="Export all versions to a single PDF document"
+                          >
+                            <FileDown className="w-3.5 h-3.5" /> Export All ({savedParcels.length}) to 1 File
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -3571,6 +3811,8 @@ const ParcelCalculator = () => {
                     }}
                     onDelete={handleDeleteSaved}
                     onExport={handleExportSingle}
+                    selectedIds={selectedIds}
+                    onToggleSelect={handleToggleSelect}
                   />
                 </div>
               </div>
@@ -3787,7 +4029,7 @@ const ParcelCalculator = () => {
   );
 };
 // Memoized list for unique parcels to prevent re-renders when typing
-const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport }) => {
+const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, selectedIds = [], onToggleSelect }) => {
   if (savedParcels.length === 0) {
     return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
   }
@@ -3823,33 +4065,45 @@ const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport
             className="glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group"
           >
             <div className="flex items-center justify-between mb-3">
-              <div className="flex-1">
-                <h3 className="text-lg font-bold text-primary mb-2">
-                  Parcel #{parcel.number}
-                  {duplicateCount > 1 && (
-                    <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
-                      📋 {duplicateCount} version(s)
-                    </span>
-                  )}
-                  {parcel.curves && parcel.curves.length > 0 && (
-                    <span className="ml-2 text-xs px-2 py-1 bg-warning/20 border border-warning rounded text-warning">
-                      📐 {parcel.curves.length} Curve(s)
-                    </span>
-                  )}
-                </h3>
-                <div className="flex gap-6 text-sm text-dark-300">
-                  <span>📐 Area: <strong className="text-success">{parcel.area != null ? parcel.area.toFixed(4) : 'Calculating...'} m²</strong></span>
-                  <span>📍 Points: {parcel.pointCount}</span>
-                </div>
-                {parcel.curves && parcel.curves.length > 0 && (
-                  <div className="mt-2 text-xs text-warning">
-                    {parcel.curves.map((c, i) => (
-                      <span key={i} className="mr-3">
-                        {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
-                      </span>
-                    ))}
-                  </div>
+              <div className="flex items-start gap-3 flex-1">
+                {onToggleSelect && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(parcel.id)}
+                    onChange={() => onToggleSelect(parcel.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-5 h-5 mt-1 rounded border-dark-600 text-primary focus:ring-primary bg-dark-800 cursor-pointer accent-primary flex-shrink-0"
+                    title="Select item for multi-parcel export"
+                  />
                 )}
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-primary mb-2">
+                    Parcel #{parcel.number}
+                    {duplicateCount > 1 && (
+                      <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
+                        📋 {duplicateCount} version(s)
+                      </span>
+                    )}
+                    {parcel.curves && parcel.curves.length > 0 && (
+                      <span className="ml-2 text-xs px-2 py-1 bg-warning/20 border border-warning rounded text-warning">
+                        📐 {parcel.curves.length} Curve(s)
+                      </span>
+                    )}
+                  </h3>
+                  <div className="flex gap-6 text-sm text-dark-300">
+                    <span>📐 Area: <strong className="text-success">{parcel.area != null ? parcel.area.toFixed(4) : 'Calculating...'} m²</strong></span>
+                    <span>📍 Points: {parcel.pointCount}</span>
+                  </div>
+                  {parcel.curves && parcel.curves.length > 0 && (
+                    <div className="mt-2 text-xs text-warning">
+                      {parcel.curves.map((c, i) => (
+                        <span key={i} className="mr-3">
+                          {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex gap-2">
                 <button
@@ -3858,6 +4112,16 @@ const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport
                   title="Load into editor"
                 >
                   <Edit className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExport(parcel);
+                  }}
+                  className="p-2 hover:bg-success/20 rounded-lg text-success"
+                  title="Export this single parcel as PDF"
+                >
+                  <FileDown className="w-5 h-5" />
                 </button>
                 <button
                   onClick={(e) => {
@@ -3890,7 +4154,7 @@ const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport
 });
 
 // Memoized list for ALL parcels (including duplicates)
-const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport }) => {
+const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, selectedIds = [], onToggleSelect }) => {
   if (savedParcels.length === 0) {
     return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
   }
@@ -3913,36 +4177,48 @@ const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport })
               }`}
           >
             <div className="flex items-center justify-between mb-3">
-              <div className="flex-1">
-                <h3 className="text-lg font-bold text-primary mb-2">
-                  Parcel #{parcel.number}
-                  {isDuplicate && (
-                    <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
-                      🔄 Duplicate #{savedParcels.filter(p =>
-                        p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase() &&
-                        savedParcels.indexOf(p) <= index
-                      ).length} of {duplicateCount}
-                    </span>
-                  )}
-                  {parcel.curves && parcel.curves.length > 0 && (
-                    <span className="ml-2 text-xs px-2 py-1 bg-warning/20 border border-warning rounded text-warning">
-                      📐 {parcel.curves.length} Curve(s)
-                    </span>
-                  )}
-                </h3>
-                <div className="flex gap-6 text-sm text-dark-300">
-                  <span>📐 Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong></span>
-                  <span>📍 Points: {parcel.pointCount}</span>
-                </div>
-                {parcel.curves && parcel.curves.length > 0 && (
-                  <div className="mt-2 text-xs text-warning">
-                    {parcel.curves.map((c, i) => (
-                      <span key={i} className="mr-3">
-                        {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
-                      </span>
-                    ))}
-                  </div>
+              <div className="flex items-start gap-3 flex-1">
+                {onToggleSelect && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(parcel.id)}
+                    onChange={() => onToggleSelect(parcel.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-5 h-5 mt-1 rounded border-dark-600 text-primary focus:ring-primary bg-dark-800 cursor-pointer accent-primary flex-shrink-0"
+                    title="Select item for multi-parcel export"
+                  />
                 )}
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-primary mb-2">
+                    Parcel #{parcel.number}
+                    {isDuplicate && (
+                      <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
+                        🔄 Duplicate #{savedParcels.filter(p =>
+                          p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase() &&
+                          savedParcels.indexOf(p) <= index
+                        ).length} of {duplicateCount}
+                      </span>
+                    )}
+                    {parcel.curves && parcel.curves.length > 0 && (
+                      <span className="ml-2 text-xs px-2 py-1 bg-warning/20 border border-warning rounded text-warning">
+                        📐 {parcel.curves.length} Curve(s)
+                      </span>
+                    )}
+                  </h3>
+                  <div className="flex gap-6 text-sm text-dark-300">
+                    <span>📐 Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong></span>
+                    <span>📍 Points: {parcel.pointCount}</span>
+                  </div>
+                  {parcel.curves && parcel.curves.length > 0 && (
+                    <div className="mt-2 text-xs text-warning">
+                      {parcel.curves.map((c, i) => (
+                        <span key={i} className="mr-3">
+                          {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex gap-2">
                 <button
@@ -3958,7 +4234,7 @@ const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport })
                     onExport(parcel);
                   }}
                   className="p-2 hover:bg-success/20 rounded-lg text-success"
-                  title="Export as PDF"
+                  title="Export this single parcel as PDF"
                 >
                   <FileDown className="w-5 h-5" />
                 </button>

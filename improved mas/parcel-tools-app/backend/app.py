@@ -497,25 +497,10 @@ def auth_login():
                 'code': 'ACCOUNT_DISABLED'
             }), 403
 
-        # ── 4. Machine ID binding check ───────────────────────────────────────
+        # ── 4. & 5. Track device and check 2-device limit (maximum 2 devices) ──
         machine_id_hash = license_manager.get_machine_id_hash()
         stored_hash = user_data.get('machine_id_hash', '')
 
-        if stored_hash and stored_hash != machine_id_hash:
-            # Account is bound to a different machine
-            return jsonify({
-                'error': 'This account is registered on a different computer. Contact support to transfer your account.',
-                'code': 'MACHINE_MISMATCH',
-                'machineId': machine_id_hash[-8:]   # last 8 chars for support reference
-            }), 403
-
-        # If no machine binding yet, bind now (first login after admin reset)
-        if not stored_hash:
-            firebase_service.db.collection('users').document(uid).update(
-                {'machine_id_hash': machine_id_hash}
-            ) if firebase_service._is_online() else None
-
-        # ── 5. Track device ───────────────────────────────────────────────────
         import socket
         import getpass
         import platform
@@ -529,12 +514,33 @@ def auth_login():
             os_username = None
             os_platform = None
             device_name = "Windows PC"
-        firebase_service.add_device(
+
+        device_result = firebase_service.add_device(
             uid, machine_id_hash, device_name,
             computer_name=computer_name,
             os_user=os_username,
             os_platform=os_platform
         )
+
+        if not device_result.get('success'):
+            print(f"[Auth] Login rejected for {email}: {device_result.get('error')}")
+            return jsonify({
+                'error': device_result.get('error', 'Device limit reached. Maximum 2 devices allowed. Please sign out from another device first.'),
+                'code': 'DEVICE_LIMIT_REACHED',
+                'deviceCount': device_result.get('device_count', 2)
+            }), 403
+
+        # If no primary machine binding yet, bind now for backward compatibility
+        if not stored_hash:
+            if firebase_service._is_online():
+                firebase_service.db.collection('users').document(uid).update(
+                    {'machine_id_hash': machine_id_hash}
+                )
+            else:
+                users_json = firebase_service._load_users_from_json()
+                if uid in users_json:
+                    users_json[uid]['machine_id_hash'] = machine_id_hash
+                    firebase_service._save_users_to_json(users_json)
 
         # ── 6. Update last_login ──────────────────────────────────────────────
         if firebase_service._is_online():
@@ -548,6 +554,7 @@ def auth_login():
         # ── 8. Issue session token ────────────────────────────────────────────
         session_token = license_manager.generate_session_token(uid, machine_id_hash)
 
+        now_ts = int(datetime.now().timestamp())
         print(f'[Auth] Login successful: {email} (type={user_data.get("account_type","?")})')
         return jsonify({
             'success': True,
@@ -558,6 +565,7 @@ def auth_login():
             'isAdmin': user_data.get('is_admin', False),
             'licenseKey': user_data.get('license_key'),
             'sessionToken': session_token,
+            'loginTimestamp': now_ts,
         })
 
     except Exception as e:
@@ -577,6 +585,7 @@ def auth_verify():
         user_id = data.get('userId')
 
         machine_hash = license_manager.get_machine_id_hash()
+        now_ts = int(datetime.now().timestamp())
 
         if session_token:
             try:
@@ -584,6 +593,11 @@ def auth_verify():
                 user_data = firebase_service.get_user(uid)
                 if user_data and user_data.get('is_active') is False:
                     return jsonify({'valid': False, 'error': 'Account disabled'}), 403
+                
+                device_res = firebase_service.add_device(uid, machine_hash, "Windows PC")
+                if not device_res.get('success'):
+                    return jsonify({'valid': False, 'error': device_res.get('error', 'Device limit reached. Maximum 2 devices allowed.'), 'code': 'DEVICE_LIMIT_REACHED'}), 403
+
                 email_val = user_data.get('email') if user_data else ''
                 account_type_val = user_data.get('account_type', 'premium') if user_data else 'premium'
                 is_admin_val = user_data.get('is_admin', False) or (email_val.lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']) if user_data else False
@@ -594,6 +608,7 @@ def auth_verify():
                     'accountType': account_type_val,
                     'isAdmin': is_admin_val,
                     'licenseKey': user_data.get('license_key') if user_data else None,
+                    'loginTimestamp': now_ts,
                 })
             except ValueError:
                 pass  # fall through to userId check
@@ -603,6 +618,11 @@ def auth_verify():
             user_data = firebase_service.get_user(user_id)
             if user_data and user_data.get('is_active') is False:
                 return jsonify({'valid': False, 'error': 'Account disabled'}), 403
+            
+            device_res = firebase_service.add_device(user_id, machine_hash, "Windows PC")
+            if not device_res.get('success'):
+                return jsonify({'valid': False, 'error': device_res.get('error', 'Device limit reached. Maximum 2 devices allowed.'), 'code': 'DEVICE_LIMIT_REACHED'}), 403
+
             email_val = user_data.get('email') if user_data else ''
             account_type_val = user_data.get('account_type', 'premium') if user_data else 'premium'
             is_admin_val = user_data.get('is_admin', False) or (email_val.lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']) if user_data else False
@@ -615,6 +635,7 @@ def auth_verify():
                 'isAdmin': is_admin_val,
                 'licenseKey': user_data.get('license_key') if user_data else None,
                 'sessionToken': new_token,
+                'loginTimestamp': now_ts,
             })
 
         return jsonify({'valid': False, 'error': 'Invalid or expired session'}), 401
@@ -633,8 +654,8 @@ def auth_logout():
         print(f'[Auth] Logout request for user: {user_id}')
         if not user_id:
             return jsonify({'error': 'User ID required'}), 400
-        machine_id = license_manager.get_machine_id()
-        firebase_service.remove_device(user_id, machine_id)
+        machine_id_hash = license_manager.get_machine_id_hash()
+        firebase_service.remove_device(user_id, machine_id_hash)
         return jsonify({'success': True, 'message': 'Logged out successfully'})
     except Exception as e:
         print(f'[Auth ERROR] Logout failed: {e}')
@@ -1762,6 +1783,13 @@ def export_pdf():
         heading_added = False
         page_count = 1
         
+        def draw_page_number(canvas_obj, p_count):
+            canvas_obj.saveState()
+            canvas_obj.setFont("Courier-Bold", 10)
+            page_text = f"Page {p_count}"
+            canvas_obj.drawRightString(width - 40, 50, page_text)
+            canvas_obj.restoreState()
+        
         for parcel_idx, parcel in enumerate(parcels):
             # Only add new page if we run out of space, not for each parcel
             if parcel_idx == 0:
@@ -1769,11 +1797,7 @@ def export_pdf():
             else:
                 # Check if we need a new page (add spacing between parcels)
                 if y_position < 100:
-                    # Add page number before showing new page
-                    c.setFont("Courier-Bold", 10)
-                    page_text = f"Page {page_count}"
-                    text_width = c.stringWidth(page_text, "Courier-Bold", 10)
-                    c.drawString((width - text_width) / 2, 50, page_text)
+                    draw_page_number(c, page_count)
                     
                     c.showPage()
                     draw_bg_watermark(c)
@@ -1881,11 +1905,7 @@ def export_pdf():
                     y_position -= 12
                     
                     if y_position < 100:
-                        # Add page number before showing new page
-                        c.setFont("Courier-Bold", 10)
-                        page_text = f"Page {page_count}"
-                        text_width = c.stringWidth(page_text, "Courier-Bold", 10)
-                        c.drawString((width - text_width) / 2, 50, page_text)
+                        draw_page_number(c, page_count)
                         
                         c.showPage()
                         draw_bg_watermark(c)
@@ -1935,11 +1955,7 @@ def export_pdf():
                         
                         # Check for page break inside curves loop
                         if y_position < 100:
-                            # Add page number before showing new page
-                            c.setFont("Courier-Bold", 10)
-                            page_text = f"Page {page_count}"
-                            text_width = c.stringWidth(page_text, "Courier-Bold", 10)
-                            c.drawString((width - text_width) / 2, 50, page_text)
+                            draw_page_number(c, page_count)
                             
                             c.showPage()
                             draw_bg_watermark(c)
@@ -1980,10 +1996,7 @@ def export_pdf():
             
             # Start on a new page if we are near the bottom
             if y_position < 100:
-                c.setFont("Courier-Bold", 10)
-                page_text = f"Page {page_count}"
-                text_width = c.stringWidth(page_text, "Courier-Bold", 10)
-                c.drawString((width - text_width) / 2, 50, page_text)
+                draw_page_number(c, page_count)
                 c.showPage()
                 draw_bg_watermark(c)
                 page_count += 1
@@ -1999,10 +2012,7 @@ def export_pdf():
             for index, calc in enumerate(all_calculations):
                 # Check for space for header
                 if y_position < 150:
-                    c.setFont("Courier-Bold", 10)
-                    page_text = f"Page {page_count}"
-                    text_width = c.stringWidth(page_text, "Courier-Bold", 10)
-                    c.drawString((width - text_width) / 2, 50, page_text)
+                    draw_page_number(c, page_count)
                     c.showPage()
                     draw_bg_watermark(c)
                     page_count += 1
@@ -2076,11 +2086,7 @@ def export_pdf():
                 c.setFont("Courier", 8)
                 for parcel_result in calc['parcelResults']:
                     if y_position < 60:
-                        # FIX: Draw page number before new page
-                        c.setFont("Courier-Bold", 10)
-                        page_text = f"Page {page_count}"
-                        text_width = c.stringWidth(page_text, "Courier-Bold", 10)
-                        c.drawString((width - text_width) / 2, 50, page_text)
+                        draw_page_number(c, page_count)
                         
                         c.showPage()
                         draw_bg_watermark(c)
@@ -2100,10 +2106,7 @@ def export_pdf():
                 
                 # Total row
                 if y_position < 60:
-                    c.setFont("Courier-Bold", 10)
-                    page_text = f"Page {page_count}"
-                    text_width = c.stringWidth(page_text, "Courier-Bold", 10)
-                    c.drawString((width - text_width) / 2, 50, page_text)
+                    draw_page_number(c, page_count)
                     
                     c.showPage()
                     draw_bg_watermark(c)
@@ -2122,10 +2125,7 @@ def export_pdf():
                 y_position -= 40 # Space between calculations
         
         # Add final page number
-        c.setFont("Courier-Bold", 10)
-        page_text = f"Page {page_count}"
-        text_width = c.stringWidth(page_text, "Courier-Bold", 10)
-        c.drawString((width - text_width) / 2, 50, page_text)
+        draw_page_number(c, page_count)
         
         c.save()
         
@@ -3378,8 +3378,8 @@ def parse_cad():
 
 if __name__ == '__main__':
     print("==> Starting Parcel Tools Backend API...")
-    print("==> API running on http://localhost:5000")
+    print("==> API running on http://127.0.0.1:5000")
     print("==> Ready to accept connections from Electron app")
-    app.run(host='localhost', port=5000, debug=True)
+    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
 
 

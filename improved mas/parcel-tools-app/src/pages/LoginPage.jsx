@@ -21,7 +21,7 @@ const LoginPage = () => {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/auth/login', {
+      const res = await fetch('http://127.0.0.1:5000/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -43,7 +43,8 @@ const LoginPage = () => {
           data.licenseKey,
           data.sessionToken,
           data.accountType || 'premium',
-          data.isAdmin || false
+          data.isAdmin || false,
+          data.loginTimestamp
         );
         navigate('/');
       } else if (data.code === 'MACHINE_MISMATCH') {
@@ -53,6 +54,11 @@ const LoginPage = () => {
         );
       } else if (data.code === 'ACCOUNT_DISABLED') {
         setError('Your account has been disabled. Please contact support.');
+      } else if (data.code === 'DEVICE_LIMIT_REACHED') {
+        setError(
+          `Device limit reached (${data.deviceCount || 2} of 2 devices active). ` +
+          `Please sign out from one of your existing devices before logging in here.`
+        );
       } else {
         setError(data.error || 'Login failed. Please check your credentials.');
       }

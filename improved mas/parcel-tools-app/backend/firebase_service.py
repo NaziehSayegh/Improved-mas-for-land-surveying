@@ -368,11 +368,13 @@ class FirebaseService:
                     return {'success': False, 'error': 'User not found'}
                 
                 user_data = user_doc.to_dict()
-                devices = user_data.get('devices', {})
+                devices = user_data.get('devices')
+                if not isinstance(devices, dict):
+                    devices = {}
                 
                 # Check if device already exists
                 for device_id, device_info in devices.items():
-                    if device_info.get('machine_id') == machine_id:
+                    if isinstance(device_info, dict) and device_info.get('machine_id') == machine_id:
                         # Update last_seen and other details
                         update_fields = {
                             f'devices.{device_id}.last_seen': datetime.now().isoformat()
@@ -418,11 +420,13 @@ class FirebaseService:
                 if user_id not in users:
                     return {'success': False, 'error': 'User not found'}
                 
-                devices = users[user_id].get('devices', {})
+                devices = users[user_id].get('devices')
+                if not isinstance(devices, dict):
+                    devices = {}
                 
                 # Check if device exists
                 for device_id, device_info in devices.items():
-                    if device_info.get('machine_id') == machine_id:
+                    if isinstance(device_info, dict) and device_info.get('machine_id') == machine_id:
                         devices[device_id]['last_seen'] = datetime.now().isoformat()
                         if computer_name:
                             devices[device_id]['computer_name'] = computer_name
@@ -480,12 +484,14 @@ class FirebaseService:
                     return {'success': False, 'error': 'User not found'}
                 
                 user_data = user_doc.to_dict()
-                devices = user_data.get('devices', {})
+                devices = user_data.get('devices')
+                if not isinstance(devices, dict):
+                    devices = {}
                 
                 # Find and remove device
                 device_to_remove = None
                 for device_id, device_info in devices.items():
-                    if device_info.get('machine_id') == machine_id:
+                    if isinstance(device_info, dict) and device_info.get('machine_id') == machine_id:
                         device_to_remove = device_id
                         break
                 
@@ -501,11 +507,13 @@ class FirebaseService:
                 if user_id not in users:
                     return {'success': False, 'error': 'User not found'}
                 
-                devices = users[user_id].get('devices', {})
+                devices = users[user_id].get('devices')
+                if not isinstance(devices, dict):
+                    devices = {}
                 device_to_remove = None
                 
                 for device_id, device_info in devices.items():
-                    if device_info.get('machine_id') == machine_id:
+                    if isinstance(device_info, dict) and device_info.get('machine_id') == machine_id:
                         device_to_remove = device_id
                         break
                 

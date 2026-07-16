@@ -29,6 +29,7 @@ const DataFiles = () => {
     recalculateAllParcels,
     saveActiveProject,
     closeProject,
+    removePointsFile,
     setCurrentParcel,
     loadProjectData
   } = useProject();
@@ -558,10 +559,7 @@ const DataFiles = () => {
             pointsObj[p.id] = { x: p.x, y: p.y };
           });
 
-          // IMPORTANT: Reset ALL project state first so no stale parcels/heading bleed through
-          closeProject();
-
-          // Set all state for the new file
+          // Set all state for the new file (preserving saved parcels in the project)
           setPointsFileName(file.name);
           setPointsFilePath(filePath);
           setLoadedPoints(pointsObj);
@@ -976,8 +974,25 @@ const DataFiles = () => {
                 <input type="file" accept=".pnt,.txt,.csv" onChange={handleOpenPointsFile} style={{ display: 'none' }} id="open-points" />
                 <label htmlFor="open-points" className="btn-primary py-2 px-4 text-sm cursor-pointer flex items-center gap-2">
                   <FolderOpen className="w-4 h-4" />
-                  Open Points File
+                  {pointsFileName ? 'Replace Points File' : 'Open Points File'}
                 </label>
+
+                {pointsFileName && (
+                  <button
+                    onClick={async () => {
+                      if (await customConfirm(`Remove "${pointsFileName}" from this project?\n\nAll saved parcels will stay in your project and will recoordinate when you load a new points file.`)) {
+                        removePointsFile();
+                        setEditingPoints({});
+                        setEditMode(false);
+                        toast.success('🗑️ Points file removed while keeping your saved parcels.');
+                      }
+                    }}
+                    className="btn-secondary py-2 px-4 text-sm flex items-center gap-2 bg-red-600/10 hover:bg-red-600/20 border-red-600/30 text-red-400"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Remove Points File
+                  </button>
+                )}
 
                 <button onClick={() => handleSavePointsFile(false)} disabled={!editMode} className="btn-success py-2 px-4 text-sm flex items-center gap-2">
                   <Save className="w-4 h-4" />
@@ -1018,9 +1033,25 @@ const DataFiles = () => {
                 <p className="text-primary font-semibold">
                   📄 Editing: {pointsFileName} ({Object.keys(editingPoints).length} points)
                 </p>
-                <div className="flex items-center gap-2 text-success text-sm">
-                  <span className="animate-pulse">💾</span>
-                  <span>Auto-save: ON</span>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 text-success text-sm">
+                    <span className="animate-pulse">💾</span>
+                    <span>Auto-save: ON</span>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (await customConfirm(`Remove "${pointsFileName}" from this project?\n\nAll saved parcels will stay in your project and will recoordinate when you load a new points file.`)) {
+                        removePointsFile();
+                        setEditingPoints({});
+                        setEditMode(false);
+                        toast.success('🗑️ Points file removed while keeping your saved parcels.');
+                      }
+                    }}
+                    className="btn-secondary py-1 px-3 text-xs bg-red-600/10 hover:bg-red-600/20 border-red-600/30 text-red-400 flex items-center gap-1"
+                    title="Remove points file while preserving all saved parcels in the project"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Remove File
+                  </button>
                 </div>
               </div>
             )}

@@ -16,35 +16,46 @@ const LicenseGuard = ({ children }) => {
   const [state, setState] = useState('checking'); // 'checking' | 'valid' | 'no_license' | 'expired' | 'blocked' | 'offline'
 
   useEffect(() => {
+    let isInitial = true;
     const check = async () => {
-      try {
-        const token = sessionStorage.getItem('sessionToken');
-        const headers = {};
-        if (token) {
-          headers['X-Session-Token'] = token;
-        }
+      const maxAttempts = isInitial ? 8 : 1;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const token = sessionStorage.getItem('sessionToken');
+          const headers = {};
+          if (token) {
+            headers['X-Session-Token'] = token;
+          }
 
-        const res = await fetch(`http://127.0.0.1:5000/api/license/status`, { 
-          cache: 'no-store',
-          headers
-        });
-        const data = await res.json();
+          const res = await fetch(`http://127.0.0.1:5000/api/license/status`, { 
+            cache: 'no-store',
+            headers
+          });
+          const data = await res.json();
 
-        if (data.status === 'blocked') {
-          setState('blocked');
-        } else if (data.is_valid) {
-          setState('valid');
-        } else if (data.status === 'expired') {
-          setState('expired');
-        } else {
-          // no_license or invalid
-          setState('no_license');
-          navigate('/license', { replace: true });
+          if (data.status === 'blocked') {
+            setState('blocked');
+          } else if (data.is_valid) {
+            setState('valid');
+          } else if (data.status === 'expired') {
+            setState('expired');
+          } else {
+            // no_license or invalid
+            setState('no_license');
+            navigate('/license', { replace: true });
+          }
+          isInitial = false;
+          return;
+        } catch (err) {
+          if (attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          } else {
+            // Backend unreachable — allow access (graceful degradation)
+            setState('offline');
+          }
         }
-      } catch {
-        // Backend unreachable — allow access (graceful degradation)
-        setState('offline');
       }
+      isInitial = false;
     };
 
     check();
