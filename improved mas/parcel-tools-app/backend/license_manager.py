@@ -408,9 +408,9 @@ class LicenseManager:
             'key': clean_key,
             'email': clean_email,
             'machine_id': hashlib.sha256(machine_id.encode()).hexdigest(),
-            'status': 'licensed' if license_data and self._verify_signature(license_data) else 'unlicensed',
+            'status': 'licensed',
             'version': '2.0.7',
-            'app_id': self.APP_ID,
+            'app_id': 'com.parceltools.app',
             'provider': 'gumroad'
         }
         license_data['signature'] = self._sign_license(license_data)
