@@ -34,6 +34,17 @@ const electronAPI = {
   // Remove listener when component unmounts
   removeLoadProjectFileListener: () => {
     ipcRenderer.removeAllListeners('load-project-file');
+  },
+  // Auto-updater listeners
+  onUpdateProgress: (callback) => {
+    ipcRenderer.on('update-progress', (event, percent) => callback(percent));
+  },
+  onUpdateDownloaded: (callback) => {
+    ipcRenderer.on('update-downloaded', () => callback());
+  },
+  removeUpdateListeners: () => {
+    ipcRenderer.removeAllListeners('update-progress');
+    ipcRenderer.removeAllListeners('update-downloaded');
   }
 };
 

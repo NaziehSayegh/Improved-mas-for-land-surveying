@@ -460,10 +460,18 @@ if (app.isPackaged) {
   autoUpdater.on('download-progress', (progressObj) => {
     const percent = Math.round(progressObj.percent);
     console.log(`[Auto-Update] Download progress: ${percent}%`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setProgressBar(progressObj.percent / 100);
+      mainWindow.webContents.send('update-progress', percent);
+    }
   });
 
   autoUpdater.on('update-downloaded', () => {
     console.log('[Auto-Update] Update downloaded');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setProgressBar(-1);
+      mainWindow.webContents.send('update-downloaded');
+    }
 
     if (mainWindow) {
       dialog.showMessageBox(mainWindow, {

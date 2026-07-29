@@ -23,6 +23,7 @@ function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, loading } = useAuth();
+  const [updateProgress, setUpdateProgress] = useState(null);
   const toast = useToast();
   const {
     loadProjectData, setProjectPath
@@ -48,6 +49,29 @@ function AppContent() {
       }
     }
   }, [user, loading, location.pathname, navigate]);
+
+  // Wire up Electron update progress IPC
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.electronAPI) return;
+
+    if (window.electronAPI.onUpdateProgress) {
+      window.electronAPI.onUpdateProgress((percent) => {
+        setUpdateProgress(percent);
+      });
+    }
+
+    if (window.electronAPI.onUpdateDownloaded) {
+      window.electronAPI.onUpdateDownloaded(() => {
+        setTimeout(() => setUpdateProgress(null), 1000);
+      });
+    }
+
+    return () => {
+      if (window.electronAPI.removeUpdateListeners) {
+        window.electronAPI.removeUpdateListeners();
+      }
+    };
+  }, []);
 
   // Wire up Electron file-open IPC
   useEffect(() => {
@@ -93,10 +117,39 @@ function AppContent() {
   }, [navigate, toast, loadProjectData]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden w-full">
+    <div className="flex flex-col h-full overflow-hidden w-full relative">
       {isElectron && <TitleBar />}
       <div className="flex-1 overflow-hidden relative w-full">
         <BackgroundEffects />
+
+        {/* Floating Update Progress */}
+        {updateProgress !== null && (
+          <div className="absolute top-0 left-0 w-full z-[100] transform transition-all duration-500">
+            <div className="bg-dark-800/90 backdrop-blur-md border-b border-primary/50 shadow-lg shadow-primary/20">
+              <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary animate-bounce">
+                    ⬇
+                  </div>
+                  <div>
+                    <div className="text-white font-semibold text-sm">Downloading Update</div>
+                    <div className="text-dark-400 text-xs">You can continue working while this installs in the background...</div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-primary font-bold text-lg">{updateProgress}%</div>
+                </div>
+              </div>
+              <div className="w-full bg-dark-900 h-1.5">
+                <div 
+                  className="bg-primary h-1.5 transition-all duration-300 shadow-[0_0_10px_rgba(0,195,255,0.8)]" 
+                  style={{ width: `${updateProgress}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         <Routes>
           {/* Public routes */}
           <Route path="/login"  element={<LoginPage />} />
