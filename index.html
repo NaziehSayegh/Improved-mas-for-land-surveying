@@ -132,8 +132,12 @@
 
     /* ── canvas particles live here */
     #hero-canvas {
-      position: absolute; inset:0; z-index:0;
-      pointer-events:none;
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+      pointer-events: none;
+      display: block;
     }
 
     /* ── radial glow */
@@ -989,14 +993,17 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
 });
 
 /* ── Canvas particle field ── */
-(function() {
+window.addEventListener('load', function() {
   const canvas = document.getElementById('hero-canvas');
   const ctx    = canvas.getContext('2d');
-  let W, H, pts = [];
+  const hero   = document.getElementById('hero');
+  let W, H, pts = [], animId;
 
   function resize() {
-    W = canvas.width  = canvas.offsetWidth;
-    H = canvas.height = canvas.offsetHeight;
+    // Use the hero section's actual rendered size
+    const rect = hero.getBoundingClientRect();
+    W = canvas.width  = Math.round(rect.width  || window.innerWidth);
+    H = canvas.height = Math.round(rect.height || window.innerHeight);
   }
 
   function makePts(n) {
@@ -1006,8 +1013,8 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
         x:  Math.random() * W,
         y:  Math.random() * H,
         r:  Math.random() * 1.2 + 0.3,
-        vx: (Math.random() - 0.5) * 0.25,
-        vy: (Math.random() - 0.5) * 0.25,
+        vx: (Math.random() - 0.5) * 0.28,
+        vy: (Math.random() - 0.5) * 0.28,
         a:  Math.random()
       });
     }
@@ -1015,39 +1022,40 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
 
   function draw() {
     ctx.clearRect(0, 0, W, H);
-    const LINK = 130;
-    pts.forEach((p, i) => {
-      // drift
+    const LINK = 140;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
       p.x += p.vx; p.y += p.vy;
-      if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
-      if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+      if (p.x < 0) p.x = W; else if (p.x > W) p.x = 0;
+      if (p.y < 0) p.y = H; else if (p.y > H) p.y = 0;
       // dot
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(148,163,255,${0.25 + p.a * 0.2})`;
+      ctx.fillStyle = `rgba(148,163,255,${0.2 + p.a * 0.25})`;
       ctx.fill();
-      // lines
+      // connecting lines
       for (let j = i + 1; j < pts.length; j++) {
         const q  = pts[j];
         const dx = p.x - q.x, dy = p.y - q.y;
         const d  = Math.sqrt(dx*dx + dy*dy);
         if (d < LINK) {
-          const alpha = (1 - d / LINK) * 0.12;
           ctx.beginPath();
           ctx.moveTo(p.x, p.y);
           ctx.lineTo(q.x, q.y);
-          ctx.strokeStyle = `rgba(99,102,241,${alpha})`;
+          ctx.strokeStyle = `rgba(99,102,241,${(1 - d / LINK) * 0.14})`;
           ctx.lineWidth = 0.8;
           ctx.stroke();
         }
       }
-    });
-    requestAnimationFrame(draw);
+    }
+    animId = requestAnimationFrame(draw);
   }
 
   window.addEventListener('resize', () => { resize(); makePts(90); });
-  resize(); makePts(90); draw();
-})();
+  resize();
+  makePts(90);
+  draw();
+});
 </script>
 </body>
 </html>
