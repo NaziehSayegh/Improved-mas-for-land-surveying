@@ -3,397 +3,1050 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Parcel Tools — Precision Surveying Software for Windows</title>
-  <meta name="description" content="Parcel Tools is a professional-grade Windows desktop application for land surveyors. Calculate parcel areas, manage survey points, and visualize plots with precision." />
+  <title>Parcel Tools — Professional Land Surveying Software</title>
+  <meta name="description" content="Parcel Tools is precision-engineered Windows desktop software for land surveyors. Calculate complex parcel areas, edit survey points, and generate professional reports." />
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
   <link rel="apple-touch-icon" href="favicon.png" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;0,14..32,800;0,14..32,900;1,14..32,400&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─────────────────────────────────────────────
+       TOKENS
+    ───────────────────────────────────────────── */
+    :root {
+      --c-bg:        #04050a;
+      --c-bg2:       #07090f;
+      --c-bg3:       #0c0f1a;
+      --c-surface:   rgba(255,255,255,.04);
+      --c-surface2:  rgba(255,255,255,.07);
+      --c-border:    rgba(255,255,255,.08);
+      --c-border2:   rgba(255,255,255,.14);
+      --c-text1:     #f5f6fa;
+      --c-text2:     rgba(245,246,250,.55);
+      --c-text3:     rgba(245,246,250,.30);
+      --c-blue:      #4f8ef7;
+      --c-indigo:    #6366f1;
+      --c-purple:    #a855f7;
+      --c-cyan:      #22d3ee;
+      --c-green:     #22c55e;
+      --c-amber:     #f59e0b;
+      --grad-hero:   linear-gradient(130deg, #4f8ef7 0%, #a855f7 55%, #22d3ee 100%);
+      --grad-btn:    linear-gradient(135deg, #4f8ef7 0%, #6366f1 100%);
+      --shadow-card: 0 0 0 1px var(--c-border), 0 24px 64px rgba(0,0,0,.55);
+      --r-sm: 8px; --r-md: 14px; --r-lg: 20px; --r-xl: 28px; --r-pill: 999px;
+      --ease: cubic-bezier(.22,1,.36,1);
+    }
+
+    /* ─────────────────────────────────────────────
+       RESET
+    ───────────────────────────────────────────── */
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--c-bg);
+      color: var(--c-text1);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    a { color: inherit; text-decoration: none; }
+    img { display:block; max-width:100%; }
+
+    /* ─────────────────────────────────────────────
+       SCROLLBAR
+    ───────────────────────────────────────────── */
+    ::-webkit-scrollbar { width:5px; }
+    ::-webkit-scrollbar-track { background: var(--c-bg); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius:99px; }
+
+    /* ─────────────────────────────────────────────
+       LAYOUT
+    ───────────────────────────────────────────── */
+    .container { max-width:1120px; margin:0 auto; padding:0 24px; }
+
+    /* ─────────────────────────────────────────────
+       NAV
+    ───────────────────────────────────────────── */
+    #nav {
+      position: fixed; top:0; left:0; right:0; z-index:100;
+      padding: 0;
+      transition: background .4s var(--ease), border-color .4s var(--ease);
+      border-bottom: 1px solid transparent;
+    }
+    #nav.stuck {
+      background: rgba(4,5,10,.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-color: var(--c-border);
+    }
+    .nav-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px;
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-size: .95rem; font-weight: 700;
+      letter-spacing: -.02em;
+    }
+    .nav-logo img {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 0 16px rgba(79,142,247,.25);
+    }
+    .nav-logo span { color: var(--c-text2); font-weight:400; font-size:.78rem; display:block; line-height:1; margin-top:2px; }
+    .nav-links { display:flex; align-items:center; gap:6px; }
+    .nav-links a {
+      font-size: .85rem; font-weight:500; color: var(--c-text2);
+      padding: 6px 14px; border-radius: var(--r-sm);
+      transition: color .2s, background .2s;
+    }
+    .nav-links a:hover { color: var(--c-text1); background: var(--c-surface); }
+    .nav-cta {
+      background: var(--grad-btn) !important;
+      color: #fff !important;
+      font-weight: 600 !important;
+      padding: 8px 20px !important;
+      box-shadow: 0 4px 20px rgba(99,102,241,.35);
+      transition: transform .2s var(--ease), box-shadow .2s var(--ease) !important;
+    }
+    .nav-cta:hover { transform:translateY(-1px); box-shadow: 0 8px 30px rgba(99,102,241,.5) !important; }
+    .nav-ham { display:none; flex-direction:column; gap:5px; cursor:pointer; padding:8px; }
+    .nav-ham span { width:22px; height:2px; background:var(--c-text1); border-radius:2px; transition:.3s; }
+
+    /* ─────────────────────────────────────────────
+       HERO
+    ───────────────────────────────────────────── */
+    #hero {
+      position: relative;
+      min-height: 100svh;
+      display: flex; flex-direction:column;
+      align-items: center; justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+      overflow: hidden;
+    }
+
+    /* ── canvas particles live here */
+    #hero-canvas {
+      position: absolute; inset:0; z-index:0;
+      pointer-events:none;
+    }
+
+    /* ── radial glow */
+    #hero::after {
+      content:'';
+      position:absolute; inset:0; z-index:0;
+      background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(99,102,241,.22) 0%, transparent 70%);
+      pointer-events:none;
+    }
+
+    .hero-inner { position:relative; z-index:1; max-width:820px; }
+
+    .hero-badge {
+      display:inline-flex; align-items:center; gap:8px;
+      background: rgba(79,142,247,.1);
+      border: 1px solid rgba(79,142,247,.3);
+      border-radius: var(--r-pill);
+      padding: 5px 16px;
+      font-size: .78rem; font-weight:600;
+      color: #93c5fd;
+      margin-bottom: 2.25rem;
+      animation: fade-up .7s var(--ease) both;
+    }
+    .hero-badge .pulse {
+      width:7px; height:7px; border-radius:50%;
+      background: var(--c-green);
+      box-shadow: 0 0 8px var(--c-green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(1.4)} }
+
+    .hero-h1 {
+      font-size: clamp(2.6rem, 6.5vw, 5rem);
+      font-weight: 900;
+      letter-spacing: -.05em;
+      line-height: 1.01;
+      margin-bottom: 1.5rem;
+      animation: fade-up .7s .1s var(--ease) both;
+    }
+    .hero-h1 em {
+      font-style: normal;
+      background: var(--grad-hero);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: clamp(1rem, 1.8vw, 1.2rem);
+      color: var(--c-text2);
+      line-height: 1.75;
+      max-width: 600px; margin:0 auto 2.75rem;
+      font-weight: 400;
+      animation: fade-up .7s .2s var(--ease) both;
+    }
+
+    .hero-btns {
+      display:flex; align-items:center; justify-content:center;
+      flex-wrap:wrap; gap:14px; margin-bottom:2rem;
+      animation: fade-up .7s .3s var(--ease) both;
+    }
+    .btn-primary {
+      display:inline-flex; align-items:center; gap:10px;
+      background: var(--grad-btn);
+      color:#fff; font-weight:700; font-size:1rem;
+      padding: 14px 28px; border-radius: var(--r-md);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 8px 32px rgba(99,102,241,.4);
+      transition: transform .25s var(--ease), box-shadow .25s var(--ease);
+    }
+    .btn-primary:hover { transform:translateY(-3px); box-shadow:0 0 0 1px rgba(255,255,255,.12), 0 20px 50px rgba(99,102,241,.55); }
+    .btn-primary .dl-icon {
+      width:28px; height:28px; border-radius:7px;
+      background:rgba(255,255,255,.15);
+      display:flex; align-items:center; justify-content:center;
+      font-size:.85rem;
+    }
+    .btn-ghost {
+      display:inline-flex; align-items:center; gap:8px;
+      color: var(--c-text2); font-weight:600; font-size:1rem;
+      padding: 13px 28px; border-radius: var(--r-md);
+      background: var(--c-surface);
+      border: 1px solid var(--c-border2);
+      transition: color .2s, border-color .2s, background .2s, transform .2s var(--ease);
+    }
+    .btn-ghost:hover { color:var(--c-text1); border-color:var(--c-border2); background:var(--c-surface2); transform:translateY(-2px); }
+
+    .hero-trust {
+      display:flex; align-items:center; justify-content:center;
+      flex-wrap:wrap; gap:20px;
+      font-size:.78rem; font-weight:500; color:var(--c-text3);
+      animation: fade-up .7s .4s var(--ease) both;
+    }
+    .hero-trust li { list-style:none; display:flex; align-items:center; gap:6px; }
+    .hero-trust li::before { content:'✓'; color:var(--c-green); font-weight:700; }
+
+    /* ── Hero screenshot */
+    .hero-shot {
+      position:relative; z-index:1;
+      margin-top: 5rem; width:100%; max-width:1000px;
+      animation: fade-up .9s .5s var(--ease) both;
+    }
+    .shot-chrome {
+      background: #0c0e17;
+      border:1px solid rgba(255,255,255,.12);
+      border-radius: var(--r-xl);
+      overflow:hidden;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.04),
+        0 2px 4px rgba(0,0,0,.3),
+        0 60px 140px rgba(0,0,0,.7),
+        0 0 80px rgba(99,102,241,.12),
+        inset 0 1px 0 rgba(255,255,255,.06);
+    }
+    .shot-bar {
+      display:flex; align-items:center; gap:12px;
+      padding:14px 20px;
+      background:#080a11;
+      border-bottom:1px solid rgba(255,255,255,.06);
+    }
+    .dots { display:flex; gap:6px; }
+    .dots span {
+      width:12px; height:12px; border-radius:50%;
+    }
+    .dot-r { background:#ff5f57; }
+    .dot-y { background:#febc2e; }
+    .dot-g { background:#28c840; }
+    .shot-url {
+      flex:1; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.06);
+      border-radius:6px; padding:5px 14px;
+      font-size:.72rem; color:var(--c-text3); text-align:center;
+      letter-spacing:.01em;
+    }
+    .shot-chrome img { width:100%; display:block; }
+
+    /* ── glow line below hero */
+    .hero-glow-line {
+      position:absolute; bottom:0; left:50%; transform:translateX(-50%);
+      width:60%; height:1px; z-index:1;
+      background: linear-gradient(90deg, transparent, rgba(99,102,241,.6), rgba(34,211,238,.6), transparent);
+    }
+
+    /* ─────────────────────────────────────────────
+       STATS BAR
+    ───────────────────────────────────────────── */
+    .stats-bar {
+      border-top:1px solid var(--c-border);
+      border-bottom:1px solid var(--c-border);
+      background: rgba(255,255,255,.02);
+      padding:20px 0;
+    }
+    .stats-inner {
+      display:flex; align-items:center; justify-content:center;
+      flex-wrap:wrap; gap:0;
+    }
+    .stat {
+      display:flex; flex-direction:column; align-items:center;
+      padding:0 3rem;
+      border-right:1px solid var(--c-border);
+    }
+    .stat:last-child { border-right:none; }
+    .stat-n {
+      font-size:1.9rem; font-weight:800; letter-spacing:-.04em;
+      background: linear-gradient(135deg,#fff 30%,rgba(255,255,255,.4));
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+    }
+    .stat-l { font-size:.7rem; font-weight:600; text-transform:uppercase; letter-spacing:.09em; color:var(--c-text3); margin-top:2px; }
+
+    /* ─────────────────────────────────────────────
+       FEATURES
+    ───────────────────────────────────────────── */
+    .sec { padding:96px 0; }
+
+    .sec-eyebrow {
+      display:inline-flex; align-items:center; gap:8px;
+      font-size:.72rem; font-weight:700;
+      text-transform:uppercase; letter-spacing:.1em;
+      color:var(--c-blue); margin-bottom:14px;
+    }
+    .sec-eyebrow::before {
+      content:''; display:block;
+      width:18px; height:2px; border-radius:2px;
+      background:var(--c-blue);
+    }
+    .sec-title {
+      font-size: clamp(1.9rem, 3.5vw, 2.75rem);
+      font-weight:800; letter-spacing:-.04em; line-height:1.1;
+      margin-bottom:16px;
+    }
+    .sec-desc {
+      font-size:1.05rem; color:var(--c-text2); line-height:1.75;
+      max-width:520px;
+    }
+    .sec-head { margin-bottom:56px; }
+
+    /* Feature grid */
+    .feat-grid-top {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:16px; margin-bottom:16px;
+    }
+    .feat-grid-bot {
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:16px;
+    }
+
+    .f-card {
+      position:relative; overflow:hidden;
+      background:var(--c-surface);
+      border:1px solid var(--c-border);
+      border-radius:var(--r-xl);
+      padding:32px;
+      transition: transform .35s var(--ease), border-color .35s, box-shadow .35s;
+    }
+    .f-card::before {
+      content:''; position:absolute; inset:0;
+      background: linear-gradient(135deg, rgba(255,255,255,.03) 0%, transparent 60%);
+      pointer-events:none;
+    }
+    .f-card::after {
+      content:''; position:absolute; top:0; left:0; right:0; height:1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
+    }
+    .f-card:hover {
+      transform:translateY(-6px);
+      border-color:var(--c-border2);
+      box-shadow: 0 32px 80px rgba(0,0,0,.45), 0 0 40px rgba(99,102,241,.07);
+    }
+    .f-card.tall {
+      display:flex; flex-direction:column; min-height:420px;
+    }
+    .f-card.tall img {
+      margin-top:auto;
+      border-radius:12px;
+      border:1px solid var(--c-border);
+      box-shadow:0 16px 48px rgba(0,0,0,.6);
+    }
+    .f-card.accent-blue { border-color:rgba(79,142,247,.25); }
+    .f-card.accent-purple { border-color:rgba(168,85,247,.2); }
+
+    .f-label {
+      display:inline-block;
+      font-size:.68rem; font-weight:700;
+      text-transform:uppercase; letter-spacing:.09em;
+      color:var(--c-green);
+      background:rgba(34,197,94,.1);
+      border:1px solid rgba(34,197,94,.2);
+      border-radius:var(--r-pill);
+      padding:3px 10px; margin-bottom:16px;
+    }
+    .f-label.blue { color:#93c5fd; background:rgba(79,142,247,.1); border-color:rgba(79,142,247,.25); }
+    .f-label.purple { color:#c4b5fd; background:rgba(168,85,247,.1); border-color:rgba(168,85,247,.25); }
+
+    .f-icon {
+      width:52px; height:52px;
+      background:var(--c-surface2); border:1px solid var(--c-border2);
+      border-radius:14px;
+      display:flex; align-items:center; justify-content:center;
+      font-size:1.5rem; margin-bottom:20px;
+      transition: background .3s, border-color .3s;
+    }
+    .f-card:hover .f-icon { background:rgba(99,102,241,.12); border-color:rgba(99,102,241,.35); }
+
+    .f-card h3 {
+      font-size:1.15rem; font-weight:700;
+      letter-spacing:-.025em; margin-bottom:10px;
+    }
+    .f-card p { font-size:.875rem; color:var(--c-text2); line-height:1.72; }
+
+    /* ─────────────────────────────────────────────
+       WORKFLOW
+    ───────────────────────────────────────────── */
+    .workflow-sec {
+      padding:96px 0;
+      border-top:1px solid var(--c-border);
+    }
+    .steps {
+      display:grid; grid-template-columns:repeat(3,1fr);
+      gap:0; margin-top:64px; position:relative;
+    }
+    .steps::before {
+      content:''; position:absolute;
+      top:24px; left:calc(100%/6); right:calc(100%/6);
+      height:1px;
+      background: linear-gradient(90deg,
+        var(--c-blue) 0%, var(--c-purple) 50%, var(--c-cyan) 100%);
+    }
+    .step {
+      display:flex; flex-direction:column; align-items:center;
+      text-align:center; padding:0 24px; position:relative; z-index:1;
+    }
+    .step-n {
+      width:48px; height:48px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      font-size:.85rem; font-weight:800;
+      margin-bottom:28px;
+      position:relative; z-index:2;
+      border:2px solid;
+    }
+    .step-n.s1 { border-color:var(--c-blue); color:var(--c-blue); background:rgba(79,142,247,.12); }
+    .step-n.s2 { border-color:var(--c-purple); color:var(--c-purple); background:rgba(168,85,247,.12); }
+    .step-n.s3 { border-color:var(--c-cyan); color:var(--c-cyan); background:rgba(34,211,238,.12); }
+    .step h4 { font-size:1.05rem; font-weight:700; letter-spacing:-.02em; margin-bottom:10px; }
+    .step p { font-size:.85rem; color:var(--c-text2); line-height:1.7; }
+
+    /* ─────────────────────────────────────────────
+       SPECS
+    ───────────────────────────────────────────── */
+    .specs-sec { padding:96px 0; border-top:1px solid var(--c-border); }
+    .specs-table {
+      margin-top:56px;
+      background:var(--c-surface);
+      border:1px solid var(--c-border);
+      border-radius:var(--r-xl);
+      overflow:hidden;
+    }
+    .specs-head {
+      display:grid; grid-template-columns:1fr 1fr;
+      background:var(--c-surface2);
+      border-bottom:1px solid var(--c-border);
+    }
+    .specs-head div {
+      padding:14px 32px;
+      font-size:.68rem; font-weight:700;
+      text-transform:uppercase; letter-spacing:.1em;
+      color:var(--c-text3);
+    }
+    .specs-head div:first-child { border-right:1px solid var(--c-border); }
+    .specs-body { display:grid; grid-template-columns:1fr 1fr; }
+    .specs-col { padding:28px 32px; }
+    .specs-col:first-child { border-right:1px solid var(--c-border); }
+    .specs-col-title {
+      font-size:.68rem; font-weight:700;
+      text-transform:uppercase; letter-spacing:.1em;
+      color:var(--c-blue); margin-bottom:20px;
+    }
+    .spec-row {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:12px 0;
+      border-bottom:1px solid var(--c-border);
+      font-size:.875rem;
+    }
+    .spec-row:last-child { border-bottom:none; }
+    .spec-k { color:var(--c-text2); }
+    .spec-v { color:var(--c-text1); font-weight:600; }
+
+    /* ─────────────────────────────────────────────
+       CTA SECTION
+    ───────────────────────────────────────────── */
+    .cta-sec { padding:96px 0 120px; }
+    .cta-box {
+      position:relative; overflow:hidden;
+      border-radius:var(--r-xl);
+      padding:80px 40px;
+      text-align:center;
+      background: linear-gradient(140deg, rgba(79,142,247,.12) 0%, rgba(99,102,241,.08) 40%, rgba(168,85,247,.08) 70%, rgba(34,211,238,.06) 100%);
+      border:1px solid rgba(99,102,241,.25);
+    }
+    .cta-box::before {
+      content:''; position:absolute; top:0; left:0; right:0; height:1px;
+      background:linear-gradient(90deg, transparent, rgba(99,102,241,.8), rgba(34,211,238,.6), transparent);
+    }
+    /* background glow blob */
+    .cta-box::after {
+      content:''; position:absolute; inset:0; z-index:0;
+      background: radial-gradient(ellipse 60% 50% at 50% 0%, rgba(99,102,241,.15), transparent 70%);
+      pointer-events:none;
+    }
+    .cta-inner { position:relative; z-index:1; }
+    .cta-box h2 {
+      font-size:clamp(2rem, 4vw, 3rem);
+      font-weight:900; letter-spacing:-.04em;
+      margin-bottom:16px;
+    }
+    .cta-box p { font-size:1.05rem; color:var(--c-text2); max-width:460px; margin:0 auto 3rem; line-height:1.75; }
+    .cta-btns { display:flex; justify-content:center; flex-wrap:wrap; gap:14px; }
+    .cta-note { font-size:.75rem; color:var(--c-text3); margin-top:24px; max-width:500px; margin-left:auto; margin-right:auto; line-height:1.65; }
+
+    /* ─────────────────────────────────────────────
+       FOOTER
+    ───────────────────────────────────────────── */
+    footer {
+      border-top:1px solid var(--c-border);
+      padding:60px 0 28px;
+    }
+    .foot-top {
+      display:grid; grid-template-columns:2fr 1fr 1fr 1fr;
+      gap:48px; padding-bottom:56px;
+      border-bottom:1px solid var(--c-border);
+    }
+    .foot-brand .nav-logo { margin-bottom:14px; }
+    .foot-brand p { font-size:.84rem; color:var(--c-text3); line-height:1.7; max-width:240px; margin-bottom:20px; }
+    .foot-tag {
+      display:inline-flex; align-items:center; gap:6px;
+      font-size:.72rem; font-weight:600;
+      background:rgba(34,197,94,.08); border:1px solid rgba(34,197,94,.2);
+      color:var(--c-green); padding:4px 12px; border-radius:var(--r-pill);
+    }
+    .foot-tag::before { content:'●'; font-size:.55rem; }
+    .foot-col h5 {
+      font-size:.7rem; font-weight:700; text-transform:uppercase;
+      letter-spacing:.09em; color:var(--c-text3); margin-bottom:18px;
+    }
+    .foot-col ul { list-style:none; }
+    .foot-col ul li { margin-bottom:10px; }
+    .foot-col ul a { font-size:.85rem; color:var(--c-text2); transition:color .2s; }
+    .foot-col ul a:hover { color:var(--c-text1); }
+    .foot-bottom {
+      display:flex; justify-content:space-between; align-items:center;
+      padding-top:28px; font-size:.78rem; color:var(--c-text3);
+    }
+
+    /* ─────────────────────────────────────────────
+       ANIMATIONS
+    ───────────────────────────────────────────── */
+    @keyframes fade-up {
+      from { opacity:0; transform:translateY(24px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+
+    .js-reveal {
+      opacity:0; transform:translateY(28px);
+      transition: opacity .8s var(--ease), transform .8s var(--ease);
+    }
+    .js-reveal.visible { opacity:1; transform:translateY(0); }
+    .delay-1 { transition-delay:.08s; }
+    .delay-2 { transition-delay:.16s; }
+    .delay-3 { transition-delay:.24s; }
+    .delay-4 { transition-delay:.32s; }
+    .delay-5 { transition-delay:.40s; }
+
+    /* ─────────────────────────────────────────────
+       MOBILE NAV DRAWER
+    ───────────────────────────────────────────── */
+    .mobile-menu {
+      display:none; position:fixed; inset:0; z-index:200;
+      background:rgba(4,5,10,.97);
+      flex-direction:column; align-items:center; justify-content:center;
+      gap:32px;
+    }
+    .mobile-menu.open { display:flex; }
+    .mobile-menu a { font-size:1.5rem; font-weight:700; color:var(--c-text1); }
+    .mobile-close {
+      position:absolute; top:24px; right:24px;
+      font-size:1.5rem; cursor:pointer; color:var(--c-text2);
+      background:none; border:none;
+    }
+
+    /* ─────────────────────────────────────────────
+       RESPONSIVE
+    ───────────────────────────────────────────── */
+    @media (max-width:1024px) {
+      .feat-grid-top { grid-template-columns:1fr; }
+      .feat-grid-bot { grid-template-columns:1fr 1fr; }
+      .foot-top { grid-template-columns:1fr 1fr; gap:32px; }
+    }
+    @media (max-width:768px) {
+      .nav-links { display:none; }
+      .nav-ham { display:flex; }
+      #hero { padding:100px 20px 60px; }
+      .hero-h1 { font-size:2.4rem; }
+      .feat-grid-top, .feat-grid-bot { grid-template-columns:1fr; }
+      .steps { grid-template-columns:1fr; gap:40px; }
+      .steps::before { display:none; }
+      .specs-head, .specs-body { grid-template-columns:1fr; }
+      .specs-col:first-child { border-right:none; border-bottom:1px solid var(--c-border); }
+      .specs-head div:first-child { border-right:none; border-bottom:1px solid var(--c-border); }
+      .foot-top { grid-template-columns:1fr 1fr; }
+      .foot-bottom { flex-direction:column; gap:8px; text-align:center; }
+      .stat { padding:0 1.5rem; }
+      .cta-box { padding:56px 24px; }
+    }
+    @media (max-width:480px) {
+      .stats-inner { gap:16px 0; }
+      .stat { border-right:none; border-bottom:1px solid var(--c-border); padding:16px 24px; width:100%; flex-direction:row; justify-content:space-between; }
+      .stat:last-child { border-bottom:none; }
+      .hero-btns { flex-direction:column; align-items:stretch; }
+      .btn-primary, .btn-ghost { justify-content:center; }
+      .foot-top { grid-template-columns:1fr; }
+      .cta-btns { flex-direction:column; align-items:stretch; }
+    }
+  </style>
 </head>
 <body>
 
-  <!-- =================== HEADER =================== -->
-  <header class="site-header" id="site-header">
-    <div class="wrap">
-      <div class="nav-inner">
-        <a href="#" class="logo">
-          <img src="favicon.png" alt="Parcel Tools logo" />
-          <div>
-            <div class="logo-name">Parcel Tools</div>
-            <div class="logo-by">by Nazieh Sayegh</div>
-          </div>
-        </a>
-
-        <div class="nav-links-wrap">
-          <a href="#features">Features</a>
-          <a href="#workflow">How It Works</a>
-          <a href="#specs">Specs</a>
-          <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="nav-btn">
-            Buy License &mdash; $29.99
-          </a>
+<!-- ████████████████ NAV ████████████████ -->
+<header id="nav">
+  <div class="container">
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">
+        <img src="favicon.png" alt="Parcel Tools" />
+        <div>
+          <div>Parcel Tools</div>
+          <span>by Nazieh Sayegh</span>
         </div>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#workflow">How It Works</a>
+        <a href="#specs">Specs</a>
+        <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank">Changelog</a>
+        <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="nav-cta">Buy License — $29.99</a>
+      </nav>
+      <div class="nav-ham" id="ham" aria-label="Open menu">
+        <span></span><span></span><span></span>
       </div>
     </div>
-  </header>
+  </div>
+</header>
 
-  <!-- =================== HERO =================== -->
-  <section class="hero-wrap">
-    <!-- Background orbs -->
-    <div class="orb orb-1"></div>
-    <div class="orb orb-2"></div>
-    <div class="orb orb-3"></div>
+<!-- mobile menu -->
+<div class="mobile-menu" id="mobile-menu">
+  <button class="mobile-close" id="menu-close" aria-label="Close menu">✕</button>
+  <a href="#features" class="mm-link">Features</a>
+  <a href="#workflow" class="mm-link">How It Works</a>
+  <a href="#specs" class="mm-link">Specs</a>
+  <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank">Buy License</a>
+  <a href="#" id="mm-dl" class="btn-primary">Download Free Trial</a>
+</div>
 
-    <div class="hero-eyebrow reveal">
-      <span class="dot"></span>
-      v2.0.7 is live — The most accurate release yet
+<!-- ████████████████ HERO ████████████████ -->
+<section id="hero">
+  <canvas id="hero-canvas"></canvas>
+
+  <div class="hero-inner">
+    <div class="hero-badge">
+      <span class="pulse"></span>
+      v2.0.7 Released — Now live
     </div>
 
-    <h1 class="hero-title reveal reveal-delay-1">
-      <span class="line-1">Survey smarter.</span>
-      <span class="line-2">Map everything.</span>
+    <h1 class="hero-h1">
+      The precision tool<br />
+      <em>land surveyors rely on.</em>
     </h1>
 
-    <p class="hero-sub reveal reveal-delay-2">
-      Parcel Tools is a precision-engineered Windows desktop application built for land surveyors. 
-      Calculate complex parcel areas, edit survey points, and generate professional reports — faster than ever.
+    <p class="hero-sub">
+      Parcel Tools is a high-performance Windows desktop application built specifically for professional land surveyors. 
+      Calculate complex parcel areas, manage survey points, and deliver polished reports — all in one place.
     </p>
 
-    <div id="download" class="hero-cta reveal reveal-delay-3">
+    <div class="hero-btns" id="download">
       <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe"
-         id="downloadInstaller"
-         class="btn-hero-primary"
-         download="Parcel-Tools-Setup-2.0.2.exe">
-        <span class="icon-down">⬇</span>
+         id="dl-btn" class="btn-primary" download>
+        <span class="dl-icon">⬇</span>
         Download Free Trial
       </a>
-      <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="btn-hero-ghost">
-        Buy Full License &mdash; $29.99
+      <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="btn-ghost">
+        Purchase License — $29.99 →
       </a>
     </div>
 
-    <div class="hero-meta reveal reveal-delay-4">
-      <span>Windows 10 / 11</span>
-      <span>30-Day Free Trial</span>
-      <span>No Registration Required</span>
-      <span>110 MB Installer</span>
+    <ul class="hero-trust">
+      <li>Windows 10 / 11</li>
+      <li>30-Day Free Trial</li>
+      <li>No Registration</li>
+      <li>~110 MB Installer</li>
+    </ul>
+  </div>
+
+  <!-- App Screenshot Mockup -->
+  <div class="hero-shot container">
+    <div class="shot-chrome">
+      <div class="shot-bar">
+        <div class="dots">
+          <span class="dot-r"></span>
+          <span class="dot-y"></span>
+          <span class="dot-g"></span>
+        </div>
+        <div class="shot-url">Parcel Tools — Dashboard &amp; Project Manager</div>
+      </div>
+      <img src="screenshot-dashboard.png" alt="Parcel Tools — Dashboard screenshot" />
+    </div>
+  </div>
+
+  <div class="hero-glow-line"></div>
+</section>
+
+<!-- ████████████████ STATS BAR ████████████████ -->
+<div class="stats-bar">
+  <div class="container">
+    <div class="stats-inner">
+      <div class="stat"><div class="stat-n">2.0</div><div class="stat-l">Major Versions</div></div>
+      <div class="stat"><div class="stat-n">100%</div><div class="stat-l">Windows Native</div></div>
+      <div class="stat"><div class="stat-n">30</div><div class="stat-l">Day Free Trial</div></div>
+      <div class="stat"><div class="stat-n">7+</div><div class="stat-l">Core Modules</div></div>
+      <div class="stat"><div class="stat-n">$29.99</div><div class="stat-l">One-Time License</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ████████████████ FEATURES ████████████████ -->
+<section id="features" class="sec">
+  <div class="container">
+    <div class="sec-head js-reveal">
+      <div class="sec-eyebrow">Features</div>
+      <h2 class="sec-title">Everything you need.<br />Built to last.</h2>
+      <p class="sec-desc">Purpose-built for land surveying professionals. Every feature is designed around real workflows, not hypotheticals.</p>
     </div>
 
-    <!-- Browser Mockup -->
-    <div class="hero-screenshot wrap reveal reveal-delay-5">
-      <div class="screenshot-browser">
-        <div class="browser-bar">
-          <div class="traffic-lights">
-            <span class="tl-red"></span>
-            <span class="tl-yellow"></span>
-            <span class="tl-green"></span>
-          </div>
-          <div class="browser-url">Parcel Tools — Parcel Calculator &amp; Survey Manager</div>
-        </div>
-        <img src="screenshot-dashboard.png" alt="Parcel Tools dashboard screenshot" />
+    <!-- Top row: 2 large cards with screenshots -->
+    <div class="feat-grid-top">
+      <div class="f-card tall accent-blue js-reveal">
+        <div class="f-label blue">Core Engine</div>
+        <div class="f-icon">📐</div>
+        <h3>Advanced Parcel Area Calculator</h3>
+        <p>Compute parcel areas with sub-centimeter precision. Handles arcs, curved boundaries, irregular polygons, and multiple coordinate systems — automatically.</p>
+        <img src="screenshot-calculator.png" alt="Area calculator with live plot" />
+      </div>
+
+      <div class="f-card tall accent-purple js-reveal delay-2">
+        <div class="f-label purple">Visualization</div>
+        <div class="f-icon">🗺️</div>
+        <h3>Real-Time Plot Visualization</h3>
+        <p>Enter a point and watch the plot update instantly. An interactive, high-fidelity canvas mirrors your data live — no refresh, no lag, no guessing.</p>
+        <img src="screenshot-dashboard.png" alt="Live visualization dashboard" />
       </div>
     </div>
-  </section>
 
-  <!-- =================== SOCIAL PROOF BAR =================== -->
-  <div class="social-bar">
-    <div class="wrap">
-      <div class="social-bar-inner">
-        <div class="social-stat">
-          <div class="num">2.0</div>
-          <div class="lbl">Major Versions</div>
+    <!-- Bottom row: 3 cards -->
+    <div class="feat-grid-bot" style="margin-top:16px">
+      <div class="f-card js-reveal">
+        <div class="f-icon">📁</div>
+        <h3>Smart Project Management</h3>
+        <p>Auto-save, version history, and a recent files panel keep your work organized and safe across every session.</p>
+      </div>
+      <div class="f-card js-reveal delay-1">
+        <div class="f-icon">📍</div>
+        <h3>Universal Points Editor</h3>
+        <p>Import and export .pnt, .txt, and .csv formats natively. All data stays live-synced across the entire application.</p>
+      </div>
+      <div class="f-card js-reveal delay-2">
+        <div class="f-icon">🤖</div>
+        <h3>Built-In AI Assistant</h3>
+        <p>Context-aware AI guidance built directly into the app — get step-by-step help for complex workflows, no docs needed.</p>
+      </div>
+      <div class="f-card js-reveal delay-1">
+        <div class="f-icon">📤</div>
+        <h3>Professional PDF Reports</h3>
+        <p>Export polished, print-ready parcel reports and high-resolution plot diagrams directly — ready for clients and official submissions.</p>
+      </div>
+      <div class="f-card js-reveal delay-2">
+        <div class="f-icon">⚙️</div>
+        <h3>Global Configuration</h3>
+        <p>Metric or imperial, define precision levels and coordinate systems globally. The software adapts to your workflow, not the other way around.</p>
+      </div>
+      <div class="f-card js-reveal delay-3">
+        <div class="f-icon">⚡</div>
+        <h3>Fully Offline Core</h3>
+        <p>The calculation engine runs entirely offline with zero latency. No cloud dependency. Works in the field, even without signal.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ████████████████ WORKFLOW ████████████████ -->
+<section id="workflow" class="workflow-sec">
+  <div class="container">
+    <div class="sec-head js-reveal">
+      <div class="sec-eyebrow">Workflow</div>
+      <h2 class="sec-title">From raw points to<br />professional report in minutes.</h2>
+    </div>
+
+    <div class="steps">
+      <div class="step js-reveal">
+        <div class="step-n s1">01</div>
+        <h4>Import Your Survey Data</h4>
+        <p>Load survey points from .pnt, .csv, or .txt files — or enter them manually into the precision editor. Any format works out of the box.</p>
+      </div>
+      <div class="step js-reveal delay-2">
+        <div class="step-n s2">02</div>
+        <h4>Calculate &amp; Visualize</h4>
+        <p>Hit Calculate — instantly see the precise parcel area alongside a live interactive plot. Adjust any point and results update in real time.</p>
+      </div>
+      <div class="step js-reveal delay-4">
+        <div class="step-n s3">03</div>
+        <h4>Export &amp; Deliver</h4>
+        <p>Generate a professional PDF report or high-res plot image in one click. Save the project and access it again anytime.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ████████████████ SPECS ████████████████ -->
+<section id="specs" class="specs-sec">
+  <div class="container">
+    <div class="sec-head js-reveal">
+      <div class="sec-eyebrow">Technical Specs</div>
+      <h2 class="sec-title">Built for professional<br />Windows workstations.</h2>
+    </div>
+
+    <div class="specs-table js-reveal">
+      <div class="specs-head">
+        <div>Minimum Requirements</div>
+        <div>Recommended Configuration</div>
+      </div>
+      <div class="specs-body">
+        <div class="specs-col">
+          <div class="specs-col-title">Minimum</div>
+          <div class="spec-row"><span class="spec-k">Operating System</span><span class="spec-v">Windows 10 (64-bit)</span></div>
+          <div class="spec-row"><span class="spec-k">Memory</span><span class="spec-v">4 GB RAM</span></div>
+          <div class="spec-row"><span class="spec-k">Storage</span><span class="spec-v">500 MB Free</span></div>
+          <div class="spec-row"><span class="spec-k">Display</span><span class="spec-v">1280 × 720</span></div>
+          <div class="spec-row"><span class="spec-k">Network</span><span class="spec-v">Required for AI only</span></div>
         </div>
-        <div class="social-stat">
-          <div class="num">100%</div>
-          <div class="lbl">Windows Native</div>
-        </div>
-        <div class="social-stat">
-          <div class="num">7+</div>
-          <div class="lbl">Core Features</div>
-        </div>
-        <div class="social-stat">
-          <div class="num">30</div>
-          <div class="lbl">Day Free Trial</div>
-        </div>
-        <div class="social-stat">
-          <div class="num">$29.99</div>
-          <div class="lbl">One-Time License</div>
+        <div class="specs-col">
+          <div class="specs-col-title">Recommended</div>
+          <div class="spec-row"><span class="spec-k">Operating System</span><span class="spec-v">Windows 11 (64-bit)</span></div>
+          <div class="spec-row"><span class="spec-k">Memory</span><span class="spec-v">8 GB RAM or more</span></div>
+          <div class="spec-row"><span class="spec-k">Storage</span><span class="spec-v">1 GB NVMe SSD</span></div>
+          <div class="spec-row"><span class="spec-k">Display</span><span class="spec-v">1920 × 1080 (FHD)</span></div>
+          <div class="spec-row"><span class="spec-k">Network</span><span class="spec-v">Broadband Internet</span></div>
         </div>
       </div>
     </div>
   </div>
+</section>
 
-  <main>
-    <!-- =================== FEATURES =================== -->
-    <section id="features" class="features-sec">
-      <div class="wrap">
-        <div class="features-header">
-          <div class="section-label">Features</div>
-          <h2 class="section-title">Everything a surveyor needs.<br />Nothing they don't.</h2>
-          <p class="section-desc">Built from the ground up for professional land surveyors. Powerful enough for complex projects, intuitive enough for daily use.</p>
+<!-- ████████████████ CTA ████████████████ -->
+<section class="cta-sec">
+  <div class="container">
+    <div class="cta-box js-reveal">
+      <div class="cta-inner">
+        <h2>Start surveying smarter today.</h2>
+        <p>Download the full-featured free trial. No account. No credit card. No limits — for 30 days.</p>
+        <div class="cta-btns">
+          <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe"
+             id="dl-btn-2" class="btn-primary" download>
+            <span class="dl-icon">⬇</span>
+            Download for Windows — Free
+          </a>
+          <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="btn-ghost">
+            Purchase License — $29.99 →
+          </a>
         </div>
-
-        <!-- Large feature cards (2 columns) -->
-        <div class="features-main-grid">
-          <!-- Card 1: Area Calculator (with screenshot) -->
-          <div class="feat-card large reveal">
-            <div class="feat-tag">Core Engine</div>
-            <div class="feat-icon">📐</div>
-            <h3>Advanced Parcel Area Calculator</h3>
-            <p>Compute the area of any parcel geometry with sub-millimeter accuracy. Supports curved boundaries, arcs, irregular polygons, and multiple coordinate systems with full precision control.</p>
-            <img src="screenshot-calculator.png" alt="Area calculator with live plot visualization" />
-          </div>
-
-          <!-- Card 2: Live Plotting (with screenshot) -->
-          <div class="feat-card large reveal reveal-delay-1">
-            <div class="feat-tag">Visualization</div>
-            <div class="feat-icon">🗺️</div>
-            <h3>Real-Time Plot Visualization</h3>
-            <p>See your survey data come alive instantly. As you input or modify points, the interactive plotting canvas updates in real time — giving you immediate visual confirmation of every change.</p>
-            <img src="screenshot-dashboard.png" alt="Dashboard with live visualization" />
-          </div>
-        </div>
-
-        <!-- Sub feature cards (3 columns) -->
-        <div class="features-sub-grid">
-          <!-- Card 3 -->
-          <div class="feat-card reveal">
-            <div class="feat-icon">📁</div>
-            <h3>Intelligent Project Management</h3>
-            <p>Organize multiple survey projects with automatic save states, version control, and rapid-access recent file panels. Never lose your work.</p>
-          </div>
-
-          <!-- Card 4 -->
-          <div class="feat-card reveal reveal-delay-1">
-            <div class="feat-icon">📍</div>
-            <h3>Universal Points Editor</h3>
-            <p>Import and export from any standard surveying format — .pnt, .txt, .csv. Live synchronization ensures data consistency across the entire project.</p>
-          </div>
-
-          <!-- Card 5 -->
-          <div class="feat-card reveal reveal-delay-2">
-            <div class="feat-icon">🤖</div>
-            <h3>AI-Powered Assistant</h3>
-            <p>An intelligent, context-aware assistant built directly into the software guides you through complex computations and workflow decisions in seconds.</p>
-          </div>
-
-          <!-- Card 6 -->
-          <div class="feat-card reveal reveal-delay-3">
-            <div class="feat-icon">📤</div>
-            <h3>Professional PDF Export</h3>
-            <p>Generate print-ready parcel reports and high-resolution plot diagrams directly from within the application — ready for clients and official submissions.</p>
-          </div>
-
-          <!-- Card 7 -->
-          <div class="feat-card reveal reveal-delay-4">
-            <div class="feat-icon">⚙️</div>
-            <h3>Global Configuration Engine</h3>
-            <p>Switch between metric and imperial units, define precision levels, configure coordinate systems, and set global display preferences — all from a single settings panel.</p>
-          </div>
-
-          <!-- Card 8 -->
-          <div class="feat-card reveal reveal-delay-5">
-            <div class="feat-icon">⚡</div>
-            <h3>Offline-First Performance</h3>
-            <p>The core calculation engine runs entirely offline, with zero latency. No cloud dependency. No waiting. Just raw, reliable performance when and where you need it.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- =================== HOW IT WORKS =================== -->
-    <section id="workflow" class="workflow-sec">
-      <div class="wrap">
-        <div class="section-label">Workflow</div>
-        <h2 class="section-title">From points to parcel<br />in three steps.</h2>
-
-        <div class="workflow-grid">
-          <div class="workflow-step reveal">
-            <div class="step-num step-num-1">01</div>
-            <h4>Import Your Survey Data</h4>
-            <p>Load existing survey points from .pnt, .csv, or .txt files — or enter them manually into the built-in editor. All formats are supported out of the box.</p>
-          </div>
-          <div class="workflow-step reveal reveal-delay-2">
-            <div class="step-num step-num-2">02</div>
-            <h4>Calculate & Visualize</h4>
-            <p>Hit Calculate and instantly see the computed parcel area alongside a real-time interactive plot of your polygon. Adjust points and watch results update live.</p>
-          </div>
-          <div class="workflow-step reveal reveal-delay-4">
-            <div class="step-num step-num-3">03</div>
-            <h4>Export & Deliver</h4>
-            <p>Generate a professional PDF report or export the plot as a high-resolution image. Save your project and access it again anytime from the recent files panel.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- =================== SPECS =================== -->
-    <section id="specs" class="specs-sec">
-      <div class="wrap">
-        <div class="section-label">Technical Specs</div>
-        <h2 class="section-title">Built to run reliably<br />on professional workstations.</h2>
-
-        <div class="specs-card reveal">
-          <div class="specs-header-row">
-            <div class="specs-col-head">Minimum Requirements</div>
-            <div class="specs-col-head">Recommended Configuration</div>
-          </div>
-          <div class="specs-body">
-            <div class="specs-column">
-              <div class="col-title">Minimum</div>
-              <div class="spec-row"><span class="spec-key">Operating System</span><span class="spec-val">Windows 10 (64-bit)</span></div>
-              <div class="spec-row"><span class="spec-key">Memory (RAM)</span><span class="spec-val">4 GB</span></div>
-              <div class="spec-row"><span class="spec-key">Storage</span><span class="spec-val">500 MB free</span></div>
-              <div class="spec-row"><span class="spec-key">Display</span><span class="spec-val">1280 × 720</span></div>
-              <div class="spec-row"><span class="spec-key">Network</span><span class="spec-val">Required for AI only</span></div>
-            </div>
-            <div class="specs-column">
-              <div class="col-title">Recommended</div>
-              <div class="spec-row"><span class="spec-key">Operating System</span><span class="spec-val">Windows 11 (64-bit)</span></div>
-              <div class="spec-row"><span class="spec-key">Memory (RAM)</span><span class="spec-val">8 GB or more</span></div>
-              <div class="spec-row"><span class="spec-key">Storage</span><span class="spec-val">1 GB NVMe SSD</span></div>
-              <div class="spec-row"><span class="spec-key">Display</span><span class="spec-val">1920 × 1080 (Full HD)</span></div>
-              <div class="spec-row"><span class="spec-key">Network</span><span class="spec-val">Broadband Internet</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- =================== CTA =================== -->
-    <section class="cta-sec">
-      <div class="wrap">
-        <div class="cta-card reveal">
-          <h2>Ready to map with precision?</h2>
-          <p>Download the full-featured free trial and experience the most powerful surveying software on Windows — no registration, no fees.</p>
-
-          <div class="cta-buttons">
-            <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe"
-               id="downloadInstaller2"
-               class="btn-hero-primary"
-               download="Parcel-Tools-Setup-2.0.2.exe">
-              <span class="icon-down">⬇</span>
-              Download Free for Windows
-            </a>
-            <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="btn-hero-ghost">
-              Purchase License &mdash; $29.99
-            </a>
-          </div>
-
-          <p class="notice-small">
-            ⚠️ If your browser renames the file to .zip — right-click the button → "Save link as..." → save as <strong>.exe</strong>.<br>
-            Windows SmartScreen may appear — click "More info" → "Run anyway" to proceed.
-          </p>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <!-- =================== FOOTER =================== -->
-  <footer class="site-footer">
-    <div class="wrap">
-      <div class="footer-top">
-        <div class="footer-brand-block">
-          <div class="logo">
-            <img src="favicon.png" alt="Parcel Tools" />
-            <div>
-              <div class="logo-name">Parcel Tools</div>
-              <div class="logo-by">by Nazieh Sayegh</div>
-            </div>
-          </div>
-          <p>Precision-engineered surveying and land mapping software for Windows professionals.</p>
-        </div>
-
-        <div class="footer-col">
-          <h5>Product</h5>
-          <ul>
-            <li><a href="#download">Download</a></li>
-            <li><a href="#features">Features</a></li>
-            <li><a href="#workflow">How It Works</a></li>
-            <li><a href="#specs">System Requirements</a></li>
-          </ul>
-        </div>
-
-        <div class="footer-col">
-          <h5>Open Source</h5>
-          <ul>
-            <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying" target="_blank">GitHub</a></li>
-            <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank">Releases</a></li>
-            <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/issues" target="_blank">Report Issue</a></li>
-          </ul>
-        </div>
-
-        <div class="footer-col">
-          <h5>Purchase</h5>
-          <ul>
-            <li><a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank">Buy License</a></li>
-            <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/discussions" target="_blank">Community</a></li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="footer-bottom-row">
-        <div>© 2024–2026 Nazieh Sayegh. All rights reserved. Parcel Tools™</div>
-        <div>v2.0.7 Stable · Windows</div>
+        <p class="cta-note">
+          ⚠️ If your browser renames the file to .zip — right-click the button → "Save link as…" → save as <strong>.exe</strong>.<br />
+          Windows SmartScreen may show a warning — click "More info" → "Run anyway".
+        </p>
       </div>
     </div>
-  </footer>
+  </div>
+</section>
 
-  <script>
-    // ---- Navbar scroll effect ----
-    const header = document.getElementById('site-header');
-    window.addEventListener('scroll', () => {
-      if (window.scrollY > 40) {
-        header.classList.add('scrolled');
-      } else {
-        header.classList.remove('scrolled');
-      }
-    }, { passive: true });
+<!-- ████████████████ FOOTER ████████████████ -->
+<footer>
+  <div class="container">
+    <div class="foot-top">
+      <div class="foot-brand">
+        <a href="#" class="nav-logo">
+          <img src="favicon.png" alt="Parcel Tools" />
+          <div><div>Parcel Tools</div><span>by Nazieh Sayegh</span></div>
+        </a>
+        <p>Precision-engineered desktop software for professional land surveyors on Windows.</p>
+        <div class="foot-tag">Stable Release · v2.0.7</div>
+      </div>
 
-    // ---- Scroll reveal ----
-    const revealEls = document.querySelectorAll('.reveal');
-    const revealObs = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('in');
-          revealObs.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+      <div class="foot-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="#download">Download</a></li>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#workflow">How It Works</a></li>
+          <li><a href="#specs">System Requirements</a></li>
+        </ul>
+      </div>
 
-    revealEls.forEach(el => revealObs.observe(el));
+      <div class="foot-col">
+        <h5>Open Source</h5>
+        <ul>
+          <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying" target="_blank">GitHub Repo</a></li>
+          <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank">All Releases</a></li>
+          <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/issues" target="_blank">Report a Bug</a></li>
+          <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/discussions" target="_blank">Community</a></li>
+        </ul>
+      </div>
 
-    // Hero elements get triggered immediately
-    setTimeout(() => {
-      document.querySelectorAll('.hero-wrap .reveal').forEach(el => el.classList.add('in'));
-    }, 120);
+      <div class="foot-col">
+        <h5>Purchase</h5>
+        <ul>
+          <li><a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank">Buy License — $29.99</a></li>
+        </ul>
+      </div>
+    </div>
 
-    // ---- Download click handlers ----
-    function startDownload(e) {
-      e.preventDefault();
-      const url = 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe';
-      window.location.href = url;
-      setTimeout(() => {
-        alert(
-          '✅ Download Started!\n\n' +
-          '1. Find "Parcel-Tools-Setup-2.0.2.exe" in your Downloads folder.\n' +
-          '2. Double-click to run. If SmartScreen appears → "More info" → "Run anyway".\n' +
-          '3. Follow the setup wizard and launch from your Desktop shortcut!'
-        );
-      }, 900);
+    <div class="foot-bottom">
+      <div>© 2024–2026 Nazieh Sayegh. All rights reserved. Parcel Tools™</div>
+      <div>v2.0.7 Stable · Windows 10/11</div>
+    </div>
+  </div>
+</footer>
+
+<!-- ████████████████ SCRIPTS ████████████████ -->
+<script>
+/* ── Navbar scroll ── */
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => {
+  nav.classList.toggle('stuck', window.scrollY > 30);
+}, { passive: true });
+
+/* ── Mobile menu ── */
+const ham = document.getElementById('ham');
+const mm  = document.getElementById('mobile-menu');
+const mmc = document.getElementById('menu-close');
+ham.addEventListener('click', () => mm.classList.add('open'));
+mmc.addEventListener('click', () => mm.classList.remove('open'));
+mm.querySelectorAll('.mm-link, a[href^="#"]').forEach(a => {
+  a.addEventListener('click', () => mm.classList.remove('open'));
+});
+
+/* ── Scroll reveal ── */
+const obs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      obs.unobserve(e.target);
     }
+  });
+}, { threshold: 0.08, rootMargin: '0px 0px -36px 0px' });
+document.querySelectorAll('.js-reveal').forEach(el => obs.observe(el));
 
-    document.getElementById('downloadInstaller').addEventListener('click', startDownload);
-    document.getElementById('downloadInstaller2').addEventListener('click', startDownload);
+/* ── Hero elements ── */
+setTimeout(() => {
+  document.querySelectorAll('#hero .js-reveal, .hero-shot, .hero-badge, .hero-h1, .hero-sub, .hero-btns, .hero-trust').forEach(el => {
+    if (el.classList.contains('js-reveal')) el.classList.add('visible');
+  });
+}, 80);
 
-    // ---- Smooth scrolling ----
-    document.querySelectorAll('a[href^="#"]').forEach(a => {
-      a.addEventListener('click', function(e) {
-        const target = document.querySelector(this.getAttribute('href'));
-        if (target) {
-          e.preventDefault();
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+/* ── Download handler ── */
+function doDownload(e) {
+  e.preventDefault();
+  window.location.href = 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe';
+  setTimeout(() => {
+    alert(
+      '✅ Download Started!\n\n' +
+      '→ Find "Parcel-Tools-Setup-2.0.2.exe" in your Downloads folder.\n' +
+      '→ Double-click to install. If Windows SmartScreen appears:\n' +
+      '   click "More info" → "Run anyway".\n\n' +
+      'Enjoy Parcel Tools!'
+    );
+  }, 1000);
+}
+['dl-btn','dl-btn-2','mm-dl'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', doDownload);
+});
+
+/* ── Smooth scroll ── */
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', function(e) {
+    const t = document.querySelector(this.getAttribute('href'));
+    if (t) { e.preventDefault(); t.scrollIntoView({ behavior:'smooth', block:'start' }); }
+  });
+});
+
+/* ── Canvas particle field ── */
+(function() {
+  const canvas = document.getElementById('hero-canvas');
+  const ctx    = canvas.getContext('2d');
+  let W, H, pts = [];
+
+  function resize() {
+    W = canvas.width  = canvas.offsetWidth;
+    H = canvas.height = canvas.offsetHeight;
+  }
+
+  function makePts(n) {
+    pts = [];
+    for (let i = 0; i < n; i++) {
+      pts.push({
+        x:  Math.random() * W,
+        y:  Math.random() * H,
+        r:  Math.random() * 1.2 + 0.3,
+        vx: (Math.random() - 0.5) * 0.25,
+        vy: (Math.random() - 0.5) * 0.25,
+        a:  Math.random()
       });
+    }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    const LINK = 130;
+    pts.forEach((p, i) => {
+      // drift
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+      if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+      // dot
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(148,163,255,${0.25 + p.a * 0.2})`;
+      ctx.fill();
+      // lines
+      for (let j = i + 1; j < pts.length; j++) {
+        const q  = pts[j];
+        const dx = p.x - q.x, dy = p.y - q.y;
+        const d  = Math.sqrt(dx*dx + dy*dy);
+        if (d < LINK) {
+          const alpha = (1 - d / LINK) * 0.12;
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(q.x, q.y);
+          ctx.strokeStyle = `rgba(99,102,241,${alpha})`;
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
+      }
     });
-  </script>
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener('resize', () => { resize(); makePts(90); });
+  resize(); makePts(90); draw();
+})();
+</script>
 </body>
 </html>
