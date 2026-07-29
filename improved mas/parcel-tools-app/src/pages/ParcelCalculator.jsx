@@ -1044,6 +1044,14 @@ const ParcelCalculator = () => {
 
   // Save parcel
   const handleSaveParcel = () => {
+    // GUARD: If we are currently editing an existing parcel, update it instead
+    // of creating a brand new entry. This prevents duplication when editingParcelId
+    // is set but the "Save Parcel" code path is somehow triggered.
+    if (editingParcelId) {
+      handleUpdateSavedParcel();
+      return;
+    }
+
     if (!parcelNumber.trim()) {
       showErrorToast('⚠️ Enter parcel number!');
       return;
@@ -1089,6 +1097,7 @@ const ParcelCalculator = () => {
       }
     }, 100);
   };
+
 
   // Delete last point
   const handleUndo = () => {
