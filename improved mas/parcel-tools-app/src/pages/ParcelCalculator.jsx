@@ -839,7 +839,7 @@ const ParcelCalculator = () => {
 
   // Add point ID
   const handleAddPoint = () => {
-    if (isClosed || area !== null) {
+    if ((isClosed || area !== null) && editingPointIndex === null && insertPointAfterIndex === null) {
       showErrorToast('⚠️ Boundary is already closed! Save or clear the active parcel first.');
       return;
     }
@@ -3286,14 +3286,18 @@ const ParcelCalculator = () => {
                         handleAddPoint();
                       }
                     }}
-                    disabled={isClosed || area !== null}
+                    disabled={(isClosed || area !== null) && editingPointIndex === null && insertPointAfterIndex === null}
                     className="flex-1 bg-dark-800 border-2 border-dark-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
-                    placeholder={(isClosed || area !== null) ? "Boundary is closed" : "Point ID"}
+                    placeholder={
+                      editingPointIndex !== null ? `Edit point ${enteredIds[editingPointIndex]}` :
+                      insertPointAfterIndex !== null ? `Insert point after ${enteredIds[insertPointAfterIndex]}` :
+                      (isClosed || area !== null) ? "Boundary is closed" : "Point ID"
+                    }
                     autoComplete="off"
                   />
                   <button 
                     onClick={handleAddPoint} 
-                    disabled={isClosed || area !== null}
+                    disabled={(isClosed || area !== null) && editingPointIndex === null && insertPointAfterIndex === null}
                     className="bg-primary hover:bg-primary-light text-white text-xs px-3 rounded font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     ADD
@@ -3380,7 +3384,17 @@ const ParcelCalculator = () => {
             {enteredIds.length > 0 && (
               <div className="mt-3 text-[11px] text-dark-400 bg-dark-800/40 p-2 rounded border border-dark-800 text-center">
                 {enteredIds.length >= 3 ? (
-                  <span>Enter <strong className="text-primary">"{enteredIds[0]}"</strong> again to close loop and calculate area</span>
+                  <div className="flex flex-col gap-2">
+                    <span>Enter <strong className="text-primary">"{enteredIds[0]}"</strong> again to close loop and calculate area</span>
+                    {!(isClosed || area !== null) && (
+                      <button 
+                        onClick={() => closePolygonAndPrompt(enteredIds)}
+                        className="bg-primary hover:bg-primary-light text-white font-bold py-1.5 px-3 rounded text-xs transition-all w-full flex items-center justify-center gap-1"
+                      >
+                        ✓ Close Boundary Automatically
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <span>Add at least 3 points to draw polygon</span>
                 )}
