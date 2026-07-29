@@ -261,14 +261,15 @@ const ParcelCalculator = () => {
   }, [loadedPoints, enteredIds, curves]);
 
   // Update active area and perimeter when points map changes (e.g., when points file is replaced or removed)
+  // ONLY recalculate if the boundary is already explicitly closed by the user
   useEffect(() => {
-    if (enteredIds.length >= 3 && Object.keys(loadedPoints).length > 0) {
+    if (isClosed && enteredIds.length >= 3 && Object.keys(loadedPoints).length > 0) {
       updateCalculatedArea(enteredIds, curves);
     } else if (Object.keys(loadedPoints).length === 0 && enteredIds.length >= 3) {
       setArea(null);
       setPerimeter(null);
     }
-  }, [loadedPoints, enteredIds, curves, updateCalculatedArea]);
+  }, [loadedPoints, enteredIds, curves, isClosed, updateCalculatedArea]);
 
 
 
