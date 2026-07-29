@@ -359,6 +359,16 @@ class FirebaseService:
         Add a device to user's active devices
         Returns: {'success': bool, 'error': str, 'device_count': int}
         """
+        import hashlib as _hashlib
+        
+        # ── Normalize: always work with the hash, never the raw value ──────────
+        # This ensures the same machine is always recognized even if previously
+        # stored as raw ID (old versions) or as hash (new versions).
+        if len(machine_id) == 64 and all(c in '0123456789abcdef' for c in machine_id.lower()):
+            machine_id_hash = machine_id.lower()
+        else:
+            machine_id_hash = _hashlib.sha256(machine_id.encode()).hexdigest()
+
         try:
             if self._is_online():
                 user_ref = self.db.collection('users').document(user_id)
@@ -374,10 +384,20 @@ class FirebaseService:
                 
                 # Check if device already exists
                 for device_id, device_info in devices.items():
-                    if isinstance(device_info, dict) and device_info.get('machine_id') == machine_id:
+                    if not isinstance(device_info, dict):
+                        continue
+                    
+                    stored = device_info.get('machine_id', '')
+                    if len(stored) == 64 and all(c in '0123456789abcdef' for c in stored.lower()):
+                        stored_hash = stored.lower()
+                    else:
+                        stored_hash = _hashlib.sha256(stored.encode()).hexdigest() if stored else ''
+
+                    if stored_hash == machine_id_hash:
                         # Update last_seen and other details
                         update_fields = {
-                            f'devices.{device_id}.last_seen': datetime.now().isoformat()
+                            f'devices.{device_id}.last_seen': datetime.now().isoformat(),
+                            f'devices.{device_id}.machine_id': machine_id_hash # Migrate to hash
                         }
                         if computer_name:
                             update_fields[f'devices.{device_id}.computer_name'] = computer_name
@@ -402,7 +422,7 @@ class FirebaseService:
                 import uuid
                 device_id = str(uuid.uuid4())
                 devices[device_id] = {
-                    'machine_id': machine_id,
+                    'machine_id': machine_id_hash,
                     'device_name': device_name,
                     'computer_name': computer_name or '',
                     'os_user': os_user or '',
@@ -426,8 +446,18 @@ class FirebaseService:
                 
                 # Check if device exists
                 for device_id, device_info in devices.items():
-                    if isinstance(device_info, dict) and device_info.get('machine_id') == machine_id:
+                    if not isinstance(device_info, dict):
+                        continue
+                    
+                    stored = device_info.get('machine_id', '')
+                    if len(stored) == 64 and all(c in '0123456789abcdef' for c in stored.lower()):
+                        stored_hash = stored.lower()
+                    else:
+                        stored_hash = _hashlib.sha256(stored.encode()).hexdigest() if stored else ''
+
+                    if stored_hash == machine_id_hash:
                         devices[device_id]['last_seen'] = datetime.now().isoformat()
+                        devices[device_id]['machine_id'] = machine_id_hash # Migrate to hash
                         if computer_name:
                             devices[device_id]['computer_name'] = computer_name
                         if os_user:
@@ -452,7 +482,7 @@ class FirebaseService:
                 import uuid
                 device_id = str(uuid.uuid4())
                 devices[device_id] = {
-                    'machine_id': machine_id,
+                    'machine_id': machine_id_hash,
                     'device_name': device_name,
                     'computer_name': computer_name or '',
                     'os_user': os_user or '',
