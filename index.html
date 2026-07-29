@@ -1,257 +1,399 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Parcel Tools - Precision Engineering & Surveying Software</title>
-    <meta name="description" content="Professional surveying and land mapping software for calculating parcel areas, managing survey projects, and processing survey data.">
-    
-    <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
-    <link rel="apple-touch-icon" sizes="180x180" href="favicon.png">
-    
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Parcel Tools — Precision Surveying Software for Windows</title>
+  <meta name="description" content="Parcel Tools is a professional-grade Windows desktop application for land surveyors. Calculate parcel areas, manage survey points, and visualize plots with precision." />
+  <link rel="icon" type="image/x-icon" href="favicon.ico" />
+  <link rel="apple-touch-icon" href="favicon.png" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    
-    <!-- Navigation -->
-    <header class="navbar" id="navbar">
-        <div class="container nav-container">
-            <a href="#" class="brand">
-                <img src="favicon.png" alt="Parcel Tools Icon">
-                Parcel Tools
+
+  <!-- =================== HEADER =================== -->
+  <header class="site-header" id="site-header">
+    <div class="wrap">
+      <div class="nav-inner">
+        <a href="#" class="logo">
+          <img src="favicon.png" alt="Parcel Tools logo" />
+          <div>
+            <div class="logo-name">Parcel Tools</div>
+            <div class="logo-by">by Nazieh Sayegh</div>
+          </div>
+        </a>
+
+        <div class="nav-links-wrap">
+          <a href="#features">Features</a>
+          <a href="#workflow">How It Works</a>
+          <a href="#specs">Specs</a>
+          <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="nav-btn">
+            Buy License &mdash; $29.99
+          </a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- =================== HERO =================== -->
+  <section class="hero-wrap">
+    <!-- Background orbs -->
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+
+    <div class="hero-eyebrow reveal">
+      <span class="dot"></span>
+      v2.0.7 is live — The most accurate release yet
+    </div>
+
+    <h1 class="hero-title reveal reveal-delay-1">
+      <span class="line-1">Survey smarter.</span>
+      <span class="line-2">Map everything.</span>
+    </h1>
+
+    <p class="hero-sub reveal reveal-delay-2">
+      Parcel Tools is a precision-engineered Windows desktop application built for land surveyors. 
+      Calculate complex parcel areas, edit survey points, and generate professional reports — faster than ever.
+    </p>
+
+    <div id="download" class="hero-cta reveal reveal-delay-3">
+      <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe"
+         id="downloadInstaller"
+         class="btn-hero-primary"
+         download="Parcel-Tools-Setup-2.0.2.exe">
+        <span class="icon-down">⬇</span>
+        Download Free Trial
+      </a>
+      <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="btn-hero-ghost">
+        Buy Full License &mdash; $29.99
+      </a>
+    </div>
+
+    <div class="hero-meta reveal reveal-delay-4">
+      <span>Windows 10 / 11</span>
+      <span>30-Day Free Trial</span>
+      <span>No Registration Required</span>
+      <span>110 MB Installer</span>
+    </div>
+
+    <!-- Browser Mockup -->
+    <div class="hero-screenshot wrap reveal reveal-delay-5">
+      <div class="screenshot-browser">
+        <div class="browser-bar">
+          <div class="traffic-lights">
+            <span class="tl-red"></span>
+            <span class="tl-yellow"></span>
+            <span class="tl-green"></span>
+          </div>
+          <div class="browser-url">Parcel Tools — Parcel Calculator &amp; Survey Manager</div>
+        </div>
+        <img src="screenshot-dashboard.png" alt="Parcel Tools dashboard screenshot" />
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== SOCIAL PROOF BAR =================== -->
+  <div class="social-bar">
+    <div class="wrap">
+      <div class="social-bar-inner">
+        <div class="social-stat">
+          <div class="num">2.0</div>
+          <div class="lbl">Major Versions</div>
+        </div>
+        <div class="social-stat">
+          <div class="num">100%</div>
+          <div class="lbl">Windows Native</div>
+        </div>
+        <div class="social-stat">
+          <div class="num">7+</div>
+          <div class="lbl">Core Features</div>
+        </div>
+        <div class="social-stat">
+          <div class="num">30</div>
+          <div class="lbl">Day Free Trial</div>
+        </div>
+        <div class="social-stat">
+          <div class="num">$29.99</div>
+          <div class="lbl">One-Time License</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <!-- =================== FEATURES =================== -->
+    <section id="features" class="features-sec">
+      <div class="wrap">
+        <div class="features-header">
+          <div class="section-label">Features</div>
+          <h2 class="section-title">Everything a surveyor needs.<br />Nothing they don't.</h2>
+          <p class="section-desc">Built from the ground up for professional land surveyors. Powerful enough for complex projects, intuitive enough for daily use.</p>
+        </div>
+
+        <!-- Large feature cards (2 columns) -->
+        <div class="features-main-grid">
+          <!-- Card 1: Area Calculator (with screenshot) -->
+          <div class="feat-card large reveal">
+            <div class="feat-tag">Core Engine</div>
+            <div class="feat-icon">📐</div>
+            <h3>Advanced Parcel Area Calculator</h3>
+            <p>Compute the area of any parcel geometry with sub-millimeter accuracy. Supports curved boundaries, arcs, irregular polygons, and multiple coordinate systems with full precision control.</p>
+            <img src="screenshot-calculator.png" alt="Area calculator with live plot visualization" />
+          </div>
+
+          <!-- Card 2: Live Plotting (with screenshot) -->
+          <div class="feat-card large reveal reveal-delay-1">
+            <div class="feat-tag">Visualization</div>
+            <div class="feat-icon">🗺️</div>
+            <h3>Real-Time Plot Visualization</h3>
+            <p>See your survey data come alive instantly. As you input or modify points, the interactive plotting canvas updates in real time — giving you immediate visual confirmation of every change.</p>
+            <img src="screenshot-dashboard.png" alt="Dashboard with live visualization" />
+          </div>
+        </div>
+
+        <!-- Sub feature cards (3 columns) -->
+        <div class="features-sub-grid">
+          <!-- Card 3 -->
+          <div class="feat-card reveal">
+            <div class="feat-icon">📁</div>
+            <h3>Intelligent Project Management</h3>
+            <p>Organize multiple survey projects with automatic save states, version control, and rapid-access recent file panels. Never lose your work.</p>
+          </div>
+
+          <!-- Card 4 -->
+          <div class="feat-card reveal reveal-delay-1">
+            <div class="feat-icon">📍</div>
+            <h3>Universal Points Editor</h3>
+            <p>Import and export from any standard surveying format — .pnt, .txt, .csv. Live synchronization ensures data consistency across the entire project.</p>
+          </div>
+
+          <!-- Card 5 -->
+          <div class="feat-card reveal reveal-delay-2">
+            <div class="feat-icon">🤖</div>
+            <h3>AI-Powered Assistant</h3>
+            <p>An intelligent, context-aware assistant built directly into the software guides you through complex computations and workflow decisions in seconds.</p>
+          </div>
+
+          <!-- Card 6 -->
+          <div class="feat-card reveal reveal-delay-3">
+            <div class="feat-icon">📤</div>
+            <h3>Professional PDF Export</h3>
+            <p>Generate print-ready parcel reports and high-resolution plot diagrams directly from within the application — ready for clients and official submissions.</p>
+          </div>
+
+          <!-- Card 7 -->
+          <div class="feat-card reveal reveal-delay-4">
+            <div class="feat-icon">⚙️</div>
+            <h3>Global Configuration Engine</h3>
+            <p>Switch between metric and imperial units, define precision levels, configure coordinate systems, and set global display preferences — all from a single settings panel.</p>
+          </div>
+
+          <!-- Card 8 -->
+          <div class="feat-card reveal reveal-delay-5">
+            <div class="feat-icon">⚡</div>
+            <h3>Offline-First Performance</h3>
+            <p>The core calculation engine runs entirely offline, with zero latency. No cloud dependency. No waiting. Just raw, reliable performance when and where you need it.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================== HOW IT WORKS =================== -->
+    <section id="workflow" class="workflow-sec">
+      <div class="wrap">
+        <div class="section-label">Workflow</div>
+        <h2 class="section-title">From points to parcel<br />in three steps.</h2>
+
+        <div class="workflow-grid">
+          <div class="workflow-step reveal">
+            <div class="step-num step-num-1">01</div>
+            <h4>Import Your Survey Data</h4>
+            <p>Load existing survey points from .pnt, .csv, or .txt files — or enter them manually into the built-in editor. All formats are supported out of the box.</p>
+          </div>
+          <div class="workflow-step reveal reveal-delay-2">
+            <div class="step-num step-num-2">02</div>
+            <h4>Calculate & Visualize</h4>
+            <p>Hit Calculate and instantly see the computed parcel area alongside a real-time interactive plot of your polygon. Adjust points and watch results update live.</p>
+          </div>
+          <div class="workflow-step reveal reveal-delay-4">
+            <div class="step-num step-num-3">03</div>
+            <h4>Export & Deliver</h4>
+            <p>Generate a professional PDF report or export the plot as a high-resolution image. Save your project and access it again anytime from the recent files panel.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================== SPECS =================== -->
+    <section id="specs" class="specs-sec">
+      <div class="wrap">
+        <div class="section-label">Technical Specs</div>
+        <h2 class="section-title">Built to run reliably<br />on professional workstations.</h2>
+
+        <div class="specs-card reveal">
+          <div class="specs-header-row">
+            <div class="specs-col-head">Minimum Requirements</div>
+            <div class="specs-col-head">Recommended Configuration</div>
+          </div>
+          <div class="specs-body">
+            <div class="specs-column">
+              <div class="col-title">Minimum</div>
+              <div class="spec-row"><span class="spec-key">Operating System</span><span class="spec-val">Windows 10 (64-bit)</span></div>
+              <div class="spec-row"><span class="spec-key">Memory (RAM)</span><span class="spec-val">4 GB</span></div>
+              <div class="spec-row"><span class="spec-key">Storage</span><span class="spec-val">500 MB free</span></div>
+              <div class="spec-row"><span class="spec-key">Display</span><span class="spec-val">1280 × 720</span></div>
+              <div class="spec-row"><span class="spec-key">Network</span><span class="spec-val">Required for AI only</span></div>
+            </div>
+            <div class="specs-column">
+              <div class="col-title">Recommended</div>
+              <div class="spec-row"><span class="spec-key">Operating System</span><span class="spec-val">Windows 11 (64-bit)</span></div>
+              <div class="spec-row"><span class="spec-key">Memory (RAM)</span><span class="spec-val">8 GB or more</span></div>
+              <div class="spec-row"><span class="spec-key">Storage</span><span class="spec-val">1 GB NVMe SSD</span></div>
+              <div class="spec-row"><span class="spec-key">Display</span><span class="spec-val">1920 × 1080 (Full HD)</span></div>
+              <div class="spec-row"><span class="spec-key">Network</span><span class="spec-val">Broadband Internet</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================== CTA =================== -->
+    <section class="cta-sec">
+      <div class="wrap">
+        <div class="cta-card reveal">
+          <h2>Ready to map with precision?</h2>
+          <p>Download the full-featured free trial and experience the most powerful surveying software on Windows — no registration, no fees.</p>
+
+          <div class="cta-buttons">
+            <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe"
+               id="downloadInstaller2"
+               class="btn-hero-primary"
+               download="Parcel-Tools-Setup-2.0.2.exe">
+              <span class="icon-down">⬇</span>
+              Download Free for Windows
             </a>
-            <nav class="nav-links">
-                <a href="#features">Features</a>
-                <a href="#specs">Specs</a>
-                <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank">Changelog</a>
-                <a href="#download">Download</a>
-            </nav>
+            <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="btn-hero-ghost">
+              Purchase License &mdash; $29.99
+            </a>
+          </div>
+
+          <p class="notice-small">
+            ⚠️ If your browser renames the file to .zip — right-click the button → "Save link as..." → save as <strong>.exe</strong>.<br>
+            Windows SmartScreen may appear — click "More info" → "Run anyway" to proceed.
+          </p>
         </div>
-    </header>
+      </div>
+    </section>
+  </main>
 
-    <main>
-        <!-- Background Grid Animation -->
-        <div class="grid-bg"></div>
-
-        <!-- Hero Section -->
-        <section class="hero container reveal">
-            <div class="badge">
-                <span class="highlight">v2.0.7</span>
-                <span>The new standard in land surveying</span>
+  <!-- =================== FOOTER =================== -->
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer-top">
+        <div class="footer-brand-block">
+          <div class="logo">
+            <img src="favicon.png" alt="Parcel Tools" />
+            <div>
+              <div class="logo-name">Parcel Tools</div>
+              <div class="logo-by">by Nazieh Sayegh</div>
             </div>
-            
-            <h1 class="hero-title">
-                Precision engineering.<br>
-                <span class="text-gradient">Without the friction.</span>
-            </h1>
-            
-            <p class="hero-subtitle">
-                Parcel Tools is a high-performance desktop application designed for land surveyors. Compute complex areas, manage survey points, and plot projects with unparalleled speed and accuracy.
-            </p>
-            
-            <div id="download" class="btn-group">
-                <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe" id="downloadInstaller" class="btn btn-primary" download="Parcel-Tools-Setup-2.0.2.exe">
-                    Download for Windows
-                </a>
-                <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="btn btn-secondary">
-                    Purchase License — $29.99
-                </a>
-            </div>
-
-            <div class="notice">
-                <strong>Installation Note:</strong> If your browser warns you or renames the file to .zip, right-click the download button → "Save link as..." and ensure it ends in <code>.exe</code>
-            </div>
-        </section>
-
-        <!-- Bento Box Features Section -->
-        <section id="features" class="section container">
-            <h2 class="text-center" style="font-size: 2.5rem; margin-bottom: 1rem;">Engineered for surveyors.</h2>
-            <p class="text-center text-secondary" style="margin-bottom: 4rem; font-size: 1.1rem;">Everything you need to map, calculate, and report.</p>
-
-            <div class="bento-grid">
-                
-                <!-- Feature 1: Dashboard (Spans 2 columns, 2 rows) -->
-                <div class="bento-item span-2 row-span-2 reveal">
-                    <div class="bento-icon">📊</div>
-                    <h3>Command Center Dashboard</h3>
-                    <p>A unified interface giving you immediate access to your recent projects, quick-start templates, and live system metrics. No clutter, just the tools you need.</p>
-                    <img src="screenshot-dashboard.png" alt="Dashboard interface" class="bento-image">
-                </div>
-
-                <!-- Feature 2: Area Calculator -->
-                <div class="bento-item reveal" style="transition-delay: 0.1s;">
-                    <div class="bento-icon">📐</div>
-                    <h3>Advanced Area Calculation</h3>
-                    <p>Compute parcel areas with algorithmic precision. Handles complex geometries, curved boundaries, and coordinate transformations seamlessly.</p>
-                </div>
-
-                <!-- Feature 3: AI Assistant -->
-                <div class="bento-item reveal" style="transition-delay: 0.2s;">
-                    <div class="bento-icon">⚡</div>
-                    <h3>Integrated AI Assistant</h3>
-                    <p>Stuck on a workflow? The built-in context-aware AI assistant guides you through complex calculations and software configurations in real-time.</p>
-                </div>
-
-                <!-- Feature 4: Live Plotting (Spans full width) -->
-                <div class="bento-item span-3 reveal">
-                    <div style="display: flex; gap: 3rem; align-items: center;">
-                        <div style="flex: 1;">
-                            <div class="bento-icon">📍</div>
-                            <h3 class="text-gradient-accent" style="font-size: 2rem;">Real-time Visual Plotting</h3>
-                            <p style="font-size: 1.1rem; margin-top: 1rem;">See your survey points come to life. The interactive plotting engine instantly visualizes your data as you enter or edit points. Export high-fidelity diagrams directly to PDF for client reports.</p>
-                        </div>
-                        <div style="flex: 1.5;">
-                            <img src="screenshot-calculator.png" alt="Live plotting engine" style="width: 100%; border-radius: 8px; border: 1px solid var(--border-light); box-shadow: 0 10px 40px rgba(0,0,0,0.5);">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Feature 5: Project Management -->
-                <div class="bento-item reveal">
-                    <div class="bento-icon">📁</div>
-                    <h3>Robust Data Management</h3>
-                    <p>Auto-save functionality ensures you never lose a coordinate. Organize files efficiently with built-in versioning and rapid retrieval.</p>
-                </div>
-
-                <!-- Feature 6: Points Editor -->
-                <div class="bento-item reveal" style="transition-delay: 0.1s;">
-                    <div class="bento-icon">📝</div>
-                    <h3>Universal Points Editor</h3>
-                    <p>Import from or export to standard survey formats (.txt, .csv, .pnt) with absolute reliability and lightning-fast parsing.</p>
-                </div>
-
-                <!-- Feature 7: Configuration -->
-                <div class="bento-item reveal" style="transition-delay: 0.2s;">
-                    <div class="bento-icon">⚙️</div>
-                    <h3>Global Configuration</h3>
-                    <p>Switch instantly between metric and imperial units, adjust precision limits, and define global coordinate systems.</p>
-                </div>
-
-            </div>
-        </section>
-
-        <!-- Technical Specs -->
-        <section id="specs" class="section container reveal">
-            <div class="specs-container">
-                <div style="text-align: center; margin-bottom: 3rem;">
-                    <h2 style="font-size: 2.5rem; margin-bottom: 0.5rem;">Technical Specifications</h2>
-                    <p class="text-secondary">Built to run reliably on professional workstations.</p>
-                </div>
-
-                <div class="specs-grid">
-                    <div>
-                        <h4 style="color: var(--accent-blue); margin-bottom: 1rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;">Minimum Requirements</h4>
-                        <ul class="specs-list">
-                            <li><span class="label">OS</span> <span class="value">Windows 10 (64-bit)</span></li>
-                            <li><span class="label">Memory</span> <span class="value">4 GB RAM</span></li>
-                            <li><span class="label">Storage</span> <span class="value">500 MB Free Space</span></li>
-                            <li><span class="label">Resolution</span> <span class="value">1280 × 720</span></li>
-                            <li><span class="label">Network</span> <span class="value">Required for AI features</span></li>
-                        </ul>
-                    </div>
-                    <div>
-                        <h4 style="color: var(--accent-blue); margin-bottom: 1rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;">Recommended Specs</h4>
-                        <ul class="specs-list">
-                            <li><span class="label">OS</span> <span class="value">Windows 11 (64-bit)</span></li>
-                            <li><span class="label">Memory</span> <span class="value">8 GB RAM or higher</span></li>
-                            <li><span class="label">Storage</span> <span class="value">1 GB NVMe SSD</span></li>
-                            <li><span class="label">Resolution</span> <span class="value">1920 × 1080 (1080p)</span></li>
-                            <li><span class="label">Network</span> <span class="value">Broadband connection</span></li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-    </main>
-
-    <!-- Footer -->
-    <footer class="footer">
-        <div class="container">
-            <div class="footer-content">
-                <div class="footer-brand">
-                    <div class="brand" style="margin-bottom: 1rem;">
-                        <img src="favicon.png" alt="Parcel Tools Icon">
-                        Parcel Tools
-                    </div>
-                    <p>Precision software for the modern land surveyor.</p>
-                </div>
-                <div class="footer-links">
-                    <h4>Resources</h4>
-                    <ul>
-                        <li><a href="#download">Download App</a></li>
-                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank">Changelog</a></li>
-                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/issues" target="_blank">Report an Issue</a></li>
-                    </ul>
-                </div>
-                <div class="footer-links">
-                    <h4>Legal & Open Source</h4>
-                    <ul>
-                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying" target="_blank">GitHub Repository</a></li>
-                        <li><a href="#">Privacy Policy</a></li>
-                        <li><a href="#">Terms of Service</a></li>
-                    </ul>
-                </div>
-            </div>
-            <div class="footer-bottom">
-                <div>© 2024-2026 Nazieh Sayegh. All rights reserved.</div>
-                <div>v2.0.7 Stable Release</div>
-            </div>
+          </div>
+          <p>Precision-engineered surveying and land mapping software for Windows professionals.</p>
         </div>
-    </footer>
 
-    <script>
-        // Download logic
-        const DOWNLOAD_CONFIG = {
-            // Using last known working release asset
-            installer: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe',
-        };
+        <div class="footer-col">
+          <h5>Product</h5>
+          <ul>
+            <li><a href="#download">Download</a></li>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#workflow">How It Works</a></li>
+            <li><a href="#specs">System Requirements</a></li>
+          </ul>
+        </div>
 
-        document.getElementById('downloadInstaller').addEventListener('click', function(e) {
-            e.preventDefault();
-            window.location.href = DOWNLOAD_CONFIG.installer;
-            
-            setTimeout(() => {
-                alert('✅ Download Started!\n\n' +
-                      'Please locate "Parcel-Tools-Setup.exe" in your downloads folder to install.');
-            }, 1000);
-        });
+        <div class="footer-col">
+          <h5>Open Source</h5>
+          <ul>
+            <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying" target="_blank">GitHub</a></li>
+            <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank">Releases</a></li>
+            <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/issues" target="_blank">Report Issue</a></li>
+          </ul>
+        </div>
 
-        // Intersection Observer for scroll animations
-        const revealElements = document.querySelectorAll('.reveal');
-        
-        const revealObserver = new IntersectionObserver((entries, observer) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.classList.add('active');
-                    observer.unobserve(entry.target);
-                }
-            });
-        }, {
-            root: null,
-            threshold: 0.1,
-            rootMargin: '0px 0px -50px 0px'
-        });
+        <div class="footer-col">
+          <h5>Purchase</h5>
+          <ul>
+            <li><a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank">Buy License</a></li>
+            <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/discussions" target="_blank">Community</a></li>
+          </ul>
+        </div>
+      </div>
 
-        revealElements.forEach(el => revealObserver.observe(el));
-        
-        // Trigger initial active state for hero
-        setTimeout(() => {
-            document.querySelector('.hero.reveal').classList.add('active');
-        }, 100);
+      <div class="footer-bottom-row">
+        <div>© 2024–2026 Nazieh Sayegh. All rights reserved. Parcel Tools™</div>
+        <div>v2.0.7 Stable · Windows</div>
+      </div>
+    </div>
+  </footer>
 
-        // Navbar scroll effect
-        const navbar = document.getElementById('navbar');
-        window.addEventListener('scroll', () => {
-            if (window.scrollY > 50) {
-                navbar.style.background = 'rgba(0, 0, 0, 0.85)';
-                navbar.style.borderBottom = '1px solid rgba(255,255,255,0.15)';
-            } else {
-                navbar.style.background = 'rgba(0, 0, 0, 0.7)';
-                navbar.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
-            }
-        });
-    </script>
+  <script>
+    // ---- Navbar scroll effect ----
+    const header = document.getElementById('site-header');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 40) {
+        header.classList.add('scrolled');
+      } else {
+        header.classList.remove('scrolled');
+      }
+    }, { passive: true });
+
+    // ---- Scroll reveal ----
+    const revealEls = document.querySelectorAll('.reveal');
+    const revealObs = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          revealObs.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+    revealEls.forEach(el => revealObs.observe(el));
+
+    // Hero elements get triggered immediately
+    setTimeout(() => {
+      document.querySelectorAll('.hero-wrap .reveal').forEach(el => el.classList.add('in'));
+    }, 120);
+
+    // ---- Download click handlers ----
+    function startDownload(e) {
+      e.preventDefault();
+      const url = 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe';
+      window.location.href = url;
+      setTimeout(() => {
+        alert(
+          '✅ Download Started!\n\n' +
+          '1. Find "Parcel-Tools-Setup-2.0.2.exe" in your Downloads folder.\n' +
+          '2. Double-click to run. If SmartScreen appears → "More info" → "Run anyway".\n' +
+          '3. Follow the setup wizard and launch from your Desktop shortcut!'
+        );
+      }, 900);
+    }
+
+    document.getElementById('downloadInstaller').addEventListener('click', startDownload);
+    document.getElementById('downloadInstaller2').addEventListener('click', startDownload);
+
+    // ---- Smooth scrolling ----
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', function(e) {
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          e.preventDefault();
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
 </body>
 </html>
