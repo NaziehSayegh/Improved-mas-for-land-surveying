@@ -3,366 +3,254 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Parcel Tools - Professional Surveying & Mapping Software</title>
+    <title>Parcel Tools - Precision Engineering & Surveying Software</title>
     <meta name="description" content="Professional surveying and land mapping software for calculating parcel areas, managing survey projects, and processing survey data.">
     
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="shortcut icon" type="image/x-icon" href="favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="favicon.png">
     
-    <!-- Link to our custom premium CSS -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     
     <!-- Navigation -->
-    <header class="navbar">
+    <header class="navbar" id="navbar">
         <div class="container nav-container">
             <a href="#" class="brand">
-                <img src="favicon.png" alt="Parcel Tools">
-                <div class="brand-text">
-                    <h2>Parcel Tools</h2>
-                    <span>by Nazieh Sayegh</span>
-                </div>
+                <img src="favicon.png" alt="Parcel Tools Icon">
+                Parcel Tools
             </a>
             <nav class="nav-links">
                 <a href="#features">Features</a>
+                <a href="#specs">Specs</a>
+                <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank">Changelog</a>
                 <a href="#download">Download</a>
-                <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="btn-buy">Buy ($29.99)</a>
-                <a href="#about">About</a>
             </nav>
         </div>
     </header>
 
     <main>
+        <!-- Background Grid Animation -->
+        <div class="grid-bg"></div>
+
         <!-- Hero Section -->
-        <section class="hero container fade-in-up">
-            <img src="favicon.png" alt="Parcel Tools Icon" class="hero-icon">
+        <section class="hero container reveal">
+            <div class="badge">
+                <span class="highlight">v2.0.7</span>
+                <span>The new standard in land surveying</span>
+            </div>
             
-            <h1 class="hero-title gradient-text">Parcel Tools</h1>
+            <h1 class="hero-title">
+                Precision engineering.<br>
+                <span class="text-gradient">Without the friction.</span>
+            </h1>
             
             <p class="hero-subtitle">
-                Professional Surveying & Mapping Desktop Software
+                Parcel Tools is a high-performance desktop application designed for land surveyors. Compute complex areas, manage survey points, and plot projects with unparalleled speed and accuracy.
             </p>
             
-            <div class="version-badge delay-1">
-                <span class="v-text">v2.0.7 - Latest Release</span>
-                <span class="v-date">• July 2026</span>
-            </div>
-
-            <!-- Download Button -->
-            <div id="download" class="cta-group fade-in-up delay-2">
+            <div id="download" class="btn-group">
                 <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe" id="downloadInstaller" class="btn btn-primary" download="Parcel-Tools-Setup-2.0.2.exe">
-                    ⬇️ Download Free Trial (30 Days)
-                    <span class="btn-subtext">Windows Installer • ~110 MB • Full Features</span>
+                    Download for Windows
                 </a>
-                
                 <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="btn btn-secondary">
-                    🔑 Buy License - $29.99
-                    <span class="btn-subtext">One-time payment • Lifetime access</span>
+                    Purchase License — $29.99
                 </a>
-                
-                <!-- Important Notice -->
-                <div class="notice-box">
-                    <strong>⚠️ Important Installation Note:</strong><br>
-                    <span class="text-muted" style="font-size: 0.9rem;">
-                        If your browser shows a security warning or renames the file to .zip, simply right-click the download button → "Save link as..." and save it as <code>.exe</code>
-                    </span>
-                </div>
-                
-                <a href="#" id="viewReleases" class="btn btn-outline" style="margin-top: 1rem;">
-                    📋 View All Releases
-                </a>
-                
-                <p class="text-muted" style="font-size: 0.9rem; margin-top: 1rem;">
-                    Coming soon: macOS • Linux
-                </p>
             </div>
 
-            <!-- Key Features Overview -->
-            <div class="grid grid-3 fade-in-up delay-3" style="max-width: 900px; margin: 4rem auto 0;">
-                <div class="glass-card stat-card">
-                    <div class="value">100%</div>
-                    <div class="text-muted">Free Trial Available</div>
-                </div>
-                <div class="glass-card stat-card">
-                    <div class="value">Win</div>
-                    <div class="text-muted">Desktop Application</div>
-                </div>
-                <div class="glass-card stat-card">
-                    <div class="value">v2.0</div>
-                    <div class="text-muted">Latest Engine</div>
-                </div>
+            <div class="notice">
+                <strong>Installation Note:</strong> If your browser warns you or renames the file to .zip, right-click the download button → "Save link as..." and ensure it ends in <code>.exe</code>
             </div>
         </section>
 
-        <!-- Features Section -->
+        <!-- Bento Box Features Section -->
         <section id="features" class="section container">
-            <h2 class="text-center gradient-text" style="font-size: 3rem; margin-bottom: 4rem;">
-                Powerful Features
-            </h2>
+            <h2 class="text-center" style="font-size: 2.5rem; margin-bottom: 1rem;">Engineered for surveyors.</h2>
+            <p class="text-center text-secondary" style="margin-bottom: 4rem; font-size: 1.1rem;">Everything you need to map, calculate, and report.</p>
 
-            <div class="grid grid-3">
-                <!-- Feature 1 -->
-                <div class="glass-card">
-                    <div class="feature-icon">🧮</div>
-                    <h3 class="feature-title">Advanced Area Calculator</h3>
-                    <p class="text-muted">Calculate parcel areas with professional precision. Supports curved boundaries, multiple coordinate systems, and automatic computation.</p>
-                </div>
-
-                <!-- Feature 2 -->
-                <div class="glass-card">
-                    <div class="feature-icon">📁</div>
-                    <h3 class="feature-title">Project Management</h3>
-                    <p class="text-muted">Save and organize multiple surveying projects. Auto-save feature ensures your work is never lost. Recent files for quick access.</p>
-                </div>
-
-                <!-- Feature 3 -->
-                <div class="glass-card">
-                    <div class="feature-icon">📍</div>
-                    <h3 class="feature-title">Survey Points Editor</h3>
-                    <p class="text-muted">Import, edit, and export survey points. Supports .pnt, .txt, and .csv formats with live synchronization.</p>
-                </div>
-
-                <!-- Feature 4 -->
-                <div class="glass-card">
-                    <div class="feature-icon">📊</div>
-                    <h3 class="feature-title">Professional Plotting</h3>
-                    <p class="text-muted">Visualize parcels with interactive plotting. Export high-quality diagrams for documentation and reports.</p>
-                </div>
-
-                <!-- Feature 5 -->
-                <div class="glass-card">
-                    <div class="feature-icon">🤖</div>
-                    <h3 class="feature-title">AI Assistant</h3>
-                    <p class="text-muted">Get help with calculations and workflows. Built-in assistant guides you through complex surveying tasks.</p>
-                </div>
-
-                <!-- Feature 6 -->
-                <div class="glass-card">
-                    <div class="feature-icon">⚙️</div>
-                    <h3 class="feature-title">Flexible Configuration</h3>
-                    <p class="text-muted">Configure units (metric/imperial), precision levels, coordinate systems, and display preferences to match your workflow.</p>
-                </div>
-            </div>
-        </section>
-
-        <!-- Screenshots -->
-        <section class="section container">
-            <h2 class="text-center gradient-text" style="font-size: 3rem; margin-bottom: 4rem;">
-                Beautiful Professional Interface
-            </h2>
-
-            <div class="grid grid-2">
-                <!-- Dashboard Screenshot -->
-                <div class="glass-card screenshot-wrapper">
-                    <img src="screenshot-dashboard.png" alt="Parcel Tools Dashboard">
-                    <div class="screenshot-info">
-                        <h4>Modern Dashboard</h4>
-                        <p class="text-muted" style="font-size: 0.9rem;">Quick access to projects, recent files, and key functions</p>
-                    </div>
-                </div>
+            <div class="bento-grid">
                 
-                <!-- Calculator Screenshot -->
-                <div class="glass-card screenshot-wrapper">
-                    <img src="screenshot-calculator.png" alt="Parcel Tools Area Calculator">
-                    <div class="screenshot-info">
-                        <h4>Area Calculator with Live Plot</h4>
-                        <p class="text-muted" style="font-size: 0.9rem;">Calculate areas with real-time visualization and results</p>
-                    </div>
-                </div>
-            </div>
-
-            <p class="text-center text-muted" style="margin-top: 3rem; font-size: 1.1rem;">
-                Professional dark theme designed for extended use • Clean, modern interface • Real-time visualization
-            </p>
-        </section>
-
-        <!-- System Requirements & What's New -->
-        <section id="about" class="section container">
-            <div style="max-width: 900px; margin: 0 auto;">
-                
-                <!-- What's New -->
-                <div class="glass-card" style="margin-bottom: 3rem;">
-                    <h2 class="gradient-text" style="font-size: 2.5rem; margin-bottom: 2rem;">What's New in v2.0</h2>
-                    <ul class="check-list">
-                        <li>
-                            <span class="check">✓</span>
-                            <div><strong>Professional Area Calculator</strong> - Calculate complex parcels with curved boundaries</div>
-                        </li>
-                        <li>
-                            <span class="check">✓</span>
-                            <div><strong>Smart Project Management</strong> - Auto-save functionality with recent files panel</div>
-                        </li>
-                        <li>
-                            <span class="check">✓</span>
-                            <div><strong>Live Points Editor</strong> - Edit survey points with real-time synchronization</div>
-                        </li>
-                        <li>
-                            <span class="check">✓</span>
-                            <div><strong>Modern Dark Theme UI</strong> - Professional interface designed for extended use</div>
-                        </li>
-                        <li>
-                            <span class="check">✓</span>
-                            <div><strong>AI Assistant Integration</strong> - Get contextual help and guidance for workflows</div>
-                        </li>
-                    </ul>
+                <!-- Feature 1: Dashboard (Spans 2 columns, 2 rows) -->
+                <div class="bento-item span-2 row-span-2 reveal">
+                    <div class="bento-icon">📊</div>
+                    <h3>Command Center Dashboard</h3>
+                    <p>A unified interface giving you immediate access to your recent projects, quick-start templates, and live system metrics. No clutter, just the tools you need.</p>
+                    <img src="screenshot-dashboard.png" alt="Dashboard interface" class="bento-image">
                 </div>
 
-                <!-- System Requirements -->
-                <div class="glass-card">
-                    <h2 class="gradient-text" style="font-size: 2.5rem; margin-bottom: 2rem;">System Requirements</h2>
-                    
-                    <div class="grid grid-2">
-                        <div>
-                            <h3 style="color: var(--primary-glow); margin-bottom: 1rem;">Minimum Requirements</h3>
-                            <ul class="req-list">
-                                <li>Windows 10 (64-bit) or later</li>
-                                <li>4 GB RAM</li>
-                                <li>500 MB available disk space</li>
-                                <li>1280×720 display resolution</li>
-                                <li>Internet connection for AI features</li>
-                            </ul>
+                <!-- Feature 2: Area Calculator -->
+                <div class="bento-item reveal" style="transition-delay: 0.1s;">
+                    <div class="bento-icon">📐</div>
+                    <h3>Advanced Area Calculation</h3>
+                    <p>Compute parcel areas with algorithmic precision. Handles complex geometries, curved boundaries, and coordinate transformations seamlessly.</p>
+                </div>
+
+                <!-- Feature 3: AI Assistant -->
+                <div class="bento-item reveal" style="transition-delay: 0.2s;">
+                    <div class="bento-icon">⚡</div>
+                    <h3>Integrated AI Assistant</h3>
+                    <p>Stuck on a workflow? The built-in context-aware AI assistant guides you through complex calculations and software configurations in real-time.</p>
+                </div>
+
+                <!-- Feature 4: Live Plotting (Spans full width) -->
+                <div class="bento-item span-3 reveal">
+                    <div style="display: flex; gap: 3rem; align-items: center;">
+                        <div style="flex: 1;">
+                            <div class="bento-icon">📍</div>
+                            <h3 class="text-gradient-accent" style="font-size: 2rem;">Real-time Visual Plotting</h3>
+                            <p style="font-size: 1.1rem; margin-top: 1rem;">See your survey points come to life. The interactive plotting engine instantly visualizes your data as you enter or edit points. Export high-fidelity diagrams directly to PDF for client reports.</p>
                         </div>
-                        <div>
-                            <h3 style="color: var(--primary-glow); margin-bottom: 1rem;">Recommended</h3>
-                            <ul class="req-list">
-                                <li>Windows 11 (64-bit)</li>
-                                <li>8 GB RAM or more</li>
-                                <li>1 GB available disk space</li>
-                                <li>1920×1080 or higher display</li>
-                                <li>Stable internet connection</li>
-                            </ul>
+                        <div style="flex: 1.5;">
+                            <img src="screenshot-calculator.png" alt="Live plotting engine" style="width: 100%; border-radius: 8px; border: 1px solid var(--border-light); box-shadow: 0 10px 40px rgba(0,0,0,0.5);">
                         </div>
                     </div>
                 </div>
+
+                <!-- Feature 5: Project Management -->
+                <div class="bento-item reveal">
+                    <div class="bento-icon">📁</div>
+                    <h3>Robust Data Management</h3>
+                    <p>Auto-save functionality ensures you never lose a coordinate. Organize files efficiently with built-in versioning and rapid retrieval.</p>
+                </div>
+
+                <!-- Feature 6: Points Editor -->
+                <div class="bento-item reveal" style="transition-delay: 0.1s;">
+                    <div class="bento-icon">📝</div>
+                    <h3>Universal Points Editor</h3>
+                    <p>Import from or export to standard survey formats (.txt, .csv, .pnt) with absolute reliability and lightning-fast parsing.</p>
+                </div>
+
+                <!-- Feature 7: Configuration -->
+                <div class="bento-item reveal" style="transition-delay: 0.2s;">
+                    <div class="bento-icon">⚙️</div>
+                    <h3>Global Configuration</h3>
+                    <p>Switch instantly between metric and imperial units, adjust precision limits, and define global coordinate systems.</p>
+                </div>
+
             </div>
         </section>
 
-        <!-- CTA Section -->
-        <section class="section container text-center">
-            <h2 class="gradient-text" style="font-size: 3.5rem; margin-bottom: 1.5rem;">
-                Start Using Parcel Tools Today
-            </h2>
-            <p style="font-size: 1.2rem; color: var(--text-main); margin-bottom: 0.5rem;">
-                Professional surveying software for land measurement and parcel calculations
-            </p>
-            <p class="text-muted" style="margin-bottom: 3rem;">
-                Download the free trial • No registration required • No hidden fees
-            </p>
-            <a href="#download" class="btn btn-primary">
-                Download Free Windows Version
-            </a>
+        <!-- Technical Specs -->
+        <section id="specs" class="section container reveal">
+            <div class="specs-container">
+                <div style="text-align: center; margin-bottom: 3rem;">
+                    <h2 style="font-size: 2.5rem; margin-bottom: 0.5rem;">Technical Specifications</h2>
+                    <p class="text-secondary">Built to run reliably on professional workstations.</p>
+                </div>
+
+                <div class="specs-grid">
+                    <div>
+                        <h4 style="color: var(--accent-blue); margin-bottom: 1rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;">Minimum Requirements</h4>
+                        <ul class="specs-list">
+                            <li><span class="label">OS</span> <span class="value">Windows 10 (64-bit)</span></li>
+                            <li><span class="label">Memory</span> <span class="value">4 GB RAM</span></li>
+                            <li><span class="label">Storage</span> <span class="value">500 MB Free Space</span></li>
+                            <li><span class="label">Resolution</span> <span class="value">1280 × 720</span></li>
+                            <li><span class="label">Network</span> <span class="value">Required for AI features</span></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 style="color: var(--accent-blue); margin-bottom: 1rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;">Recommended Specs</h4>
+                        <ul class="specs-list">
+                            <li><span class="label">OS</span> <span class="value">Windows 11 (64-bit)</span></li>
+                            <li><span class="label">Memory</span> <span class="value">8 GB RAM or higher</span></li>
+                            <li><span class="label">Storage</span> <span class="value">1 GB NVMe SSD</span></li>
+                            <li><span class="label">Resolution</span> <span class="value">1920 × 1080 (1080p)</span></li>
+                            <li><span class="label">Network</span> <span class="value">Broadband connection</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
         </section>
+
     </main>
 
     <!-- Footer -->
     <footer class="footer">
         <div class="container">
-            <div class="footer-grid">
+            <div class="footer-content">
                 <div class="footer-brand">
-                    <div class="brand">
-                        <img src="favicon.png" alt="Parcel Tools">
-                        <span style="font-size: 1.5rem; font-weight: bold; color: var(--text-main);">Parcel Tools</span>
+                    <div class="brand" style="margin-bottom: 1rem;">
+                        <img src="favicon.png" alt="Parcel Tools Icon">
+                        Parcel Tools
                     </div>
-                    <p>Professional Surveying & Mapping Software</p>
-                    <p style="font-size: 0.8rem; margin-top: 0.5rem;">Version 2.0.7</p>
+                    <p>Precision software for the modern land surveyor.</p>
                 </div>
                 <div class="footer-links">
-                    <h4>Quick Links</h4>
+                    <h4>Resources</h4>
                     <ul>
-                        <li><a href="#download">Download</a></li>
-                        <li><a href="#features">Features</a></li>
-                        <li><a href="#about">System Requirements</a></li>
-                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank">Release Notes</a></li>
+                        <li><a href="#download">Download App</a></li>
+                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank">Changelog</a></li>
+                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/issues" target="_blank">Report an Issue</a></li>
                     </ul>
                 </div>
                 <div class="footer-links">
-                    <h4>Open Source</h4>
+                    <h4>Legal & Open Source</h4>
                     <ul>
                         <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying" target="_blank">GitHub Repository</a></li>
-                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/issues" target="_blank">Report Issues</a></li>
-                        <li><a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/discussions" target="_blank">Community Discussions</a></li>
+                        <li><a href="#">Privacy Policy</a></li>
+                        <li><a href="#">Terms of Service</a></li>
                     </ul>
                 </div>
             </div>
-            
             <div class="footer-bottom">
-                <p style="margin-bottom: 0.5rem;">© 2024-2026 <strong style="color: var(--primary-glow);">Nazieh Sayegh</strong>. All Rights Reserved.</p>
-                <p>Parcel Tools™ is a registered trademark of Nazieh Sayegh.</p>
+                <div>© 2024-2026 Nazieh Sayegh. All rights reserved.</div>
+                <div>v2.0.7 Stable Release</div>
             </div>
         </div>
     </footer>
 
     <script>
-        // Download configuration
+        // Download logic
         const DOWNLOAD_CONFIG = {
-            // Note: Since 2.0.7 release doesn't exist on GitHub yet, pointing to the last known working release
+            // Using last known working release asset
             installer: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases/download/v2.0.2/Parcel-Tools-Setup-2.0.2.exe',
-            releases: 'https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases',
         };
 
-        // Installer download button
         document.getElementById('downloadInstaller').addEventListener('click', function(e) {
             e.preventDefault();
-            
             window.location.href = DOWNLOAD_CONFIG.installer;
             
             setTimeout(() => {
                 alert('✅ Download Started!\n\n' +
-                      'INSTALLATION STEPS:\n' +
-                      '━━━━━━━━━━━━━━━━━━━\n\n' +
-                      '1️⃣ Locate the downloaded file:\n' +
-                      '   "Parcel-Tools-Setup.exe"\n\n' +
-                      '⚠️ If your browser renamed it to .zip:\n' +
-                      '   • Rename it back to .exe\n' +
-                      '   • Or right-click download button → "Save link as..."\n\n' +
-                      '2️⃣ Run the installer\n' +
-                      '3️⃣ Follow the setup wizard\n' +
-                      '4️⃣ Launch from Desktop shortcut\n\n' +
-                      '✨ Windows may show a SmartScreen warning.\n' +
-                      '   Click "More info" → "Run anyway"');
-            }, 800);
+                      'Please locate "Parcel-Tools-Setup.exe" in your downloads folder to install.');
+            }, 1000);
         });
 
-        // View releases button
-        document.getElementById('viewReleases').addEventListener('click', function(e) {
-            e.preventDefault();
-            window.open(DOWNLOAD_CONFIG.releases, '_blank');
-        });
-
-        // Smooth scrolling for navigation links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                if (this.getAttribute('href') !== '#') {
-                    e.preventDefault();
-                    const target = document.querySelector(this.getAttribute('href'));
-                    if (target) {
-                        target.scrollIntoView({ behavior: 'smooth' });
-                    }
-                }
-            });
-        });
-
-        // Intersection Observer for fade-in animations on scroll
-        const observerOptions = {
-            threshold: 0.1,
-            rootMargin: '0px 0px -50px 0px'
-        };
-
-        const observer = new IntersectionObserver((entries) => {
+        // Intersection Observer for scroll animations
+        const revealElements = document.querySelectorAll('.reveal');
+        
+        const revealObserver = new IntersectionObserver((entries, observer) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
-                    entry.target.classList.add('fade-in-up');
+                    entry.target.classList.add('active');
                     observer.unobserve(entry.target);
                 }
             });
-        }, observerOptions);
+        }, {
+            root: null,
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        });
 
-        // Select all cards to animate them on scroll
-        document.querySelectorAll('.glass-card, .section h2').forEach(el => {
-            el.style.opacity = '0'; // initially hide
-            observer.observe(el);
+        revealElements.forEach(el => revealObserver.observe(el));
+        
+        // Trigger initial active state for hero
+        setTimeout(() => {
+            document.querySelector('.hero.reveal').classList.add('active');
+        }, 100);
+
+        // Navbar scroll effect
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 50) {
+                navbar.style.background = 'rgba(0, 0, 0, 0.85)';
+                navbar.style.borderBottom = '1px solid rgba(255,255,255,0.15)';
+            } else {
+                navbar.style.background = 'rgba(0, 0, 0, 0.7)';
+                navbar.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+            }
         });
     </script>
 </body>
