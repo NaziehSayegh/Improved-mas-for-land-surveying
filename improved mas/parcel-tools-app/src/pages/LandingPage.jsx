@@ -70,7 +70,7 @@ const LandingPage = () => {
           transition={{ delay: 0.8 }}
           className="inline-block px-4 py-2 bg-success-dark/20 border border-success rounded-full"
         >
-          <span className="text-success font-semibold">v2.0 Premium</span>
+          <span className="text-success font-semibold">v2.0.11 Premium</span>
         </motion.div>
       </motion.div>
 

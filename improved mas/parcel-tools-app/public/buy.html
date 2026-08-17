@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Buy Parcel Tools - $29.99</title>
+    <title>Purchase Parcel Tools v2.0.11 - Professional Surveying Software</title>
     <style>
         * {
             margin: 0;
@@ -13,455 +12,254 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0369a1 100%);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            padding: 24px;
+            color: #1e293b;
         }
 
         .container {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            max-width: 700px;
+            background: #ffffff;
+            border-radius: 24px;
+            padding: 44px;
+            max-width: 680px;
             width: 100%;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 25px 65px rgba(0, 0, 0, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .version-badge {
+            display: inline-block;
+            background: #e0f2fe;
+            color: #0369a1;
+            font-size: 0.85rem;
+            font-weight: 700;
+            padding: 4px 14px;
+            border-radius: 9999px;
+            margin-bottom: 12px;
+            border: 1px solid #bae6fd;
+            letter-spacing: 0.5px;
         }
 
         h1 {
-            color: #1e3a8a;
-            font-size: 2.5rem;
-            margin-bottom: 10px;
+            color: #0f172a;
+            font-size: 2.3rem;
+            font-weight: 800;
+            margin-bottom: 8px;
             text-align: center;
-        }
-
-        .price {
-            font-size: 4rem;
-            font-weight: bold;
-            color: #16a34a;
-            text-align: center;
-            margin: 20px 0;
+            letter-spacing: -0.5px;
         }
 
         .subtitle {
             text-align: center;
-            color: #666;
-            font-size: 1.2rem;
-            margin-bottom: 30px;
+            color: #64748b;
+            font-size: 1.1rem;
+            margin-bottom: 24px;
+        }
+
+        .price {
+            font-size: 3.5rem;
+            font-weight: 900;
+            color: #16a34a;
+            text-align: center;
+            margin: 12px 0 6px 0;
+            letter-spacing: -1px;
+        }
+
+        .price-sub {
+            text-align: center;
+            font-size: 0.95rem;
+            color: #64748b;
+            margin-bottom: 24px;
         }
 
         .features {
             list-style: none;
-            margin: 30px 0;
-            background: #f9fafb;
-            padding: 20px;
-            border-radius: 10px;
+            margin: 24px 0;
+            background: #f8fafc;
+            padding: 22px 28px;
+            border-radius: 16px;
+            border: 1px solid #e2e8f0;
         }
 
         .features li {
-            padding: 10px 0;
-            color: #374151;
-            font-size: 1.05rem;
+            padding: 9px 0;
+            color: #334155;
+            font-size: 1.02rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
 
-        .features li:before {
-            content: "✓ ";
+        .features li svg {
+            width: 20px;
+            height: 20px;
             color: #16a34a;
-            font-weight: bold;
-            font-size: 1.3rem;
-            margin-right: 10px;
+            flex-shrink: 0;
         }
 
         .payment-box {
-            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-            border: 3px solid #2563eb;
-            padding: 30px;
-            border-radius: 15px;
-            margin: 30px 0;
-        }
-
-        .payment-box h2 {
-            color: #1e40af;
-            margin-bottom: 20px;
-            font-size: 1.8rem;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            border: 2px solid #38bdf8;
+            padding: 28px;
+            border-radius: 18px;
+            margin: 28px 0;
             text-align: center;
         }
 
-        .payment-option {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 15px 0;
-            border: 2px solid #60a5fa;
-        }
-
-        .payment-option h3 {
-            color: #1e3a8a;
-            margin-bottom: 10px;
-            font-size: 1.3rem;
-            display: flex;
+        .buy-button {
+            background: #facc15;
+            color: #000;
+            font-size: 1.35rem;
+            font-weight: 800;
+            text-decoration: none;
+            padding: 16px 36px;
+            border-radius: 12px;
+            border: 2.5px solid #000;
+            box-shadow: 4px 4px 0px #000;
+            display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 10px;
+            transition: all 0.15s ease-in-out;
+            cursor: pointer;
         }
 
-        .payment-option p {
-            color: #4b5563;
-            line-height: 1.6;
-            margin: 8px 0;
+        .buy-button:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 6px 6px 0px #000;
+            background: #fde047;
         }
 
-        .payment-option .email {
-            background: #f3f4f6;
-            padding: 12px;
-            border-radius: 8px;
-            font-family: monospace;
-            font-size: 1.1rem;
-            font-weight: bold;
-            color: #1e3a8a;
-            text-align: center;
-            margin: 10px 0;
-            border: 2px dashed #2563eb;
+        .buy-button:active {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px #000;
         }
 
         .steps {
-            background: #fef3c7;
-            border: 2px solid #f59e0b;
-            padding: 25px;
-            border-radius: 10px;
-            margin: 20px 0;
+            background: #fefce8;
+            border: 1.5px solid #fde047;
+            padding: 22px 26px;
+            border-radius: 14px;
+            margin: 24px 0;
         }
 
         .steps h3 {
-            color: #92400e;
-            margin-bottom: 15px;
-            font-size: 1.4rem;
+            color: #854d0e;
+            margin-bottom: 12px;
+            font-size: 1.2rem;
         }
 
         .steps ol {
-            color: #78350f;
-            line-height: 2;
+            color: #713f12;
+            line-height: 1.8;
             margin-left: 20px;
-            font-size: 1.05rem;
-        }
-
-        .steps ol li {
-            margin: 10px 0;
-        }
-
-        .steps strong {
-            color: #92400e;
+            font-size: 1rem;
         }
 
         .contact {
             text-align: center;
-            margin-top: 30px;
-            padding-top: 30px;
-            border-top: 2px solid #e5e7eb;
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
         }
 
         .contact a {
-            color: #2563eb;
+            color: #0284c7;
             text-decoration: none;
             font-weight: 600;
-            font-size: 1.1rem;
         }
 
         .back-btn {
-            background: #6b7280;
-            color: white;
-            border: none;
-            padding: 12px 30px;
-            border-radius: 8px;
-            font-size: 1rem;
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+            padding: 10px 24px;
+            border-radius: 10px;
+            font-size: 0.95rem;
             cursor: pointer;
             font-weight: 600;
-            margin-top: 20px;
+            margin-top: 16px;
+            transition: all 0.15s ease;
         }
 
         .back-btn:hover {
-            background: #4b5563;
-        }
-
-        .note {
-            background: #e0f2fe;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-            border-left: 4px solid #0284c7;
-        }
-
-        .note p {
-            color: #075985;
-            line-height: 1.6;
+            background: #e2e8f0;
+            color: #1e293b;
         }
     </style>
 </head>
-</div>
+<body>
+    <div class="container">
+        <div style="text-align: center;">
+            <span class="version-badge">Version 2.0.11 Premium</span>
+        </div>
+        <h1>🔑 Purchase Parcel Tools</h1>
+        <div class="subtitle">Professional Surveying & Land Partitioning Desktop Suite</div>
 
-<div class="steps">
-    <h3>📋 What happens next?</h3>
-    <ol>
-        <li>Click the button above to pay securely.</li>
-        <li>Check your email for the <strong>License Key</strong>.</li>
-        <li>Copy the key and paste it into the app.</li>
-        <li>Click Activate!</li>
-    </ol>
-</div>
+        <div class="price">$29.99</div>
+        <div class="price-sub">One-time payment • Lifetime license • Free updates forever</div>
 
-<div class="contact">
-    <p><strong>Questions?</strong> <a href="mailto:nsayegh2003@gmail.com">nsayegh2003@gmail.com</a></p>
-    font-size: 1.2rem;
-    margin-bottom: 30px;
-    }
+        <ul class="features">
+            <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span><strong>Lifetime License:</strong> Permanent access with no recurring subscriptions</span>
+            </li>
+            <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span><strong>CAD & DWG Ingestion:</strong> Interactive boundary detection, arc curves & inline preview</span>
+            </li>
+            <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span><strong>Instant Background Auto-Save:</strong> Never lose survey data or parcel geometries</span>
+            </li>
+            <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span><strong>Multi-Device Activation:</strong> Install and activate on up to 2 workstations</span>
+            </li>
+            <li>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span><strong>Continuous Updates:</strong> Built-in auto-updater delivering new releases automatically</span>
+            </li>
+        </ul>
 
-    .features {
-    list-style: none;
-    margin: 30px 0;
-    background: #f9fafb;
-    padding: 20px;
-    border-radius: 10px;
-    }
+        <div class="payment-box">
+            <h2 style="color: #0369a1; font-size: 1.5rem; margin-bottom: 12px;">🚀 Instant Digital License</h2>
+            <p style="color: #475569; margin-bottom: 20px; font-size: 1rem;">
+                Purchase securely via Gumroad and receive your unique license key <strong>immediately</strong> via email.
+            </p>
 
-    .features li {
-    padding: 10px 0;
-    color: #374151;
-    font-size: 1.05rem;
-    }
-
-    .features li:before {
-    content: "✓ ";
-    color: #16a34a;
-    font-weight: bold;
-    font-size: 1.3rem;
-    margin-right: 10px;
-    }
-
-    .payment-box {
-    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-    border: 3px solid #2563eb;
-    padding: 30px;
-    border-radius: 15px;
-    margin: 30px 0;
-    }
-
-    .payment-box h2 {
-    color: #1e40af;
-    margin-bottom: 20px;
-    font-size: 1.8rem;
-    text-align: center;
-    }
-
-    .payment-option {
-    background: white;
-    padding: 20px;
-    border-radius: 10px;
-    margin: 15px 0;
-    border: 2px solid #60a5fa;
-    }
-
-    .payment-option h3 {
-    color: #1e3a8a;
-    margin-bottom: 10px;
-    font-size: 1.3rem;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    }
-
-    .payment-option p {
-    color: #4b5563;
-    line-height: 1.6;
-    margin: 8px 0;
-    }
-
-    .payment-option .email {
-    background: #f3f4f6;
-    padding: 12px;
-    border-radius: 8px;
-    font-family: monospace;
-    font-size: 1.1rem;
-    font-weight: bold;
-    color: #1e3a8a;
-    text-align: center;
-    margin: 10px 0;
-    border: 2px dashed #2563eb;
-    }
-
-    .steps {
-    background: #fef3c7;
-    border: 2px solid #f59e0b;
-    padding: 25px;
-    border-radius: 10px;
-    margin: 20px 0;
-    }
-
-    .steps h3 {
-    color: #92400e;
-    margin-bottom: 15px;
-    font-size: 1.4rem;
-    }
-
-    .steps ol {
-    color: #78350f;
-    line-height: 2;
-    margin-left: 20px;
-    font-size: 1.05rem;
-    }
-
-    .steps ol li {
-    margin: 10px 0;
-    }
-
-    .steps strong {
-    color: #92400e;
-    }
-
-    .contact {
-    text-align: center;
-    margin-top: 30px;
-    padding-top: 30px;
-    border-top: 2px solid #e5e7eb;
-    }
-
-    .contact a {
-    color: #2563eb;
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 1.1rem;
-    }
-
-    .back-btn {
-    background: #6b7280;
-    color: white;
-    border: none;
-    padding: 12px 30px;
-    border-radius: 8px;
-    font-size: 1rem;
-    cursor: pointer;
-    font-weight: 600;
-    margin-top: 20px;
-    }
-
-    .back-btn:hover {
-    background: #4b5563;
-    }
-
-    .note {
-    background: #e0f2fe;
-    padding: 15px;
-    border-radius: 8px;
-    margin: 20px 0;
-    border-left: 4px solid #0284c7;
-    }
-
-    .note p {
-    color: #075985;
-    line-height: 1.6;
-    }
-    </style>
-    </head>
-
-    <body>
-        <div class="container">
-            <h1>🔑 Purchase Parcel Tools</h1>
-            <div class="price">$29.99</div>
-            <div class="subtitle">One-time payment • Lifetime license</div>
-
-            <ul class="features">
-                <li>Lifetime license - use forever</li>
-                <li>All features unlocked</li>
-                <li>Free updates forever</li>
-                <li>Priority email support</li>
-                <li>Works offline - no subscription</li>
-                <li>Install on up to 2 computers</li>
-            </ul>
-
-            <div class="payment-box">
-                <h2>🚀 Instant Access</h2>
-                <p style="text-align: center; color: #4b5563; margin-bottom: 20px;">
-                    Purchase securely via Gumroad and get your license key <strong>instantly</strong> via email.
-                </p>
-
-                <div style="text-align: center;">
-                    <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="buy-button">
-                        Buy Now - $29.99
-                    </a>
-                </div>
-
-                <p style="text-align: center; margin-top: 15px; font-size: 0.9rem; color: #6b7280;">
-                    Accepts Credit Cards, PayPal, Apple Pay, and Google Pay.
-                </p>
+            <div>
+                <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank" class="buy-button">
+                    💳 Buy Now - $29.99
+                </a>
             </div>
 
-            <div class="steps">
-                <h3>📋 What happens next?</h3>
-                <ol>
-                    <li>Click the button above to pay securely.</li>
-                    <li>Check your email for the <strong>License Key</strong>.</li>
-                    <li>Copy the key and paste it into the app.</li>
-                    <li>Click Activate!</li>
-                </ol>
-            </div>
-
-            <div class="contact">
-                <p><strong>Questions?</strong> <a href="mailto:nsayegh2003@gmail.com">nsayegh2003@gmail.com</a>
-                </p>
-                <button onclick="window.close()" class="back-btn">← Back to App</button>
-            </div>
+            <p style="margin-top: 14px; font-size: 0.85rem; color: #64748b;">
+                Accepts Credit/Debit Cards, PayPal, Apple Pay, and Google Pay.
+            </p>
         </div>
 
-        <style>
-            .buy-button {
-                background: #facc15;
-                /* Yellow-400 */
-                color: #000;
-                font-size: 1.5rem;
-                font-weight: bold;
-                text-decoration: none;
-                padding: 15px 40px;
-                border-radius: 8px;
-                border: 3px solid #000;
-                box-shadow: 5px 5px 0px #000;
-                display: inline-block;
-                transition: transform 0.1s, box-shadow 0.1s;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 10px;
-            }
+        <div class="steps">
+            <h3>📋 What happens after checkout?</h3>
+            <ol>
+                <li>Complete payment on Gumroad.</li>
+                <li>Check your email inbox for your <strong>License Key</strong>.</li>
+                <li>Open Parcel Tools and paste your license key on the activation screen.</li>
+                <li>Click <strong>Activate</strong> to unlock all premium features instantly!</li>
+            </ol>
+        </div>
 
-            .buy-button:hover {
-                transform: translate(-2px, -2px);
-                box-shadow: 7px 7px 0px #000;
-                background: #fde047;
-            }
-
-            .buy-button:active {
-                transform: translate(2px, 2px);
-                box-shadow: 3px 3px 0px #000;
-            }
-        </style>
-
-        <script>
-            // Copy email to clipboard when clicked
-            document.querySelectorAll('.email').forEach(email => {
-                email.style.cursor = 'pointer';
-                email.title = 'Click to copy';
-                email.addEventListener('click', function () {
-                    navigator.clipboard.writeText(this.textContent.trim());
-                    const originalText = this.textContent;
-                    this.textContent = '✓ Copied!';
-                    this.style.background = '#dcfce7';
-                    setTimeout(() => {
-                        this.textContent = originalText;
-                        this.style.background = '#f3f4f6';
-                    }, 2000);
-                });
-            });
-        </script>
-    </body>
-
+        <div class="contact">
+            <p style="color: #64748b; font-size: 0.95rem;">
+                Need help or have questions? Contact support at <a href="mailto:nsayegh2003@gmail.com">nsayegh2003@gmail.com</a>
+            </p>
+            <button onclick="window.close()" class="back-btn">← Back to App</button>
+        </div>
+    </div>
+</body>
 </html>
