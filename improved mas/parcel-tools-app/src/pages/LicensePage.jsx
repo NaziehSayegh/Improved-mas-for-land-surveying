@@ -394,7 +394,7 @@ export default function LicensePage() {
                 🔒 SECURE CHECKOUT via Gumroad
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-5xl font-black text-white">$29.99</span>
+                <span className="text-5xl font-black text-white">$59.99</span>
                 <span className="text-dark-400 text-base">one-time</span>
               </div>
               <p className="text-dark-300 text-sm mt-1">Lifetime license — no subscriptions.</p>
@@ -426,7 +426,7 @@ export default function LicensePage() {
                            flex items-center justify-center gap-3 shadow-glow-green"
               >
                 <CreditCard className="w-5 h-5" />
-                Buy Now — $29.99
+                Buy Now — $59.99
                 <ExternalLink className="w-4 h-4 opacity-70" />
               </button>
               <p className="text-center text-xs text-dark-500 mt-3">

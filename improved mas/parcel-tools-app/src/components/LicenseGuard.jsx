@@ -150,7 +150,7 @@ const LicenseGuard = ({ children }) => {
             className="btn-primary w-full py-3 text-base"
           >
             <Shield className="w-5 h-5" />
-            Get License — $29.99
+            Get License — $59.99
           </button>
           <button
             onClick={() => navigate('/license')}

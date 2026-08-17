@@ -295,8 +295,8 @@ function createWindow() {
           type: 'info',
           title: 'Parcel Tools License',
           message: 'License Required',
-          detail: 'Parcel Tools requires a valid license to use.\n\nClick "Buy License" to purchase for $29.99\n\nAlready have a license? Click "Activate" to enter your key.',
-          buttons: ['Buy License ($29.99)', 'Activate License', 'Later'],
+          detail: 'Parcel Tools requires a valid license to use.\n\nClick "Buy License" to purchase for $59.99\n\nAlready have a license? Click "Activate" to enter your key.',
+          buttons: ['Buy License ($59.99)', 'Activate License', 'Later'],
           defaultId: 0
         };
 
