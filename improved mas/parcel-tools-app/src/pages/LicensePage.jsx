@@ -94,10 +94,18 @@ export default function LicensePage() {
     if (!confirmed) return;
     setActivating(true); setError('');
     try {
-      const res = await fetch('http://127.0.0.1:5000/api/license/deactivate', { method: 'POST' });
+      const token = sessionStorage.getItem('sessionToken') || '';
+      const res = await fetch('http://127.0.0.1:5000/api/license/deactivate', { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Token': token
+        }
+      });
       const data = await res.json();
       if (data.success) {
-        toast.success('License deactivated.');
+        toast.success('License deactivated successfully.');
+        setLicenseStatus({ status: 'expired', is_valid: false, message: 'License deactivated' });
         await checkStatus();
       } else {
         setError(data.error || 'Deactivation failed.');

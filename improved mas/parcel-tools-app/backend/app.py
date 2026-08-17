@@ -2897,8 +2897,25 @@ def activate_license():
 
 @app.route('/api/license/deactivate', methods=['POST'])
 def deactivate_license():
-    """Deactivate current license"""
+    """Deactivate current license both locally, in Firestore, and on Gumroad"""
     try:
+        token = request.headers.get('X-Session-Token', '')
+        user_id = None
+        if token:
+            try:
+                user_id, _ = license_manager.verify_session_token(token)
+            except Exception as e:
+                print(f'[API] Note verifying session token for deactivation: {e}')
+
+        # 1. If user is logged in, update Firestore so account becomes demo
+        if user_id:
+            try:
+                firebase_service.deactivate_user_license(user_id)
+                print(f'[API] Deactivated online user license in Firestore for UID: {user_id}')
+            except Exception as e:
+                print(f'[API] Warning updating Firestore on deactivation: {e}')
+
+        # 2. Deactivate local license and release Gumroad activation slot
         result = license_manager.deactivate_license()
         return jsonify(result)
     except Exception as e:

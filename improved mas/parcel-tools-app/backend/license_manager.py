@@ -516,11 +516,55 @@ class LicenseManager:
         
         return formatted
     
-    def deactivate_license(self):
-        """Remove/deactivate current license"""
+    def deactivate_gumroad_key(self, license_key):
+        """
+        Decrement uses count on Gumroad API to release activation slot
+        """
+        if not license_key:
+            return {'success': False, 'message': 'No license key provided'}
         try:
+            url = "https://api.gumroad.com/v2/licenses/decrement_uses_count"
+            product_id = "kk7iYfcvGdH3hYjxntwNIg=="
+            
+            data = urllib.parse.urlencode({
+                'product_id': product_id,
+                'license_key': license_key.strip()
+            }).encode('utf-8')
+            
+            req = urllib.request.Request(url, data=data, method='PUT')
+            with urllib.request.urlopen(req, timeout=8) as response:
+                if response.status in (200, 201, 204):
+                    print(f'[License] Gumroad activation released for key: {license_key[:8]}...')
+                    return {'success': True, 'message': 'Gumroad activation released'}
+            return {'success': True, 'message': 'Gumroad processed'}
+        except Exception as e:
+            print(f'[License] Note on Gumroad decrement: {e}')
+            return {'success': True, 'message': f'Gumroad note: {e}'}
+
+    def deactivate_license(self):
+        """Remove/deactivate current license from disk and Gumroad"""
+        try:
+            key_to_deactivate = None
+            provider = None
             if os.path.exists(self.license_file):
-                os.remove(self.license_file)
+                try:
+                    with open(self.license_file, 'r', encoding='utf-8') as f:
+                        lic = json_lib.load(f)
+                        key_to_deactivate = lic.get('key')
+                        provider = lic.get('provider')
+                except Exception as e:
+                    print(f'[License] Warning reading license before deletion: {e}')
+                
+                try:
+                    os.remove(self.license_file)
+                    print(f'[License] Local license file deleted successfully.')
+                except Exception as e:
+                    print(f'[License] Could not delete license file: {e}')
+            
+            # If it was a Gumroad key, release activation slot
+            if key_to_deactivate and provider == 'gumroad':
+                self.deactivate_gumroad_key(key_to_deactivate)
+
             return {'success': True, 'message': 'License deactivated'}
         except Exception as e:
             return {'success': False, 'error': str(e)}
