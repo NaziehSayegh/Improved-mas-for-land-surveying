@@ -2004,7 +2004,7 @@ def export_project_archive():
             "software": "Parcel Tools Desktop 2.0",
             "parcelsCount": len(project_data.get('savedParcels', [])),
             "pointsCount": len(project_data.get('points', {})),
-            "version": "2.0.11"
+            "version": "2.0.12"
         }
         files_to_compress.append({
             'archiveName': 'manifest.json',
