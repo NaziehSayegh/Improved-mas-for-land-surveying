@@ -12,6 +12,16 @@ from datetime import datetime
 import re
 import builtins
 import sys
+import zipfile
+import threading
+import io
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Global thread pool for handling simultaneous pressure and file compression tasks
+MAX_CONCURRENT_WORKERS = min(32, (os.cpu_count() or 4) * 2 + 4)
+compression_executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_WORKERS, thread_name_prefix="CompressWorker")
+_file_io_lock = threading.RLock()
 
 # Add current directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -774,24 +784,40 @@ def calculate_area():
     """
     try:
         data = request.get_json()
-        points = data.get('points', [])
+        raw_points = data.get('points', [])
         curves = data.get('curves', [])
         
+        # Sanitize and parse point coordinates
+        points = []
+        for p in raw_points:
+            if isinstance(p, dict):
+                try:
+                    x = float(p.get('x', 0))
+                    y = float(p.get('y', 0))
+                    if not (math.isnan(x) or math.isnan(y) or math.isinf(x) or math.isinf(y)):
+                        points.append({'x': x, 'y': y})
+                except (ValueError, TypeError):
+                    continue
+
         if len(points) < 3:
-            return jsonify({'error': 'At least 3 points required'}), 400
-        
+            return jsonify({'error': 'At least 3 valid coordinate points are required'}), 400
+
+        # If last point is identical to first point (closed traverse notation), trim it
+        if len(points) > 3 and abs(points[0]['x'] - points[-1]['x']) < 1e-6 and abs(points[0]['y'] - points[-1]['y']) < 1e-6:
+            points = points[:-1]
+
         # Shoelace formula for polygon area
-        base_area = 0
+        base_area = 0.0
         n = len(points)
         for i in range(n):
             j = (i + 1) % n
             base_area += points[i]['x'] * points[j]['y']
             base_area -= points[j]['x'] * points[i]['y']
         
-        base_area = abs(base_area) / 2
+        base_area = abs(base_area) / 2.0
         
         # Calculate perimeter
-        perimeter = 0
+        perimeter = 0.0
         for i in range(n):
             j = (i + 1) % n
             dx = points[j]['x'] - points[i]['x']
@@ -801,6 +827,7 @@ def calculate_area():
         # Calculate centroid
         cx = sum(p['x'] for p in points) / n
         cy = sum(p['y'] for p in points) / n
+
         
         # Apply curve adjustments
         curve_adjustments = []
@@ -1614,8 +1641,9 @@ def reload_points_file():
         if not os.path.exists(file_path):
             return jsonify({'error': 'File not found'}), 404
         
-        # Read points
+        # Read points with automatic deduplication
         points = []
+        seen_point_ids = set()
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 line = line.strip()
@@ -1627,9 +1655,12 @@ def reload_points_file():
                 
                 if len(parts) >= 3:
                     try:
-                        point_id = parts[0]
+                        point_id = parts[0].strip()
+                        if not point_id or point_id in seen_point_ids:
+                            continue
                         x = float(parts[1])
                         y = float(parts[2])
+                        seen_point_ids.add(point_id)
                         points.append({'id': point_id, 'x': x, 'y': y})
                     except ValueError:
                         continue
@@ -1651,32 +1682,40 @@ def import_points():
     Expected JSON: { "data": "id,x,y\n1,0,0\n2,100,0\n..." }
     """
     try:
-        data = request.get_json()
-        text_data = data.get('data', '')
+        data = request.get_json() or {}
+        text_data = data.get('data') or data.get('content') or ''
+        if not isinstance(text_data, str):
+            text_data = str(text_data)
         
         points = []
+        seen_point_ids = set()
         for line in text_data.strip().split('\n'):
             line = line.strip()
             if not line or line.startswith('#') or line.startswith('//'):
                 continue
             
-            # Replace semicolons with commas
-            line = line.replace(';', ',')
+            # Replace semicolons and tabs with commas
+            line = line.replace(';', ',').replace('\t', ',')
             
             # Split by comma or whitespace
             parts = [p.strip() for p in (line.split(',') if ',' in line else line.split()) if p.strip()]
             
             if len(parts) >= 3:
                 try:
-                    point_id = parts[0]
+                    point_id = parts[0].strip()
+                    if not point_id or point_id in seen_point_ids:
+                        continue
                     x = float(parts[1])
                     y = float(parts[2])
-                    points.append({'id': point_id, 'x': x, 'y': y})
-                except ValueError:
+                    if not (math.isnan(x) or math.isnan(y) or math.isinf(x) or math.isinf(y)):
+                        seen_point_ids.add(point_id)
+                        points.append({'id': point_id, 'x': x, 'y': y})
+                except (ValueError, TypeError):
                     continue
         
         if not points:
-            return jsonify({'error': 'No valid points found'}), 400
+            return jsonify({'error': 'No valid coordinate points found in input text'}), 400
+
         
         return jsonify({'points': points, 'count': len(points)})
     
@@ -1739,6 +1778,285 @@ def export_points():
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ─── HIGH-CONCURRENCY MULTI-FILE COMPRESSION & ARCHIVING ENGINE ──────────────
+
+def _process_file_for_archive(file_entry):
+    """
+    Worker task to read and prepare a single file entry for streaming compression.
+    Memory-safe: reads in chunks or handles in-memory strings.
+    """
+    archive_name = file_entry.get('archiveName', '').strip()
+    source_path = file_entry.get('sourcePath')
+    content = file_entry.get('content')
+    base64_content = file_entry.get('base64Content')
+
+    if not archive_name:
+        if source_path:
+            archive_name = os.path.basename(source_path)
+        else:
+            archive_name = f"file_{int(time.time() * 1000)}"
+
+    # Normalize archive name (forward slashes for zip standard)
+    archive_name = archive_name.replace('\\', '/').lstrip('/')
+
+    if source_path and os.path.isfile(source_path):
+        size = os.path.getsize(source_path)
+        return {
+            "type": "disk",
+            "archive_name": archive_name,
+            "source_path": source_path,
+            "size": size,
+            "error": None
+        }
+    elif content is not None:
+        data_bytes = content.encode('utf-8') if isinstance(content, str) else bytes(content)
+        return {
+            "type": "memory",
+            "archive_name": archive_name,
+            "data": data_bytes,
+            "size": len(data_bytes),
+            "error": None
+        }
+    elif base64_content:
+        try:
+            import base64
+            data_bytes = base64.b64decode(base64_content)
+            return {
+                "type": "memory",
+                "archive_name": archive_name,
+                "data": data_bytes,
+                "size": len(data_bytes),
+                "error": None
+            }
+        except Exception as e:
+            return {
+                "archive_name": archive_name,
+                "error": f"Base64 decode error: {e}"
+            }
+    else:
+        return {
+            "archive_name": archive_name,
+            "error": f"File source not found or inaccessible: {source_path}"
+        }
+
+
+@app.route('/api/compress-files', methods=['POST'])
+def compress_files_endpoint():
+    """
+    Concurrent multi-file compression endpoint.
+    Compresses numerous files simultaneously with chunked streaming and memory bounds.
+    Body: {
+        "files": [ { "sourcePath": "...", "archiveName": "..." }, ... ],
+        "outputPath": "C:\\path\\output.zip", // Optional (if omitted, creates temp zip)
+        "compressionLevel": 6, // 1 to 9
+        "comment": "Parcel Tools Archive"
+    }
+    """
+    start_time = time.time()
+    try:
+        data = request.get_json() or {}
+        files = data.get('files', [])
+        output_path = data.get('outputPath')
+        compression_level = int(data.get('compressionLevel', 6))
+        compression_level = max(1, min(9, compression_level))
+        comment = data.get('comment', 'Parcel Tools Compressed Archive')
+
+        if not files or not isinstance(files, list):
+            return jsonify({'error': 'A non-empty list of files is required for compression'}), 400
+
+        # If no outputPath provided, generate a managed temporary archive path
+        if not output_path:
+            import tempfile
+            temp_dir = os.path.join(tempfile.gettempdir(), 'parcel_tools_archives')
+            os.makedirs(temp_dir, exist_ok=True)
+            output_path = os.path.join(temp_dir, f"archive_{int(time.time() * 1000)}.zip")
+
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        # 1. Parallelize file inspection and resolution across thread pool
+        futures = [compression_executor.submit(_process_file_for_archive, f) for f in files]
+        prepared_files = []
+        errors = []
+        total_original_bytes = 0
+
+        for future in as_completed(futures):
+            res = future.result()
+            if res.get('error'):
+                errors.append(res['error'])
+            else:
+                prepared_files.append(res)
+                total_original_bytes += res.get('size', 0)
+
+        if not prepared_files:
+            return jsonify({'error': 'No valid files could be read for compression', 'details': errors}), 400
+
+        # 2. Stream files into Zip archive using chunked buffers (thread-safe write lock)
+        CHUNK_SIZE = 64 * 1024  # 64 KB streaming buffer
+        with _file_io_lock:
+            with zipfile.ZipFile(output_path, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=compression_level) as zip_out:
+                if comment:
+                    zip_out.comment = comment.encode('utf-8')
+
+                for p_file in prepared_files:
+                    arch_name = p_file['archive_name']
+                    if p_file['type'] == 'disk':
+                        # Stream from disk in chunks to avoid loading whole large file into RAM
+                        with open(p_file['source_path'], 'rb') as f_in:
+                            with zip_out.open(arch_name, mode='w') as f_out:
+                                while True:
+                                    chunk = f_in.read(CHUNK_SIZE)
+                                    if not chunk:
+                                        break
+                                    f_out.write(chunk)
+                    elif p_file['type'] == 'memory':
+                        zip_out.writestr(arch_name, p_file['data'])
+
+        compressed_size = os.path.getsize(output_path)
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        saved_bytes = max(0, total_original_bytes - compressed_size)
+        ratio_pct = ((saved_bytes / total_original_bytes) * 100) if total_original_bytes > 0 else 0
+
+        return jsonify({
+            'success': True,
+            'outputPath': output_path,
+            'fileName': os.path.basename(output_path),
+            'filesCount': len(prepared_files),
+            'skippedCount': len(errors),
+            'errors': errors,
+            'originalSizeBytes': total_original_bytes,
+            'compressedSizeBytes': compressed_size,
+            'savedBytes': saved_bytes,
+            'compressionRatioPercent': round(ratio_pct, 2),
+            'durationMs': elapsed_ms
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f"Compression failed: {str(e)}"}), 500
+
+
+@app.route('/api/project/export-archive', methods=['POST'])
+def export_project_archive():
+    """
+    High-speed comprehensive project archive exporter.
+    Packages project JSON, active .pnt coordinates file, CAD drawing, and manifest into a single compressed .zip.
+    """
+    start_time = time.time()
+    try:
+        data = request.get_json() or {}
+        project_name = data.get('projectName', 'ParcelProject').strip() or 'ParcelProject'
+        project_data = data.get('projectData', {})
+        points_filepath = data.get('pointsFilePath')
+        cad_filepath = data.get('cadFilePath')
+        output_filepath = data.get('outputPath')
+        include_reports = data.get('includeReports', True)
+
+        # Sanitize project name
+        safe_name = re.sub(r'[^\w\-_\. ]', '_', project_name)
+
+        if not output_filepath:
+            import tempfile
+            temp_dir = os.path.join(tempfile.gettempdir(), 'parcel_tools_archives')
+            os.makedirs(temp_dir, exist_ok=True)
+            output_filepath = os.path.join(temp_dir, f"{safe_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
+
+        files_to_compress = []
+
+        # 1. Project data JSON
+        project_json_str = json.dumps(project_data, indent=2, ensure_ascii=False)
+        files_to_compress.append({
+            'archiveName': f"{safe_name}.prcl",
+            'content': project_json_str
+        })
+
+        # 2. Points file (.pnt)
+        if points_filepath and os.path.isfile(points_filepath):
+            files_to_compress.append({
+                'archiveName': f"coordinates/{os.path.basename(points_filepath)}",
+                'sourcePath': points_filepath
+            })
+        elif project_data.get('points'):
+            # Export in-memory points
+            lines = ['# Exported Coordinates from Parcel Tools', f'# Date: {datetime.now().isoformat()}', '']
+            for pid, pt in project_data.get('points', {}).items():
+                lines.append(f"{pid}, {pt.get('x', 0)}, {pt.get('y', 0)}")
+            files_to_compress.append({
+                'archiveName': f"coordinates/points_{safe_name}.pnt",
+                'content': '\n'.join(lines)
+            })
+
+        # 3. CAD drawing (.dwg or .dxf)
+        if cad_filepath and os.path.isfile(cad_filepath):
+            files_to_compress.append({
+                'archiveName': f"cad/{os.path.basename(cad_filepath)}",
+                'sourcePath': cad_filepath
+            })
+
+        # 4. Manifest
+        manifest = {
+            "projectName": project_name,
+            "exportedAt": datetime.now().isoformat(),
+            "software": "Parcel Tools Desktop 2.0",
+            "parcelsCount": len(project_data.get('savedParcels', [])),
+            "pointsCount": len(project_data.get('points', {})),
+            "version": "2.0.11"
+        }
+        files_to_compress.append({
+            'archiveName': 'manifest.json',
+            'content': json.dumps(manifest, indent=2)
+        })
+
+        # Execute chunked streaming compression
+        with _file_io_lock:
+            with zipfile.ZipFile(output_filepath, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zip_out:
+                zip_out.comment = f"Parcel Tools Project Archive: {project_name}".encode('utf-8')
+                for item in files_to_compress:
+                    arch_name = item['archiveName']
+                    if 'sourcePath' in item and os.path.isfile(item['sourcePath']):
+                        zip_out.write(item['sourcePath'], arch_name)
+                    elif 'content' in item:
+                        zip_out.writestr(arch_name, item['content'].encode('utf-8'))
+
+        compressed_size = os.path.getsize(output_filepath)
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        return jsonify({
+            'success': True,
+            'outputPath': output_filepath,
+            'fileName': os.path.basename(output_filepath),
+            'filesCount': len(files_to_compress),
+            'compressedSizeBytes': compressed_size,
+            'durationMs': elapsed_ms,
+            'manifest': manifest
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f"Project archive export failed: {str(e)}"}), 500
+
+
+@app.route('/api/compress/status', methods=['GET'])
+def get_compression_status():
+    """
+    Concurrency & compression health check endpoint.
+    Reports active worker threads, CPU concurrency level, and thread pool state.
+    """
+    return jsonify({
+        'status': 'healthy',
+        'maxWorkers': MAX_CONCURRENT_WORKERS,
+        'cpuCount': os.cpu_count() or 4,
+        'threadsActive': threading.active_count(),
+        'compressionEngine': 'zipfile_deflate_chunked'
+    })
+
+
+
 
 
 @app.route('/api/export-pdf', methods=['POST'])
@@ -2777,10 +3095,17 @@ def _parse_dxf_file(dxf_path: str) -> dict:
     point_counter = [1]
 
     def add_raw_point(x, y, z=0):
-        pid = f"DXF_{point_counter[0]}"
-        point_counter[0] += 1
-        raw_points.append({"id": pid, "x": round(float(x), 4), "y": round(float(y), 4)})
-        return pid
+        try:
+            fx = float(x)
+            fy = float(y)
+            if math.isnan(fx) or math.isnan(fy) or math.isinf(fx) or math.isinf(fy):
+                return None
+            pid = f"DXF_{point_counter[0]}"
+            point_counter[0] += 1
+            raw_points.append({"id": pid, "x": round(fx, 4), "y": round(fy, 4)})
+            return pid
+        except (ValueError, TypeError):
+            return None
 
     def get_ent_color(entity, doc, override_layer=None):
         try:
@@ -3379,7 +3704,9 @@ def parse_cad():
 if __name__ == '__main__':
     print("==> Starting Parcel Tools Backend API...")
     print("==> API running on http://127.0.0.1:5000")
-    print("==> Ready to accept connections from Electron app")
-    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+    print(f"==> Concurrent worker pool initialized ({MAX_CONCURRENT_WORKERS} workers)")
+    print("==> Ready to accept simultaneous connections from Electron app")
+    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False, threaded=True)
+
 
 

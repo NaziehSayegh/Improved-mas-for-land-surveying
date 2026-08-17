@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useToast } from './ToastContext';
+import { deduplicatePoints, deduplicateParcels, deduplicateDatasets } from '../utils/deduplication';
 
 const ProjectContext = createContext();
 
@@ -61,11 +62,16 @@ export const ProjectProvider = ({ children }) => {
   const setCadLayersSynced = React.useCallback((v) => { cadLayersRef.current = v; setCadLayers(v); }, []);
   const setCadVisibleLayersSynced = React.useCallback((v) => { cadVisibleLayersRef.current = v; setCadVisibleLayers(v); }, []);
 
-  // Use ref to access latest savedParcels without triggering re-renders
+  // Use ref to access latest savedParcels and loadedPoints without triggering re-renders
   const savedParcelsRef = useRef(savedParcels);
   useEffect(() => {
     savedParcelsRef.current = savedParcels;
   }, [savedParcels]);
+
+  const loadedPointsRef = useRef(loadedPoints);
+  useEffect(() => {
+    loadedPointsRef.current = loadedPoints;
+  }, [loadedPoints]);
 
   // Auto-watch points file for changes
   useEffect(() => {
@@ -147,8 +153,13 @@ export const ProjectProvider = ({ children }) => {
               pointsObj[p.id] = { x: p.x, y: p.y };
             });
 
-            setLoadedPoints(pointsObj);
-            toast.success(`🔄 Points file updated! Reloaded ${result.count} points.`);
+            const { deduplicated, removedCount } = deduplicatePoints(pointsObj);
+            setLoadedPoints(deduplicated);
+            let msg = `🔄 Points file updated! Reloaded ${Object.keys(deduplicated).length} points.`;
+            if (removedCount > 0) {
+              msg += ` (Cleaned ${removedCount} duplicate/invalid entries)`;
+            }
+            toast.success(msg);
           }
         }
       } catch (error) {
@@ -251,8 +262,14 @@ export const ProjectProvider = ({ children }) => {
 
     try {
       const name = projectName || 'Untitled Project';
-      const parcels = overrideParcels || savedParcels;
-      const points = overridePoints || loadedPoints;
+      const rawParcels = overrideParcels || savedParcels;
+      const rawPoints = overridePoints || loadedPoints;
+
+      // Automatic deduplication prior to writing to disk
+      const { points, parcels, totalRemoved } = deduplicateDatasets(rawPoints, rawParcels);
+      if (totalRemoved > 0) {
+        console.log(`[Project Save Deduplication] Cleaned ${totalRemoved} redundant entries before persisting.`);
+      }
 
       const projectData = {
         projectName: name,
@@ -287,7 +304,7 @@ export const ProjectProvider = ({ children }) => {
         savedAt: new Date().toISOString(),
         isEmpty: !parcels || parcels.length === 0,
         pointsCount: Object.keys(points || {}).length,
-        version: '2.0.7'
+        version: '2.0.11'
       };
 
       const response = await fetch('http://localhost:5000/api/project/save', {
@@ -310,6 +327,18 @@ export const ProjectProvider = ({ children }) => {
     }
     return false;
   }, [projectPath, projectName, savedParcels, loadedPoints, pointsFileName, pointsFilePath, fileHeading, savedErrorCalculations, currentParcel, cadFilePath, cadFileName, cadEntities, cadLayers, cadVisibleLayers]);
+
+  // Instant continuous background auto-save watcher
+  useEffect(() => {
+    if (!hasUnsavedChanges || !projectPath) return;
+
+    const autoSaveTimer = setTimeout(() => {
+      saveActiveProject();
+    }, 800);
+
+    return () => clearTimeout(autoSaveTimer);
+  }, [hasUnsavedChanges, projectPath, saveActiveProject]);
+
 
   // Reset all project state to empty defaults — the single source of truth for teardown
   const closeProject = React.useCallback(() => {
@@ -341,8 +370,18 @@ export const ProjectProvider = ({ children }) => {
     else if (projectData.projectPath) setProjectPath(projectData.projectPath);
     setPointsFileName(projectData.pointsFileName || '');
     setPointsFilePath(projectData.pointsFilePath || '');
-    setLoadedPoints(projectData.loadedPoints || {});
-    setSavedParcels(projectData.savedParcels || []);
+
+    // Automatic non-destructive deduplication of loaded datasets
+    const { points, parcels, totalRemoved } = deduplicateDatasets(
+      projectData.loadedPoints || {},
+      projectData.savedParcels || []
+    );
+    if (totalRemoved > 0) {
+      console.log(`[Project Load Deduplication] Cleaned ${totalRemoved} redundant entries.`);
+    }
+
+    setLoadedPoints(points);
+    setSavedParcels(parcels);
     setFileHeading(projectData.fileHeading || { block: '', quarter: '', parcels: '', place: '', additionalInfo: '' });
     setSavedErrorCalculations(projectData.savedErrorCalculations || []);
     if (projectData.currentParcel) {
@@ -357,6 +396,54 @@ export const ProjectProvider = ({ children }) => {
     setCadVisibleLayersSynced(projectData.cadVisibleLayers || {});
     setHasUnsavedChanges(false);
   }, [setCadFilePathSynced, setCadFileNameSynced, setCadEntitiesSynced, setCadLayersSynced, setCadVisibleLayersSynced]);
+
+  // Background automatic deduplication function
+  const deduplicateActiveDatasets = React.useCallback((notify = false) => {
+    const currentPoints = loadedPointsRef.current || {};
+    const currentParcels = savedParcelsRef.current || [];
+
+    const { points, parcels, removedPoints, removedParcels, totalRemoved, hasChanged } = deduplicateDatasets(
+      currentPoints,
+      currentParcels
+    );
+
+    if (hasChanged && totalRemoved > 0) {
+      console.log(`[Auto Deduplication] Cleaned ${removedPoints} points and ${removedParcels} parcels.`);
+      setLoadedPoints(points);
+      setSavedParcels(parcels);
+      setHasUnsavedChanges(true);
+
+      if (notify) {
+        toast.info(`🧹 Cleaned ${totalRemoved} redundant entries (${removedPoints} points, ${removedParcels} parcels).`);
+      }
+      return { cleaned: true, totalRemoved, removedPoints, removedParcels };
+    }
+
+    return { cleaned: false, totalRemoved: 0 };
+  }, [toast]);
+
+  // Periodic safe background deduplication watcher
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      const currentPoints = loadedPointsRef.current || {};
+      const currentParcels = savedParcelsRef.current || [];
+      const hasData = Object.keys(currentPoints).length > 0 || currentParcels.length > 0;
+      if (!hasData) return;
+
+      const { points, parcels, removedPoints, removedParcels, totalRemoved, hasChanged } = deduplicateDatasets(
+        currentPoints,
+        currentParcels
+      );
+
+      if (hasChanged && totalRemoved > 0) {
+        console.log(`[Background Deduplication] Auto-cleaned ${removedPoints} duplicate points and ${removedParcels} duplicate parcels.`);
+        setLoadedPoints(points);
+        setSavedParcels(parcels);
+      }
+    }, 1200);
+
+    return () => clearTimeout(debounceTimer);
+  }, [loadedPoints, savedParcels]);
 
   // Memoize context value to prevent unnecessary re-renders in consumers
   const value = React.useMemo(() => ({
@@ -384,6 +471,8 @@ export const ProjectProvider = ({ children }) => {
     saveActiveProject,
     closeProject,
     loadProjectData,
+    deduplicateActiveDatasets,
+    deduplicateDatasets,
     currentParcel,
     setCurrentParcel,
     cadFilePath,
@@ -411,6 +500,7 @@ export const ProjectProvider = ({ children }) => {
     removePointsFile,
     closeProject,
     loadProjectData,
+    deduplicateActiveDatasets,
     currentParcel,
     cadFilePath,
     cadFileName,

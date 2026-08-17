@@ -15,16 +15,18 @@ export const useUnsavedChanges = (
   onSave, 
   navigate, 
   onDiscard = null,
-  message = 'You have unsaved changes. What would you like to do?'
+  message = ''
 ) => {
   
-  // Handle browser close/refresh
+  // Handle browser close/refresh — auto-save in background
   useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (hasUnsavedChanges) {
-        e.preventDefault();
-        e.returnValue = message;
-        return message;
+    const handleBeforeUnload = () => {
+      if (hasUnsavedChanges && onSave) {
+        try {
+          onSave();
+        } catch (err) {
+          console.warn('Auto-save on beforeunload:', err);
+        }
       }
     };
 
@@ -32,65 +34,30 @@ export const useUnsavedChanges = (
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [hasUnsavedChanges, message]);
+  }, [hasUnsavedChanges, onSave]);
 
-  // Function to check before navigating (call this instead of navigate directly)
+  // Seamless navigation: auto-save immediately in background without blocking popups
   const navigateWithCheck = async (to, options = {}) => {
-    if (hasUnsavedChanges) {
-      const result = await showUnsavedChangesDialog(message);
-      
-      if (result === 'save') {
-        if (onSave) {
-          try {
-            await onSave();
-            navigate(to, options);
-          } catch (error) {
-            // User cancelled save or error occurred
-            console.log('Save cancelled or failed:', error);
-            // Don't navigate if save was cancelled
-          }
-        } else {
-          // No save function, just navigate
-          navigate(to, options);
-        }
-      } else if (result === 'discard') {
-        if (onDiscard) {
-          onDiscard();
-        }
-        navigate(to, options);
+    if (hasUnsavedChanges && onSave) {
+      try {
+        await onSave();
+      } catch (error) {
+        console.warn('Background auto-save before navigation:', error);
       }
-      // If cancel, do nothing - stay on current page
-    } else {
-      navigate(to, options);
     }
+    navigate(to, options);
   };
 
-  // Handle ESC key (for going to main menu)
+  // Handle ESC key: auto-save and navigate smoothly to target
   const handleEscKey = async (targetPath = '/') => {
-    if (hasUnsavedChanges) {
-      const result = await showUnsavedChangesDialog(message);
-      
-      if (result === 'save') {
-        if (onSave) {
-          try {
-            await onSave();
-            navigate(targetPath); // Navigate to target (usually main menu)
-          } catch (error) {
-            console.log('Save cancelled');
-          }
-        } else {
-          navigate(targetPath);
-        }
-      } else if (result === 'discard') {
-        if (onDiscard) {
-          onDiscard();
-        }
-        navigate(targetPath); // Navigate to target
+    if (hasUnsavedChanges && onSave) {
+      try {
+        await onSave();
+      } catch (error) {
+        console.warn('Background auto-save before ESC navigation:', error);
       }
-      // If cancel, do nothing - stay on current page
-    } else {
-      navigate(targetPath); // Navigate without asking
     }
+    navigate(targetPath);
   };
 
   return { navigateWithCheck, handleEscKey };

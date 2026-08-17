@@ -61,105 +61,16 @@ const DataFiles = () => {
   // Track unsaved changes for points editing
   const hasUnsavedPoints = editMode && Object.keys(editingPoints).length > 0;
 
-  // Helper function to show unsaved changes dialog
-  const showUnsavedChangesDialog = (message) => {
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.75);
-        z-index: 10000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      `;
 
-      const dialog = document.createElement('div');
-      dialog.style.cssText = `
-        background: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 12px;
-        padding: 24px;
-        max-width: 450px;
-        width: 90%;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-      `;
-
-      dialog.innerHTML = `
-        <h2 style="color: #c9d1d9; font-size: 20px; font-weight: bold; margin-bottom: 12px;">
-          ⚠️ Unsaved Changes
-        </h2>
-        <p style="color: #8b949e; margin-bottom: 24px; line-height: 1.5;">
-          ${message}
-        </p>
-        <div style="display: flex; gap: 12px; justify-content: flex-end;">
-          <button id="unsaved-cancel" style="
-            background: #21262d;
-            border: 1px solid #30363d;
-            color: #c9d1d9;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-          ">Cancel</button>
-          <button id="unsaved-discard" style="
-            background: #da3633;
-            border: 1px solid #da3633;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-          ">Discard</button>
-          <button id="unsaved-save" style="
-            background: #238636;
-            border: 1px solid #238636;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-          ">Save</button>
-        </div>
-      `;
-
-      overlay.appendChild(dialog);
-      document.body.appendChild(overlay);
-
-      const handleResult = (result) => {
-        document.body.removeChild(overlay);
-        resolve(result);
-      };
-
-      document.getElementById('unsaved-save').onclick = () => handleResult('save');
-      document.getElementById('unsaved-discard').onclick = () => handleResult('discard');
-      document.getElementById('unsaved-cancel').onclick = () => handleResult('cancel');
-
-      overlay.onclick = (e) => {
-        if (e.target === overlay) {
-          handleResult('cancel');
-        }
-      };
-
-      const handleEsc = (e) => {
-        if (e.key === 'Escape') {
-          handleResult('cancel');
-          window.removeEventListener('keydown', handleEsc);
-        }
-      };
-      window.addEventListener('keydown', handleEsc);
-    });
-  };
-
-  // Close project - resets ALL project state and returns to main menu
+  // Close project - auto-saves and resets state
   const handleCloseProject = async () => {
-    // Check if there are unsaved changes
-    if (hasUnsavedChanges && !(await customConfirm('You have unsaved changes. Are you sure you want to close this project?'))) {
-      return;
+    // Auto-save project if path is set
+    if (projectPath && typeof saveActiveProject === 'function') {
+      try {
+        await saveActiveProject();
+      } catch (err) {
+        console.warn('Auto-save on close project:', err);
+      }
     }
 
     // Auto-save points file if there are unsaved point edits
@@ -182,16 +93,20 @@ const DataFiles = () => {
     setNewPointY('');
     setEditingPointId(null);
 
-    toast.success('✅ Project closed successfully.');
+    toast.success('✅ Project closed.');
     navigate('/');
   };
 
   const handleBackToMainMenu = useCallback(async () => {
-    if (hasUnsavedChanges && !(await customConfirm('You have unsaved changes. Are you sure you want to return to the Main Menu?'))) {
-      return;
+    if (hasUnsavedChanges && projectPath && typeof saveActiveProject === 'function') {
+      try {
+        await saveActiveProject();
+      } catch (err) {
+        console.warn('Auto-save on back to main menu:', err);
+      }
     }
     navigate('/');
-  }, [navigate, hasUnsavedChanges]);
+  }, [navigate, hasUnsavedChanges, projectPath, saveActiveProject]);
 
   // ESC key to go to main menu (only if no dialogs are open)
   useEffect(() => {

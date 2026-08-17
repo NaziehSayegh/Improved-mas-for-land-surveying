@@ -2161,8 +2161,14 @@ const ParcelCalculator = () => {
 
   // New project
   const handleNewProject = async () => {
-    if (hasUnsavedChanges && !(await customConfirm('You have unsaved changes. Create new project?'))) {
-      return false;
+    // Auto-save existing project in background if path is set
+    const currentProjectPath = lastSavedPath || projectPath;
+    if (hasUnsavedChanges && currentProjectPath) {
+      try {
+        await handleSaveProject(false);
+      } catch (err) {
+        console.warn('Auto-save on new project:', err);
+      }
     }
 
     // Reset project state
@@ -2200,43 +2206,18 @@ const ParcelCalculator = () => {
     if (saved) {
       showSuccessToast(`✅ New project "${sanitizedName}" created and saved!`);
     } else {
-      showSuccessToast('✅ New project created. Remember to choose Save when you are ready.');
+      showSuccessToast('✅ New project created.');
     }
 
     return saved;
   };
 
-  // Close/Exit project - clears everything but STAYS on the page (doesn't navigate)
+  // Close/Exit project - auto-saves and resets state smoothly
   const handleCloseProject = async () => {
     const currentProjectPath = lastSavedPath || projectPath;
 
-    // Check if there are unsaved changes
-    if (hasUnsavedChanges) {
-      const result = await showUnsavedChangesDialog(
-        globalProjectName
-          ? `Save changes to "${globalProjectName}"?`
-          : 'Save changes before closing project?'
-      );
-
-      if (result === 'save') {
-        try {
-          // If we have a path, save to it; otherwise show Save As
-          const saved = await handleSaveProject(!currentProjectPath);
-          if (!saved) {
-            // User cancelled save dialog - don't close
-            return;
-          }
-        } catch (error) {
-          console.log('Save cancelled or failed');
-          return; // Don't close if save was cancelled or failed
-        }
-      } else if (result === 'cancel') {
-        // User cancelled - don't close
-        return;
-      }
-      // If discard, continue to close
-    } else if (currentProjectPath && globalProjectName) {
-      // No unsaved changes but has a path - quick auto-save
+    // Auto-save quietly if path exists
+    if (currentProjectPath && globalProjectName) {
       try {
         const projectData = buildProjectDataPayload(globalProjectName);
         await fetch('http://localhost:5000/api/project/save', {
@@ -2254,7 +2235,6 @@ const ParcelCalculator = () => {
     }
 
     // Clear all project data but STAY on the calculator page
-    // Clear pointsFilePath FIRST to stop file watching, then clear everything else
     setPointsFilePath('');
     setPointsFileName('');
     setLoadedPoints({});
@@ -2272,137 +2252,27 @@ const ParcelCalculator = () => {
     setLastSavedPath(null);
     setProjectPath('');
 
-    // Clear project name LAST, after everything else is cleared
     setTimeout(() => {
       setGlobalProjectName('');
-      // Show confirmation
-      showSuccessToast('✅ Project closed. You can now start a new project or load an existing one.');
+      showSuccessToast('✅ Project closed.');
     }, 100);
   };
 
-  // Navigate back to main menu with unsaved changes verification
+  // Navigate back to main menu with seamless background auto-save
   const handleBackToMainMenu = useCallback(async () => {
     const currentProjectPath = lastSavedPath || projectPath;
 
-    if (hasUnsavedChanges) {
-      const result = await showUnsavedChangesDialog(
-        globalProjectName
-          ? `Save changes to "${globalProjectName}" before exiting?`
-          : 'Save changes before exiting?'
-      );
-
-      if (result === 'save') {
-        try {
-          const saved = await handleSaveProject(!currentProjectPath);
-          if (!saved) return; // User cancelled save - don't navigate
-        } catch (error) {
-          console.log('Save failed or cancelled:', error);
-          return;
-        }
-      } else if (result === 'cancel') {
-        return; // Stay on the page
+    if (hasUnsavedChanges && currentProjectPath) {
+      try {
+        await handleSaveProject(false);
+      } catch (error) {
+        console.warn('Auto-save before navigating home:', error);
       }
     }
 
     navigate('/');
-  }, [navigate, hasUnsavedChanges, lastSavedPath, projectPath, globalProjectName]);
+  }, [navigate, hasUnsavedChanges, lastSavedPath, projectPath, handleSaveProject]);
 
-  // Helper function to show unsaved changes dialog (same as in hook)
-  const showUnsavedChangesDialog = (message) => {
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.75);
-        z-index: 10000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      `;
-
-      const dialog = document.createElement('div');
-      dialog.style.cssText = `
-        background: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 12px;
-        padding: 24px;
-        max-width: min(500px, 90vw);
-        width: 100%;
-        max-height: 90vh;
-        overflow-y: auto;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-        margin: 16px;
-      `;
-
-      dialog.innerHTML = `
-        <h2 style="color: #c9d1d9; font-size: 20px; font-weight: bold; margin-bottom: 12px;">
-          💾 Save Project
-        </h2>
-        <p style="color: #8b949e; margin-bottom: 24px; line-height: 1.5;">
-          ${message}
-        </p>
-        <div style="display: flex; gap: 12px; justify-content: flex-end;">
-          <button id="unsaved-cancel" style="
-            background: #21262d;
-            border: 1px solid #30363d;
-            color: #c9d1d9;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-          ">Cancel</button>
-          <button id="unsaved-discard" style="
-            background: #da3633;
-            border: 1px solid #da3633;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-          ">Discard</button>
-          <button id="unsaved-save" style="
-            background: #238636;
-            border: 1px solid #238636;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-          ">Save</button>
-        </div>
-      `;
-
-      overlay.appendChild(dialog);
-      document.body.appendChild(overlay);
-
-      const handleResult = (result) => {
-        document.body.removeChild(overlay);
-        resolve(result);
-      };
-
-      document.getElementById('unsaved-save').onclick = () => handleResult('save');
-      document.getElementById('unsaved-discard').onclick = () => handleResult('discard');
-      document.getElementById('unsaved-cancel').onclick = () => handleResult('cancel');
-
-      overlay.onclick = (e) => {
-        if (e.target === overlay) {
-          handleResult('cancel');
-        }
-      };
-
-      const handleEsc = (e) => {
-        if (e.key === 'Escape') {
-          handleResult('cancel');
-          window.removeEventListener('keydown', handleEsc);
-        }
-      };
-      window.addEventListener('keydown', handleEsc);
-    });
-  };
 
   // Auto-save project when data changes
   useEffect(() => {
