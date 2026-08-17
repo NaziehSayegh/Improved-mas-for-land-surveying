@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     Sparkles, Download, CheckCircle2, ArrowRight, X, 
-    RefreshCw, AlertCircle, ShieldCheck, Minimize2, ExternalLink 
+    RefreshCw, AlertCircle, ShieldCheck, Minimize2 
 } from 'lucide-react';
 
 export default function UpdateManagerModal() {
@@ -10,7 +10,7 @@ export default function UpdateManagerModal() {
     const [updateInfo, setUpdateInfo] = useState(null);
     const [progress, setProgress] = useState({ percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
     const [errorMessage, setErrorMessage] = useState('');
-    const [isMinimized, setIsMinimized] = useState(false);
+    const [isMinimized, setIsMinimized] = useState(true); // Default to non-intrusive floating pill
 
     // Format bytes helper
     const formatBytes = (bytes) => {
@@ -32,9 +32,17 @@ export default function UpdateManagerModal() {
         if (window.electronAPI.onUpdateAvailable) {
             window.electronAPI.onUpdateAvailable((info) => {
                 console.log('[Update UI] Update available:', info);
+                
+                // Check if user already dismissed this specific version
+                const dismissedVersion = localStorage.getItem('dismissed_update_version');
+                if (dismissedVersion === info.version) {
+                    console.log(`[Update UI] Version ${info.version} was previously dismissed by user.`);
+                    return;
+                }
+
                 setUpdateInfo(info);
                 setUpdateState('available');
-                setIsMinimized(false);
+                setIsMinimized(true); // Keep as subtle corner notification — never block the screen!
             });
         }
 
@@ -60,7 +68,7 @@ export default function UpdateManagerModal() {
             window.electronAPI.onUpdateDownloaded((info) => {
                 console.log('[Update UI] Update downloaded:', info);
                 setUpdateState('ready');
-                setIsMinimized(false);
+                setIsMinimized(false); // Open modal when ready to restart
             });
         }
 
@@ -84,6 +92,7 @@ export default function UpdateManagerModal() {
     const handleStartDownload = async () => {
         try {
             setUpdateState('downloading');
+            setIsMinimized(false);
             if (window.electronAPI?.startDownloadUpdate) {
                 await window.electronAPI.startDownloadUpdate();
             }
@@ -105,9 +114,18 @@ export default function UpdateManagerModal() {
         }
     };
 
+    const handleDismissPermanently = () => {
+        if (updateInfo?.version) {
+            localStorage.setItem('dismissed_update_version', updateInfo.version);
+        }
+        setUpdateState(null);
+    };
+
     const handleDismiss = () => {
         if (updateState === 'downloading') {
             setIsMinimized(true);
+        } else if (updateState === 'available') {
+            handleDismissPermanently();
         } else {
             setUpdateState(null);
         }
@@ -117,29 +135,51 @@ export default function UpdateManagerModal() {
 
     return (
         <>
-            {/* ── Minimized Floating Notification Pill (when working while downloading) ── */}
-            {isMinimized && updateState === 'downloading' && (
+            {/* ── Non-Intrusive Floating Corner Notification (Never blocks work) ── */}
+            {isMinimized && (
                 <motion.div
                     initial={{ opacity: 0, y: 50, scale: 0.9 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.9 }}
-                    onClick={() => setIsMinimized(false)}
-                    className="fixed bottom-6 right-6 z-[99999] bg-dark-900/95 border border-primary/50 text-white px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-xl flex items-center gap-3 cursor-pointer hover:border-primary transition-all group"
+                    className="fixed bottom-6 right-6 z-[99999] bg-dark-900/95 border border-primary/50 text-white px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-xl flex items-center gap-3 select-none"
                 >
-                    <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center text-primary animate-pulse">
-                        <Download className="w-4 h-4" />
-                    </div>
-                    <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-white">Downloading Update</span>
-                            <span className="text-xs font-mono font-bold text-primary">{progress.percent}%</span>
+                    <div 
+                        onClick={() => setIsMinimized(false)}
+                        className="flex items-center gap-3 cursor-pointer group"
+                    >
+                        <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                            {updateState === 'downloading' ? (
+                                <Download className="w-4 h-4 animate-bounce" />
+                            ) : (
+                                <Sparkles className="w-4 h-4 text-cyan-400" />
+                            )}
                         </div>
-                        <span className="text-[10px] text-dark-400">Click to expand details</span>
+                        <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-white">
+                                    {updateState === 'downloading' ? 'Downloading Update' : `Update v${updateInfo?.version || '2.0.12'} Available`}
+                                </span>
+                                {updateState === 'downloading' && (
+                                    <span className="text-xs font-mono font-bold text-primary">{progress.percent}%</span>
+                                )}
+                            </div>
+                            <span className="text-[10px] text-dark-400 group-hover:text-primary transition-colors">
+                                {updateState === 'downloading' ? 'Click to view progress' : 'Click to review & install'}
+                            </span>
+                        </div>
                     </div>
+
+                    <button
+                        onClick={handleDismiss}
+                        className="ml-2 text-dark-400 hover:text-white p-1 hover:bg-dark-800 rounded-lg transition-colors"
+                        title="Dismiss notification"
+                    >
+                        <X className="w-3.5 h-3.5" />
+                    </button>
                 </motion.div>
             )}
 
-            {/* ── Full Interactive Update Modal ── */}
+            {/* ── Full Interactive Modal (Only shown when user clicks to expand or when download completes) ── */}
             <AnimatePresence>
                 {!isMinimized && (
                     <div className="fixed inset-0 z-[999999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
@@ -203,7 +243,7 @@ export default function UpdateManagerModal() {
                                             <div className="flex flex-col">
                                                 <span className="text-[11px] text-dark-400 font-sans">Installed Version</span>
                                                 <span className="text-sm font-mono font-bold text-dark-200">
-                                                    v{updateInfo?.currentVersion || '2.0.10'}
+                                                    v{updateInfo?.currentVersion || '2.0.11'}
                                                 </span>
                                             </div>
 
@@ -214,7 +254,7 @@ export default function UpdateManagerModal() {
                                             <div className="flex flex-col text-right">
                                                 <span className="text-[11px] text-emerald-400 font-sans font-semibold">New Version</span>
                                                 <span className="text-sm font-mono font-bold text-emerald-300">
-                                                    v{updateInfo?.version || '2.0.11'}
+                                                    v{updateInfo?.version || '2.0.12'}
                                                 </span>
                                             </div>
                                         </div>
@@ -225,10 +265,10 @@ export default function UpdateManagerModal() {
                                                 <span>What's included in this release:</span>
                                             </div>
                                             <ul className="text-xs text-dark-300 space-y-1.5 list-disc list-inside">
-                                                <li>High-speed multi-file compression & backup exporter</li>
-                                                <li>Instant continuous background auto-save (zero popups)</li>
-                                                <li>CAD DWG/DXF inline boundary preview & curve tools</li>
-                                                <li>Enhanced performance, stability & survey math accuracy</li>
+                                                <li>Enhanced performance & background math engine</li>
+                                                <li>Full-lifecycle interactive update manager</li>
+                                                <li>Improved license & account synchronization</li>
+                                                <li>Bug fixes and overall stability improvements</li>
                                             </ul>
                                         </div>
                                     </>
@@ -275,7 +315,7 @@ export default function UpdateManagerModal() {
                                                 Update Downloaded Successfully
                                             </h4>
                                             <p className="text-xs text-dark-300 max-w-sm mx-auto leading-relaxed">
-                                                Restart the application now to finalize and launch <strong>v{updateInfo?.version || '2.0.11'}</strong>. All your active projects and licenses are saved safely.
+                                                Restart the application now to finalize and launch <strong>v{updateInfo?.version || '2.0.12'}</strong>. All your active projects and licenses are saved safely.
                                             </p>
                                         </div>
                                     </div>
@@ -307,8 +347,14 @@ export default function UpdateManagerModal() {
                                     {updateState === 'available' && (
                                         <>
                                             <button
-                                                onClick={() => setUpdateState(null)}
+                                                onClick={handleDismissPermanently}
                                                 className="px-4 py-2 text-xs font-semibold text-dark-400 hover:text-white transition-colors"
+                                            >
+                                                Don't Show Again
+                                            </button>
+                                            <button
+                                                onClick={() => setIsMinimized(true)}
+                                                className="px-4 py-2 text-xs font-semibold text-dark-300 hover:text-white bg-dark-800 hover:bg-dark-700 rounded-xl transition-colors"
                                             >
                                                 Remind Me Later
                                             </button>
