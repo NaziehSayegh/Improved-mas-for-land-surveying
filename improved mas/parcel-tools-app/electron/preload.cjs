@@ -35,16 +35,33 @@ const electronAPI = {
   removeLoadProjectFileListener: () => {
     ipcRenderer.removeAllListeners('load-project-file');
   },
-  // Auto-updater listeners
+  // Auto-updater listeners and triggers
+  onUpdateAvailable: (callback) => {
+    ipcRenderer.on('update-available', (event, info) => callback(info));
+  },
   onUpdateProgress: (callback) => {
-    ipcRenderer.on('update-progress', (event, percent) => callback(percent));
+    ipcRenderer.on('update-progress', (event, progress) => callback(progress));
   },
   onUpdateDownloaded: (callback) => {
-    ipcRenderer.on('update-downloaded', () => callback());
+    ipcRenderer.on('update-downloaded', (event, info) => callback(info));
+  },
+  onUpdateError: (callback) => {
+    ipcRenderer.on('update-error', (event, error) => callback(error));
+  },
+  startDownloadUpdate: () => {
+    return ipcRenderer.invoke('start-download-update');
+  },
+  quitAndInstallUpdate: () => {
+    return ipcRenderer.invoke('quit-and-install-update');
+  },
+  checkForUpdates: () => {
+    return ipcRenderer.invoke('check-for-updates');
   },
   removeUpdateListeners: () => {
+    ipcRenderer.removeAllListeners('update-available');
     ipcRenderer.removeAllListeners('update-progress');
     ipcRenderer.removeAllListeners('update-downloaded');
+    ipcRenderer.removeAllListeners('update-error');
   }
 };
 

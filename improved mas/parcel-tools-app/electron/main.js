@@ -422,33 +422,22 @@ app.on('open-file', (event, filePath) => {
 if (app.isPackaged) {
   // Configure auto-updater (only in production)
   autoUpdater.logger = console;
-  autoUpdater.autoDownload = false; // Don't auto-download, ask user first
+  autoUpdater.autoDownload = false; // Don't auto-download, ask user via rich UI first
   autoUpdater.autoInstallOnAppQuit = true;
 
-  // Auto-updater event handlers
+  // Auto-updater event handlers - forward cleanly to Renderer UI
   autoUpdater.on('checking-for-update', () => {
     console.log('[Auto-Update] Checking for updates...');
   });
 
   autoUpdater.on('update-available', (info) => {
     console.log('[Auto-Update] Update available:', info.version);
-
-    if (mainWindow) {
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Update Available',
-        message: `A new version (${info.version}) is available!`,
-        detail: 'Would you like to download and install it now?\n\n' +
-          'Current version: ' + app.getVersion() + '\n' +
-          'New version: ' + info.version + '\n\n' +
-          'The app will restart after the update is installed.',
-        buttons: ['Download & Install', 'Later'],
-        defaultId: 0,
-        cancelId: 1
-      }).then(result => {
-        if (result.response === 0) {
-          autoUpdater.downloadUpdate();
-        }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-available', {
+        version: info.version,
+        currentVersion: app.getVersion(),
+        releaseNotes: info.releaseNotes || null,
+        releaseDate: info.releaseDate || null
       });
     }
   });
@@ -462,48 +451,72 @@ if (app.isPackaged) {
     console.log(`[Auto-Update] Download progress: ${percent}%`);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setProgressBar(progressObj.percent / 100);
-      mainWindow.webContents.send('update-progress', percent);
+      mainWindow.webContents.send('update-progress', {
+        percent,
+        bytesPerSecond: progressObj.bytesPerSecond,
+        transferred: progressObj.transferred,
+        total: progressObj.total
+      });
     }
   });
 
-  autoUpdater.on('update-downloaded', () => {
-    console.log('[Auto-Update] Update downloaded');
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[Auto-Update] Update downloaded successfully');
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setProgressBar(-1);
-      mainWindow.webContents.send('update-downloaded');
-    }
-
-    if (mainWindow) {
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Update Ready',
-        message: 'Update downloaded successfully!',
-        detail: 'The update will be installed when you quit the app.\n\n' +
-          'Click "Restart Now" to install immediately, or\n' +
-          'Click "Later" to install next time you start the app.',
-        buttons: ['Restart Now', 'Later'],
-        defaultId: 0,
-        cancelId: 1
-      }).then(result => {
-        if (result.response === 0) {
-          console.log('[Auto-Update] Preparing to install update...');
-          killPythonBackendSync();
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.destroy();
-          }
-          setTimeout(() => {
-            autoUpdater.quitAndInstall(false, true);
-          }, 600);
-        }
+      mainWindow.webContents.send('update-downloaded', {
+        version: info?.version || 'Latest'
       });
     }
   });
 
   autoUpdater.on('error', (err) => {
     console.error('[Auto-Update] Error:', err.message);
-    // Silently fail - don't bother the user
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-error', err.message);
+    }
   });
 }
+
+// IPC Handlers for rich in-app update management
+ipcMain.handle('start-download-update', async () => {
+  try {
+    console.log('[Auto-Update] Starting download...');
+    return await autoUpdater.downloadUpdate();
+  } catch (err) {
+    console.error('[Auto-Update] Download error:', err);
+    throw err;
+  }
+});
+
+ipcMain.handle('quit-and-install-update', async () => {
+  try {
+    console.log('[Auto-Update] Preparing to quit and install update...');
+    killPythonBackendSync();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.destroy();
+    }
+    setTimeout(() => {
+      autoUpdater.quitAndInstall(false, true);
+    }, 600);
+    return true;
+  } catch (err) {
+    console.error('[Auto-Update] Install error:', err);
+    throw err;
+  }
+});
+
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    if (app.isPackaged) {
+      return await autoUpdater.checkForUpdates();
+    }
+    return null;
+  } catch (err) {
+    console.error('[Auto-Update] Check error:', err);
+    throw err;
+  }
+});
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
