@@ -1349,6 +1349,28 @@ def load_project_file():
         loaded_file_path = None
         project_data = None
         
+        # Auto-recover path if missing or corrupted
+        target_name = file_name or (os.path.basename(file_path) if file_path else '')
+        if file_path and not os.path.exists(file_path) and target_name:
+            print(f'[Load Project] Path does not exist on disk: {file_path}. Searching for {target_name}...')
+            search_roots = [
+                os.path.join(os.path.expanduser('~'), 'OneDrive', 'share', 'dwg'),
+                os.path.join(os.path.expanduser('~'), 'OneDrive'),
+                os.path.join(os.path.expanduser('~'), 'Documents'),
+                os.path.join(os.path.expanduser('~'), 'Desktop'),
+                os.path.join(os.path.expanduser('~'), 'Downloads'),
+                DATA_DIR
+            ]
+            for root_dir in search_roots:
+                if os.path.exists(root_dir):
+                    for root, dirs, files in os.walk(root_dir):
+                        if target_name in files:
+                            file_path = os.path.join(root, target_name)
+                            print(f'[Load Project] Recovered real file path: {file_path}')
+                            break
+                    if os.path.exists(file_path):
+                        break
+
         # 1. Try loading from file path if it exists on server/local disk
         if file_path and os.path.exists(file_path):
             loaded_file_path = file_path
@@ -1377,6 +1399,34 @@ def load_project_file():
                         break
                     except Exception:
                         project_data = None
+                        
+        # 2b. If still not loaded, scan search roots for target_name
+        if not project_data and target_name:
+            search_roots = [
+                os.path.join(os.path.expanduser('~'), 'OneDrive', 'share', 'dwg'),
+                os.path.join(os.path.expanduser('~'), 'OneDrive'),
+                os.path.join(os.path.expanduser('~'), 'Documents'),
+                os.path.join(os.path.expanduser('~'), 'Desktop'),
+                os.path.join(os.path.expanduser('~'), 'Downloads')
+            ]
+            for root_dir in search_roots:
+                if os.path.exists(root_dir):
+                    for root, dirs, files in os.walk(root_dir):
+                        if target_name in files:
+                            found = os.path.join(root, target_name)
+                            for enc in ['utf-8', 'utf-8-sig', 'cp1256', 'cp1252', 'latin1']:
+                                try:
+                                    with open(found, 'r', encoding=enc) as f:
+                                        project_data = json.loads(f.read().strip().lstrip('\ufeff'))
+                                    loaded_file_path = found
+                                    print(f'[Load Project] Successfully recovered and loaded from: {found}')
+                                    break
+                                except Exception:
+                                    pass
+                            if project_data:
+                                break
+                    if project_data:
+                        break
                     
         # 3. Fall back to parsing file_content sent from client
         if not project_data and file_content:
