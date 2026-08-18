@@ -1353,13 +1353,15 @@ def load_project_file():
         if file_path and os.path.exists(file_path):
             loaded_file_path = file_path
             print(f'[Load Project] Loading directly from disk path: {file_path}')
-            try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content_read = f.read().strip().lstrip('\ufeff')
-                    project_data = json.loads(content_read)
-            except Exception as e:
-                print(f'[Load Project WARNING] Failed to read from path: {e}')
-                project_data = None
+            for enc in ['utf-8', 'utf-8-sig', 'cp1256', 'cp1252', 'latin1']:
+                try:
+                    with open(file_path, 'r', encoding=enc) as f:
+                        content_read = f.read().strip().lstrip('\ufeff')
+                        project_data = json.loads(content_read)
+                    print(f'[Load Project] Successfully read using encoding: {enc}')
+                    break
+                except Exception as e:
+                    project_data = None
         
         # 2. Try loading from DATA_DIR if filename was given
         if not project_data and file_name:
@@ -1367,13 +1369,14 @@ def load_project_file():
             if os.path.exists(cand_path):
                 loaded_file_path = cand_path
                 print(f'[Load Project] Loading from data directory: {cand_path}')
-                try:
-                    with open(cand_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content_read = f.read().strip().lstrip('\ufeff')
-                        project_data = json.loads(content_read)
-                except Exception as e:
-                    print(f'[Load Project WARNING] Failed to read from DATA_DIR: {e}')
-                    project_data = None
+                for enc in ['utf-8', 'utf-8-sig', 'cp1256', 'cp1252', 'latin1']:
+                    try:
+                        with open(cand_path, 'r', encoding=enc) as f:
+                            content_read = f.read().strip().lstrip('\ufeff')
+                            project_data = json.loads(content_read)
+                        break
+                    except Exception:
+                        project_data = None
                     
         # 3. Fall back to parsing file_content sent from client
         if not project_data and file_content:
@@ -1393,10 +1396,7 @@ def load_project_file():
         if not isinstance(project_data, dict):
             return jsonify({'error': 'Invalid project format: root must be a JSON object'}), 400
 
-        # Standardize project schema across all versions
-        if 'savedParcels' not in project_data and 'parcels' in project_data:
-            project_data['savedParcels'] = project_data['parcels']
-            
+        # Normalize loadedPoints format
         if 'loadedPoints' not in project_data:
             if 'points' in project_data:
                 project_data['loadedPoints'] = project_data['points']
@@ -1405,13 +1405,52 @@ def load_project_file():
             else:
                 project_data['loadedPoints'] = {}
                 
-        # Normalize loadedPoints format
         if isinstance(project_data.get('loadedPoints'), list):
             pts_dict = {}
             for p in project_data['loadedPoints']:
                 if isinstance(p, dict) and 'id' in p:
                     pts_dict[str(p['id'])] = {'x': float(p.get('x', 0)), 'y': float(p.get('y', 0))}
             project_data['loadedPoints'] = pts_dict
+        elif isinstance(project_data.get('loadedPoints'), dict):
+            pts_dict = {}
+            for k, v in project_data['loadedPoints'].items():
+                if isinstance(v, dict):
+                    pts_dict[str(k)] = {'x': float(v.get('x', 0)), 'y': float(v.get('y', 0))}
+                elif isinstance(v, (list, tuple)) and len(v) >= 2:
+                    pts_dict[str(k)] = {'x': float(v[0]), 'y': float(v[1])}
+            project_data['loadedPoints'] = pts_dict
+
+        # Normalize savedParcels and individual parcel keys
+        saved_parcels = project_data.get('savedParcels') or project_data.get('parcels') or []
+        normalized_parcels = []
+        for p in saved_parcels:
+            if not isinstance(p, dict):
+                continue
+            p_num = str(p.get('parcelNumber') or p.get('parcel_number') or p.get('number') or '')
+            p_ids = [str(x) for x in (p.get('ids') or p.get('enteredIds') or p.get('entered_ids') or [])]
+            p_curves = p.get('curves') or []
+            normalized_parcels.append({
+                'parcelNumber': p_num,
+                'parcel_number': p_num,
+                'ids': p_ids,
+                'enteredIds': p_ids,
+                'curves': p_curves,
+                'area': p.get('area'),
+                'perimeter': p.get('perimeter'),
+                'fileHeading': p.get('fileHeading') or project_data.get('fileHeading') or {}
+            })
+        project_data['savedParcels'] = normalized_parcels
+
+        # Standardize currentParcel
+        if 'currentParcel' not in project_data or not project_data['currentParcel']:
+            c_num = str(project_data.get('parcel_number') or '')
+            c_ids = [str(x) for x in (project_data.get('entered_ids') or [])]
+            c_curves = project_data.get('curves') or []
+            project_data['currentParcel'] = {
+                'parcelNumber': c_num,
+                'enteredIds': c_ids,
+                'curves': c_curves
+            }
 
         if 'projectName' not in project_data:
             if loaded_file_path:
@@ -1421,27 +1460,62 @@ def load_project_file():
             else:
                 project_data['projectName'] = 'Loaded Project'
         
-        # Synchronize with associated points file if available
-        points_file_path = project_data.get('pointsFilePath')
+        # Smart Points File Resolution (Handles files transferred from other computers)
+        points_file_path = project_data.get('pointsFilePath') or project_data.get('points_file')
+        points_file_name = project_data.get('pointsFileName') or (os.path.basename(points_file_path) if points_file_path else '')
+        
+        candidates = []
         if points_file_path and os.path.exists(points_file_path):
-            print(f'[Load Project] Found associated points file: {points_file_path}')
-            try:
-                with open(points_file_path, 'r', encoding='utf-8', errors='ignore') as pf:
-                    pnt_content = pf.read()
-                
-                imported_points = parse_points_content(pnt_content)
-                if imported_points:
-                    points_map = {str(p['id']): {'x': p['x'], 'y': p['y']} for p in imported_points}
-                    project_data['loadedPoints'] = points_map
-                    print(f'[Load Project] Synchronized {len(points_map)} points from points file.')
+            candidates.append(points_file_path)
+            
+        # Check in the same directory as the project file
+        if loaded_file_path:
+            local_dir = os.path.dirname(loaded_file_path)
+            if points_file_name:
+                cand1 = os.path.join(local_dir, points_file_name)
+                if os.path.exists(cand1) and cand1 not in candidates:
+                    candidates.append(cand1)
+            
+            # Check for any .pnt / .txt file in the same directory with matching base name
+            proj_base = os.path.splitext(os.path.basename(loaded_file_path))[0]
+            for ext in ['.pnt', '.txt', '.csv', '.top']:
+                cand = os.path.join(local_dir, proj_base + ext)
+                if os.path.exists(cand) and cand not in candidates:
+                    candidates.append(cand)
                     
-                    saved_parcels = project_data.get('savedParcels', [])
-                    for parcel in saved_parcels:
-                        area, perimeter = calculate_single_parcel_metrics(parcel, points_map)
-                        parcel['area'] = area
-                        parcel['perimeter'] = perimeter
+        actual_points_file = candidates[0] if candidates else None
+        if actual_points_file:
+            print(f'[Load Project] Found associated points file: {actual_points_file}')
+            try:
+                pnt_content = None
+                for enc in ['utf-8', 'utf-8-sig', 'cp1256', 'cp1252', 'latin1']:
+                    try:
+                        with open(actual_points_file, 'r', encoding=enc) as pf:
+                            pnt_content = pf.read()
+                        break
+                    except Exception:
+                        continue
+                
+                if pnt_content:
+                    imported_points = parse_points_content(pnt_content)
+                    if imported_points:
+                        points_map = {str(p['id']): {'x': p['x'], 'y': p['y']} for p in imported_points}
+                        project_data['loadedPoints'] = points_map
+                        project_data['pointsFilePath'] = actual_points_file
+                        project_data['pointsFileName'] = os.path.basename(actual_points_file)
+                        print(f'[Load Project] Synchronized {len(points_map)} points from {actual_points_file}.')
             except Exception as sync_err:
                 print(f'[Load Project WARNING] Failed to sync points file: {sync_err}')
+
+        # Re-calculate metrics with available points
+        if project_data.get('loadedPoints'):
+            pts_map = project_data['loadedPoints']
+            for parcel in project_data.get('savedParcels', []):
+                area, perimeter = calculate_single_parcel_metrics(parcel, pts_map)
+                if area is not None:
+                    parcel['area'] = area
+                if perimeter is not None:
+                    parcel['perimeter'] = perimeter
         
         # Add to recent files if we have a valid path
         if loaded_file_path:

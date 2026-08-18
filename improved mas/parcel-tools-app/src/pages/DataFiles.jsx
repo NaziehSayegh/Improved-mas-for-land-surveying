@@ -251,7 +251,7 @@ const DataFiles = () => {
       // Use file input to load the project
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = '.prcl';
+      input.accept = '.prcl,.parproj,.json';
       input.onchange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;

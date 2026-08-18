@@ -3074,7 +3074,7 @@ const ParcelCalculator = () => {
             <Plus className="w-3.5 h-3.5" /> New
           </button>
 
-          <input type="file" accept=".prcl" onChange={handleLoadProject} style={{ display: 'none' }} id="load-project" />
+          <input type="file" accept=".prcl,.parproj,.json" onChange={handleLoadProject} style={{ display: 'none' }} id="load-project" />
           <label htmlFor="load-project" className="btn-secondary py-1.5 px-3 text-xs cursor-pointer flex items-center gap-1.5 mb-0 font-medium">
             <Upload className="w-3.5 h-3.5" /> Open
           </label>
