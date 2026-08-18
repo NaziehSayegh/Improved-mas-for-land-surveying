@@ -1337,82 +1337,109 @@ def save_project_file():
 
 @app.route('/api/project/load', methods=['POST'])
 def load_project_file():
-    """Load project from file content or file path"""
+    """Load project from file content or file path with robust fallback"""
     try:
-        data = request.get_json()
-        print(f'[Load Project] Received request data keys: {list(data.keys()) if data else "None"}')
+        data = request.get_json() or {}
+        print(f'[Load Project] Received request data keys: {list(data.keys())}')
         
         file_content = data.get('fileContent', '')
         file_path = data.get('filePath', '')
         file_name = data.get('fileName', '')
         
-        print(f'[Load Project] file_content length: {len(file_content) if file_content else 0}')
-        print(f'[Load Project] file_path: {file_path}')
-        print(f'[Load Project] file_name: {file_name}')
-        
-        # If file path or name is provided, try to load from backend/data
         loaded_file_path = None
-        if file_path or file_name:
-            if file_name and not file_path:
-                # Load from backend/data directory
-                file_path = os.path.join(DATA_DIR, file_name)
-                print(f'[Load Project] Constructed path from filename: {file_path}')
-            
-            print(f'[Load Project] Checking if file exists: {file_path}')
-            if os.path.exists(file_path):
-                loaded_file_path = file_path
-                print(f'[Load Project] File exists, loading: {file_path}')
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    project_data = json.load(f)
-                print(f'[Load Project] Successfully loaded project data from file')
-            else:
-                error_msg = f'File not found: {file_path}'
-                print(f'[Load Project ERROR] {error_msg}')
-                return jsonify({'error': error_msg}), 404
-        elif file_content:
-            # Parse JSON from provided content
-            print(f'[Load Project] Parsing JSON from file content')
-            project_data = json.loads(file_content)
-            print(f'[Load Project] Successfully parsed JSON from content')
-            # If we have a path from the file, use it
-            if file_path and os.path.exists(file_path):
-                loaded_file_path = file_path
-        else:
-            error_msg = 'No file content, filePath, or fileName provided'
-            print(f'[Load Project ERROR] {error_msg}')
-            return jsonify({'error': error_msg}), 400
+        project_data = None
         
-        # Synchronize with the latest points from pointsFilePath if it exists
+        # 1. Try loading from file path if it exists on server/local disk
+        if file_path and os.path.exists(file_path):
+            loaded_file_path = file_path
+            print(f'[Load Project] Loading directly from disk path: {file_path}')
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content_read = f.read().strip().lstrip('\ufeff')
+                    project_data = json.loads(content_read)
+            except Exception as e:
+                print(f'[Load Project WARNING] Failed to read from path: {e}')
+                project_data = None
+        
+        # 2. Try loading from DATA_DIR if filename was given
+        if not project_data and file_name:
+            cand_path = os.path.join(DATA_DIR, file_name)
+            if os.path.exists(cand_path):
+                loaded_file_path = cand_path
+                print(f'[Load Project] Loading from data directory: {cand_path}')
+                try:
+                    with open(cand_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content_read = f.read().strip().lstrip('\ufeff')
+                        project_data = json.loads(content_read)
+                except Exception as e:
+                    print(f'[Load Project WARNING] Failed to read from DATA_DIR: {e}')
+                    project_data = None
+                    
+        # 3. Fall back to parsing file_content sent from client
+        if not project_data and file_content:
+            print(f'[Load Project] Parsing JSON from transmitted file_content (length: {len(file_content)})')
+            try:
+                clean_content = file_content.strip().lstrip('\ufeff')
+                project_data = json.loads(clean_content)
+                if file_path:
+                    loaded_file_path = file_path
+            except Exception as parse_err:
+                print(f'[Load Project ERROR] JSON parse error: {parse_err}')
+                return jsonify({'error': f'Invalid JSON in project file: {str(parse_err)}'}), 400
+                
+        if not project_data:
+            return jsonify({'error': 'Could not read project data from file or content'}), 400
+            
+        if not isinstance(project_data, dict):
+            return jsonify({'error': 'Invalid project format: root must be a JSON object'}), 400
+
+        # Standardize project schema across all versions
+        if 'savedParcels' not in project_data and 'parcels' in project_data:
+            project_data['savedParcels'] = project_data['parcels']
+            
+        if 'loadedPoints' not in project_data:
+            if 'points' in project_data:
+                project_data['loadedPoints'] = project_data['points']
+            elif 'points_by_id' in project_data:
+                project_data['loadedPoints'] = project_data['points_by_id']
+            else:
+                project_data['loadedPoints'] = {}
+                
+        # Normalize loadedPoints format
+        if isinstance(project_data.get('loadedPoints'), list):
+            pts_dict = {}
+            for p in project_data['loadedPoints']:
+                if isinstance(p, dict) and 'id' in p:
+                    pts_dict[str(p['id'])] = {'x': float(p.get('x', 0)), 'y': float(p.get('y', 0))}
+            project_data['loadedPoints'] = pts_dict
+
+        if 'projectName' not in project_data:
+            if loaded_file_path:
+                project_data['projectName'] = os.path.splitext(os.path.basename(loaded_file_path))[0]
+            elif file_name:
+                project_data['projectName'] = os.path.splitext(file_name)[0]
+            else:
+                project_data['projectName'] = 'Loaded Project'
+        
+        # Synchronize with associated points file if available
         points_file_path = project_data.get('pointsFilePath')
         if points_file_path and os.path.exists(points_file_path):
             print(f'[Load Project] Found associated points file: {points_file_path}')
             try:
-                with open(points_file_path, 'r', encoding='utf-8') as pf:
+                with open(points_file_path, 'r', encoding='utf-8', errors='ignore') as pf:
                     pnt_content = pf.read()
                 
                 imported_points = parse_points_content(pnt_content)
                 if imported_points:
-                    points_map = {p['id']: {'x': p['x'], 'y': p['y']} for p in imported_points}
+                    points_map = {str(p['id']): {'x': p['x'], 'y': p['y']} for p in imported_points}
                     project_data['loadedPoints'] = points_map
                     print(f'[Load Project] Synchronized {len(points_map)} points from points file.')
                     
-                    # Recalculate areas and perimeters for all saved parcels
                     saved_parcels = project_data.get('savedParcels', [])
                     for parcel in saved_parcels:
                         area, perimeter = calculate_single_parcel_metrics(parcel, points_map)
                         parcel['area'] = area
                         parcel['perimeter'] = perimeter
-                        
-                        # Also update point coordinates inside parcel points list if present
-                        if 'points' in parcel:
-                            parcel['points'] = [
-                                {
-                                    'id': str(pt.get('id')),
-                                    'x': points_map[str(pt.get('id'))]['x'] if str(pt.get('id')) in points_map else 0,
-                                    'y': points_map[str(pt.get('id'))]['y'] if str(pt.get('id')) in points_map else 0
-                                }
-                                for pt in parcel.get('points', [])
-                            ]
             except Exception as sync_err:
                 print(f'[Load Project WARNING] Failed to sync points file: {sync_err}')
         
@@ -1428,7 +1455,6 @@ def load_project_file():
                 add_to_recent_files('projects', loaded_file_path, os.path.basename(loaded_file_path), metadata)
             except Exception as recent_err:
                 print(f'[Load Project WARNING] Failed to add to recent files: {str(recent_err)}')
-                # Don't fail the whole load if recent files fails
         
         print(f'[Load Project] Success! Returning project data')
         return jsonify({

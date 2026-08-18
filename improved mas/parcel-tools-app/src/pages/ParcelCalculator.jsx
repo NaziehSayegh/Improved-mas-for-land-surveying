@@ -2102,10 +2102,13 @@ const ParcelCalculator = () => {
         const response = await fetch('http://localhost:5000/api/project/load', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileContent, filePath: filePath }),
+          body: JSON.stringify({ fileContent, filePath: filePath, fileName: file.name }),
         });
 
-        if (!response.ok) throw new Error('Load failed');
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || 'Load failed');
+        }
 
         const result = await response.json();
         const projectData = result.projectData;
@@ -2153,7 +2156,7 @@ const ParcelCalculator = () => {
         }, 500); // Increased timeout to ensure DOM is ready
       } catch (error) {
         console.error('Error loading project:', error);
-        showErrorToast('Error loading project. Check file format.');
+        showErrorToast(`Error loading project: ${error.message || 'Check file format.'}`);
       }
     };
     reader.readAsText(file);

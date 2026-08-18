@@ -264,10 +264,13 @@ const DataFiles = () => {
             const loadResponse = await fetch('http://localhost:5000/api/project/load', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ fileContent }),
+              body: JSON.stringify({ fileContent, filePath: file.path, fileName: file.name }),
             });
 
-            if (!loadResponse.ok) throw new Error('Load failed');
+            if (!loadResponse.ok) {
+              const errData = await loadResponse.json().catch(() => ({}));
+              throw new Error(errData.error || 'Load failed');
+            }
 
             const result = await loadResponse.json();
             const projectData = result.projectData;
@@ -313,7 +316,12 @@ const DataFiles = () => {
       });
 
       if (!loadResponse.ok) {
-        const errorData = await loadResponse.json();
+        const errorData = await loadResponse.json().catch(() => ({}));
+        if (loadResponse.status === 404 || (errorData.error && errorData.error.toLowerCase().includes('not found'))) {
+          loadSavedProjects();
+          toast.warning(`⚠️ Project file "${projectItem.projectName || projectItem.fileName}" was not found at its saved location. It may have been moved or deleted.`);
+          return;
+        }
         throw new Error(errorData.error || 'Load failed');
       }
 
