@@ -1687,29 +1687,70 @@ def list_project_files():
                     continue
         
         # Also include projects from recent files (includes custom paths from Save As)
-        # First clean up recent files to remove deleted entries
+        # Repair paths if corrupt/moved before pruning
         recent = load_recent_files()
+        
+        # Common directories to search when a path is broken/corrupted
+        _search_roots = [
+            os.path.join(os.path.expanduser('~'), 'OneDrive', 'share', 'dwg'),
+            os.path.join(os.path.expanduser('~'), 'OneDrive'),
+            os.path.join(os.path.expanduser('~'), 'Documents'),
+            os.path.join(os.path.expanduser('~'), 'Desktop'),
+            os.path.join(os.path.expanduser('~'), 'Downloads'),
+            DATA_DIR,
+        ]
+
+        def _recover_path(entry_path, entry_name):
+            """Try to find a file by name when its stored path no longer exists."""
+            target = entry_name or (os.path.basename(entry_path) if entry_path else '')
+            if not target:
+                return None
+            for root_dir in _search_roots:
+                if not os.path.exists(root_dir):
+                    continue
+                for root, dirs, files in os.walk(root_dir):
+                    if target in files:
+                        found = os.path.join(root, target)
+                        print(f'[List Projects] Recovered missing path: {entry_path} → {found}')
+                        return found
+            return None
+
         cleaned_projects = []
         cleaned_points = []
         needs_cleanup = False
         
-        # Clean projects in recent files
+        # Clean projects in recent files — repair corrupted/broken paths first
         for file_entry in recent.get('projects', []):
             filepath = file_entry.get('path', '')
             if filepath and os.path.exists(filepath):
                 cleaned_projects.append(file_entry)
             else:
-                needs_cleanup = True  # Found deleted file
+                # Try to recover the real path
+                recovered = _recover_path(filepath, file_entry.get('name', ''))
+                if recovered:
+                    file_entry = dict(file_entry)
+                    file_entry['path'] = recovered
+                    cleaned_projects.append(file_entry)
+                    needs_cleanup = True  # Path was repaired, save it
+                else:
+                    needs_cleanup = True  # File truly gone — drop it
         
-        # Clean points in recent files
+        # Clean points in recent files — same recovery
         for file_entry in recent.get('points', []):
             filepath = file_entry.get('path', '')
             if filepath and os.path.exists(filepath):
                 cleaned_points.append(file_entry)
             else:
-                needs_cleanup = True  # Found deleted file
+                recovered = _recover_path(filepath, file_entry.get('name', ''))
+                if recovered:
+                    file_entry = dict(file_entry)
+                    file_entry['path'] = recovered
+                    cleaned_points.append(file_entry)
+                    needs_cleanup = True
+                else:
+                    needs_cleanup = True
         
-        # Save cleaned list if needed
+        # Save repaired list
         if needs_cleanup:
             recent['projects'] = cleaned_projects
             recent['points'] = cleaned_points
@@ -1727,8 +1768,16 @@ def list_project_files():
                 try:
                     # Check if it's already in DATA_DIR (skip to avoid duplicates)
                     if not filepath.startswith(DATA_DIR):
-                        with open(filepath, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
+                        pdata = None
+                        for enc in ['utf-8', 'utf-8-sig', 'cp1256', 'cp1252', 'latin1']:
+                            try:
+                                with open(filepath, 'r', encoding=enc) as f:
+                                    pdata = json.load(f)
+                                break
+                            except Exception:
+                                pass
+                        if pdata is None:
+                            continue
                         
                         # Get last modified time
                         last_modified = os.path.getmtime(filepath)
@@ -1736,14 +1785,14 @@ def list_project_files():
                         projects.append({
                             'fileName': os.path.basename(filepath),
                             'filePath': filepath,
-                            'projectName': data.get('projectName', file_entry.get('name', '').replace('.prcl', '')),
-                            'savedParcels': len(data.get('savedParcels', [])),
-                            'pointsFile': data.get('pointsFileName', 'N/A'),
+                            'projectName': pdata.get('projectName', file_entry.get('name', '').replace('.prcl', '')),
+                            'savedParcels': len(pdata.get('savedParcels', [])),
+                            'pointsFile': pdata.get('pointsFileName', 'N/A'),
                             'lastModified': last_modified
                         })
                         project_paths_seen.add(filepath)
                 except Exception:
-                    # If file can't be read, skip it (already cleaned from recent files)
+                    # If file can't be read, skip it
                     continue
         
         # Sort by last modified
