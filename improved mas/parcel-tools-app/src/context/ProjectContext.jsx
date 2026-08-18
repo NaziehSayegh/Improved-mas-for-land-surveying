@@ -304,7 +304,7 @@ export const ProjectProvider = ({ children }) => {
         savedAt: new Date().toISOString(),
         isEmpty: !parcels || parcels.length === 0,
         pointsCount: Object.keys(points || {}).length,
-        version: '2.0.12'
+        version: '2.0.13'
       };
 
       const response = await fetch('http://localhost:5000/api/project/save', {

@@ -157,7 +157,7 @@ export default function UpdateManagerModal() {
                         <div className="flex flex-col">
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-white">
-                                    {updateState === 'downloading' ? 'Downloading Update' : `Update v${updateInfo?.version || '2.0.12'} Available`}
+                                    {updateState === 'downloading' ? 'Downloading Update' : `Update v${updateInfo?.version || '2.0.13'} Available`}
                                 </span>
                                 {updateState === 'downloading' && (
                                     <span className="text-xs font-mono font-bold text-primary">{progress.percent}%</span>
@@ -254,7 +254,7 @@ export default function UpdateManagerModal() {
                                             <div className="flex flex-col text-right">
                                                 <span className="text-[11px] text-emerald-400 font-sans font-semibold">New Version</span>
                                                 <span className="text-sm font-mono font-bold text-emerald-300">
-                                                    v{updateInfo?.version || '2.0.12'}
+                                                    v{updateInfo?.version || '2.0.13'}
                                                 </span>
                                             </div>
                                         </div>
@@ -315,7 +315,7 @@ export default function UpdateManagerModal() {
                                                 Update Downloaded Successfully
                                             </h4>
                                             <p className="text-xs text-dark-300 max-w-sm mx-auto leading-relaxed">
-                                                Restart the application now to finalize and launch <strong>v{updateInfo?.version || '2.0.12'}</strong>. All your active projects and licenses are saved safely.
+                                                Restart the application now to finalize and launch <strong>v{updateInfo?.version || '2.0.13'}</strong>. All your active projects and licenses are saved safely.
                                             </p>
                                         </div>
                                     </div>

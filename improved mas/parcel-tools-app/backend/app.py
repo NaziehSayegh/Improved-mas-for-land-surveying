@@ -2004,7 +2004,7 @@ def export_project_archive():
             "software": "Parcel Tools Desktop 2.0",
             "parcelsCount": len(project_data.get('savedParcels', [])),
             "pointsCount": len(project_data.get('points', {})),
-            "version": "2.0.12"
+            "version": "2.0.13"
         }
         files_to_compress.append({
             'archiveName': 'manifest.json',
@@ -2108,6 +2108,50 @@ def export_pdf():
             canvas_obj.drawRightString(width - 40, 50, page_text)
             canvas_obj.restoreState()
         
+        # Build robust normalized lookup dictionary for all points
+        normalized_points = {}
+        for k, v in points_by_id.items():
+            if isinstance(v, dict):
+                x_val = float(v.get('x', v.get('X', 0.0)))
+                y_val = float(v.get('y', v.get('Y', 0.0)))
+            elif isinstance(v, (list, tuple)):
+                x_val = float(v[0])
+                y_val = float(v[1])
+            else:
+                x_val = float(getattr(v, 'x', 0.0))
+                y_val = float(getattr(v, 'y', 0.0))
+            k_str = str(k).strip()
+            normalized_points[k_str] = {'x': x_val, 'y': y_val}
+            try:
+                normalized_points[int(k_str)] = {'x': x_val, 'y': y_val}
+            except (ValueError, TypeError):
+                pass
+        
+        def get_point(pid):
+            if pid in normalized_points:
+                return normalized_points[pid]
+            pid_str = str(pid).strip()
+            if pid_str in normalized_points:
+                return normalized_points[pid_str]
+            try:
+                return normalized_points.get(int(pid_str))
+            except (ValueError, TypeError):
+                return None
+
+        def deg_to_dms_val(deg):
+            deg = (deg + 360.0) % 360.0
+            d = int(deg)
+            rem_min = (deg - d) * 60.0
+            m = int(rem_min)
+            s = round((rem_min - m) * 60.0)
+            if s >= 60:
+                s -= 60
+                m += 1
+            if m >= 60:
+                m -= 60
+                d = (d + 1) % 360
+            return d + (m / 100.0) + (s / 10000.0)
+
         for parcel_idx, parcel in enumerate(parcels):
             # Only add new page if we run out of space, not for each parcel
             if parcel_idx == 0:
@@ -2199,25 +2243,24 @@ def export_pdf():
                 from_id = ids_unique[i]
                 to_id = ids_unique[(i + 1) % len(ids_unique)]
                 
-                if from_id in points_by_id and to_id in points_by_id:
-                    from_pt = points_by_id[from_id]
-                    to_pt = points_by_id[to_id]
-                    
+                from_pt = get_point(from_id)
+                to_pt = get_point(to_id)
+                
+                if from_pt is not None and to_pt is not None:
                     # Calculate distance
-                    dx = to_pt['x'] - from_pt['x']
-                    dy = to_pt['y'] - from_pt['y']
-                    distance = math.sqrt(dx * dx + dy * dy)
+                    dy_plot = to_pt['x'] - from_pt['x']
+                    dx_plot = to_pt['y'] - from_pt['y']
+                    distance = math.sqrt(dy_plot * dy_plot + dx_plot * dx_plot)
                     
-                    # Calculate azimuth (bearing from north)
-                    azimuth = math.degrees(math.atan2(dx, dy))
-                    if azimuth < 0:
-                        azimuth += 360.0
+                    # Calculate azimuth in DD.MMSS format (Degrees, Minutes, Seconds)
+                    ang_deg = math.degrees(math.atan2(dy_plot, dx_plot))
+                    azimuth = deg_to_dms_val(ang_deg)
                     
-                    # Format line exactly like the example
+                    # Format line: FROM, TO, DISTANCE, AZIMUTH, POINT (from_id), Y (from_pt.x), X (from_pt.y)
                     line = (
                         f"{str(from_id):<4}  {str(to_id):<4}  "
                         f"{distance:>8.2f}  {azimuth:>8.4f}    "
-                        f"{str(to_id):<5}  {to_pt['y']:>10.2f}  {to_pt['x']:>10.2f}"
+                        f"{str(from_id):<5}  {from_pt['x']:>10.2f}  {from_pt['y']:>10.2f}"
                     )
                     c.drawString(40, y_position, line)
                     y_position -= 12
@@ -2244,12 +2287,13 @@ def export_pdf():
                 for curve in curves:
                     from_id = curve.get('from')
                     to_id = curve.get('to')
-                    M = curve.get('M', 0)
+                    M = float(curve.get('M', 0) or 0)
                     sign = curve.get('sign', 1)
                     
-                    if from_id in points_by_id and to_id in points_by_id:
-                        from_pt = points_by_id[from_id]
-                        to_pt = points_by_id[to_id]
+                    from_pt = get_point(from_id)
+                    to_pt = get_point(to_id)
+                    
+                    if from_pt is not None and to_pt is not None:
                         
                         # Calculate chord length
                         dx = to_pt['x'] - from_pt['x']

@@ -3412,12 +3412,26 @@ def export_parcel_pdf(pdf_path, parcel_ids, points_by_id, area_value, parcel_num
         b = ids_unique[(i + 1) % len(ids_unique)]
         pairs.append((a, b))
 
+    def deg_to_dms_val(deg):
+        deg = (deg + 360.0) % 360.0
+        d = int(deg)
+        rem_min = (deg - d) * 60.0
+        m = int(rem_min)
+        s = round((rem_min - m) * 60.0)
+        if s >= 60:
+            s -= 60
+            m += 1
+        if m >= 60:
+            m -= 60
+            d = (d + 1) % 360
+        return d + (m / 100.0) + (s / 10000.0)
+
     # Compute distance and azimuth per leg
     def azimuth_deg(from_xy, to_xy):
-        dx = to_xy[0] - from_xy[0]
-        dy = to_xy[1] - from_xy[1]
-        ang = degrees(atan2(dx, dy))  # from North clockwise
-        return (ang + 360.0) % 360.0
+        dy_plot = to_xy[0] - from_xy[0]
+        dx_plot = to_xy[1] - from_xy[1]
+        ang = degrees(atan2(dy_plot, dx_plot))
+        return deg_to_dms_val(ang)
 
     lines = []
     lines.append("PARCEL  NUMBER".ljust(18) + f"{parcel_number}")
@@ -3437,12 +3451,11 @@ def export_parcel_pdf(pdf_path, parcel_ids, points_by_id, area_value, parcel_num
         p_to = points_by_id[to]
         dist = hypot(p_to[0] - p_from[0], p_to[1] - p_from[1])
         azi = azimuth_deg(p_from, p_to)
-        # The example shows alongside a point row for 'to' with Y then X
-        yx_point = points_by_id[to]
+        # Point coords with from_pt: Y column gets x (Easting), X column gets y (Northing)
         line = (
             f"{str(frm):<4}  {str(to):<4}  "
             f"{dist:>8.2f}  {azi:>8.4f}    "
-            f"{str(to):<5}  {yx_point[1]:>10.2f}  {yx_point[0]:>10.2f}"
+            f"{str(frm):<5}  {p_from[0]:>10.2f}  {p_from[1]:>10.2f}"
         )
         lines.append(line)
 
@@ -3496,6 +3509,20 @@ def export_parcels_pdf(pdf_path, parcels, points_by_id, work_settings=None, file
     angle_unit = work_settings.get('unit', 'Degrees')
     is_grades = (angle_unit.lower() == 'grades')
 
+    def deg_to_dms_val(deg):
+        deg = (deg + 360.0) % 360.0
+        d = int(deg)
+        rem_min = (deg - d) * 60.0
+        m = int(rem_min)
+        s = round((rem_min - m) * 60.0)
+        if s >= 60:
+            s -= 60
+            m += 1
+        if m >= 60:
+            m -= 60
+            d = (d + 1) % 360
+        return d + (m / 100.0) + (s / 10000.0)
+
     for parcel in parcels:
         parcel_number = parcel['parcel_number']
         parcel_ids = parcel['ids']
@@ -3508,12 +3535,14 @@ def export_parcels_pdf(pdf_path, parcels, points_by_id, work_settings=None, file
             pairs.append((a, b))
 
         def azimuth_deg(from_xy, to_xy):
-            dx = to_xy[0] - from_xy[0]
-            dy = to_xy[1] - from_xy[1]
-            ang = degrees(atan2(dx, dy))
+            dy_plot = to_xy[0] - from_xy[0]
+            dx_plot = to_xy[1] - from_xy[1]
+            ang = degrees(atan2(dy_plot, dx_plot))
             if is_grades:
-                ang = ang * 400.0 / 360.0  # Convert degrees to grades
-            return (ang + (400.0 if is_grades else 360.0)) % (400.0 if is_grades else 360.0)
+                if ang < 0:
+                    ang += 360.0
+                return ang * 400.0 / 360.0
+            return deg_to_dms_val(ang)
 
         lines = []
         lines.append("PARCEL  NUMBER".ljust(18) + f"{parcel_number}")
@@ -3530,11 +3559,10 @@ def export_parcels_pdf(pdf_path, parcels, points_by_id, work_settings=None, file
             p_to = points_by_id[to]
             dist = hypot(p_to[0] - p_from[0], p_to[1] - p_from[1])
             azi = azimuth_deg(p_from, p_to)
-            yx_point = points_by_id[to]
             line = (
                 f"{str(frm):<4}  {str(to):<4}  "
                 f"{dist:>8.2f}  {azi:>8.4f}    "
-                f"{str(to):<5}  {yx_point[1]:>10.2f}  {yx_point[0]:>10.2f}"
+                f"{str(frm):<5}  {p_from[0]:>10.2f}  {p_from[1]:>10.2f}"
             )
             lines.append(line)
         # If there are curve adjustments saved with the parcel, print summary line(s) like the example
