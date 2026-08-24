@@ -3887,6 +3887,34 @@ def _parse_dxf_file(dxf_path: str) -> dict:
     return {"entities": entities, "raw_points": raw_points, "layers": layers_data}
 
 
+def _resolve_dynamic_cad_path(file_path: str) -> str:
+    """Resolve file paths across different drive letters or user home directories."""
+    if not file_path or os.path.isfile(file_path):
+        return file_path
+
+    user_home = os.path.expanduser('~')
+
+    # 1. Drive letter substitution (e.g. Y:\\OneDrive\\... -> C:\\Users\\<user>\\OneDrive\\...)
+    if len(file_path) > 2 and file_path[1] == ':':
+        rel = file_path[2:].lstrip('\\/')
+        candidate = os.path.join(user_home, rel)
+        if os.path.isfile(candidate):
+            return candidate
+        candidate_c = os.path.join('C:\\', rel)
+        if os.path.isfile(candidate_c):
+            return candidate_c
+
+    # 2. User directory substitution (e.g. C:\\Users\\OtherUser\\... -> C:\\Users\\<current_user>\\...)
+    parts = os.path.normpath(file_path).split(os.sep)
+    if len(parts) >= 3 and parts[0].endswith(':') and parts[1].lower() == 'users':
+        rel = os.sep.join(parts[3:])
+        candidate = os.path.join(user_home, rel)
+        if os.path.isfile(candidate):
+            return candidate
+
+    return file_path
+
+
 @app.route('/api/parse-cad', methods=['POST'])
 def parse_cad():
     """
@@ -3899,6 +3927,8 @@ def parse_cad():
 
         if not file_path:
             return jsonify({"error": "filePath is required"}), 400
+
+        file_path = _resolve_dynamic_cad_path(file_path)
 
         if not os.path.isfile(file_path):
             return jsonify({"error": f"File not found: {file_path}"}), 404
