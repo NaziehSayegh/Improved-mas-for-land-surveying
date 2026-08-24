@@ -175,6 +175,62 @@ function isParcelLayer(layerName, layerList = []) {
     return ['PARCEL', 'PLOT', 'TABU', 'QUSAI', 'QASIMA', 'BOUNDARY OF PARTITION'].some(k => lname.includes(k));
 }
 
+// ─── Auto Arc Extraction ─────────────────────────────────────────────────────
+// Reads the 'segments' array already sent by the backend for LWPOLYLINE/POLYLINE
+// entities that have bulge (arc) vertices. For each arc segment it finds the two
+// REAL corner points that bracket the arc (skipping tessellated intermediate points),
+// computes the middle ordinate M (already provided by backend) and the correct sign
+// (+1 = arc adds area, -1 = arc subtracts area) from the polygon winding direction.
+// Returns an array of curve objects ready to be placed directly into the curves state.
+function extractAutoArcsFromEntity(ent, detectedPts) {
+    if (!ent || !ent.segments || ent.segments.length === 0) return [];
+    const COORD_THRESH = 0.05; // 5 cm — enough for surveying coordinates
+    const autoArcs = [];
+    const segs = ent.segments;
+    const isCCW = isPolygonCCW(detectedPts.map(p => ({ x: p.x, y: p.y })));
+
+    for (let i = 0; i < segs.length; i++) {
+        if (segs[i].type !== 'arc') continue;
+        const arcSeg = segs[i];
+        // M is now sent by the backend; skip arcs with no valid M
+        if (!arcSeg.M || arcSeg.M <= 0) continue;
+
+        // 'from' real corner = the line segment immediately before this arc
+        const fromLine = (i > 0 && segs[i - 1].type === 'line') ? segs[i - 1] : null;
+        if (!fromLine) continue;
+
+        // 'to' real corner = the next line segment (skip any consecutive arcs)
+        let toLine = null;
+        for (let j = i + 1; j < segs.length; j++) {
+            if (segs[j].type === 'line') { toLine = segs[j]; break; }
+        }
+        // Wrap around for closed polylines
+        if (!toLine) {
+            toLine = segs.find(s => s.type === 'line') || null;
+        }
+        if (!toLine) continue;
+
+        // Match real corner coords to detectedPts (which contain only real corners + CAD_N ids)
+        const fromPt = detectedPts.find(p =>
+            Math.hypot(p.x - fromLine.x, p.y - fromLine.y) < COORD_THRESH
+        );
+        const toPt = detectedPts.find(p =>
+            Math.hypot(p.x - toLine.x, p.y - toLine.y) < COORD_THRESH
+        );
+        if (!fromPt || !toPt || fromPt.pointId === toPt.pointId) continue;
+
+        // Sign: outward arc (same winding as polygon) adds area (+1), inward subtracts (-1)
+        // CCW polygon + CCW arc → arc bulges outward → +1
+        // CCW polygon + CW arc  → arc bulges inward  → -1
+        // CW  polygon + CW arc  → arc bulges outward → +1
+        // CW  polygon + CCW arc → arc bulges inward  → -1
+        const sign = (isCCW === arcSeg.ccw) ? 1 : -1;
+
+        autoArcs.push({ from: fromPt.pointId, to: toPt.pointId, M: arcSeg.M, sign });
+    }
+    return autoArcs;
+}
+
 // ─── Inline Modal Boundary Preview Component ────────────────────────────────
 function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumber, metrics }) {
     const canvasRef = useRef(null);
@@ -1221,6 +1277,16 @@ const DxfImport = () => {
                     }
                 }
 
+                // ── New: also allow selecting filled/hatch entities ──
+                // Only takes effect when no parcel-layer boundary is already found (bestDist > 0).
+                // This gives parcel-layer polylines priority — they always win with bestDist=0.
+                if (bestDist > 0 && ent.closed && ent.filled && ent.type !== 'CIRCLE' &&
+                    ent.points && ent.points.length >= 3) {
+                    if (isPointInPolygon(clickWorld.x, clickWorld.y, ent.points)) {
+                        best = i; bestDist = 0.5;
+                    }
+                }
+
                 if (bestDist > 0 && ['LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'CIRCLE'].includes(ent.type) && ent.points) {
                     if (ent.closed && (ent.filled || ent.type === 'CIRCLE' || !isParcelLayer(ent.layer, layerListRef.current))) {
                         return;
@@ -1362,6 +1428,14 @@ const DxfImport = () => {
     const handleCreateParcel = async () => {
         if (selectedIdx === null) return;
         const ent = entities[selectedIdx];
+
+        // ── New: route filled/hatch entities to dedicated handler (no layer restriction) ──
+        if (ent.filled && ent.closed && ent.type !== 'CIRCLE') {
+            handleCreateParcelFromHatch(ent);
+            return;
+        }
+
+        // ── Existing guard — unchanged ──
         if (!ent.closed || ent.filled || ent.type === 'CIRCLE' || !isParcelLayer(ent.layer, layerListRef.current)) {
             toast.error('Please select a valid boundary polygon on the GIS / Parcel layer');
             return;
@@ -1508,6 +1582,137 @@ const DxfImport = () => {
                 pointId,
                 status
             });
+        });
+
+        setDetectedNumber(parcelNo);
+        setParcelNumberInput(parcelNo);
+        setDetectedPoints(detectedPts);
+        setNewPointsToRegister(missingPoints);
+
+        // ── New: auto-populate curves from CAD arc segments (non-hatch only) ──
+        // extractAutoArcsFromEntity reads the 'segments' array (backend sends M + theta
+        // for each arc), maps arc endpoints to real corner point IDs in detectedPts,
+        // and computes the correct sign from polygon winding. User can still edit freely.
+        const autoArcs = extractAutoArcsFromEntity(ent, detectedPts);
+        if (autoArcs.length > 0) setCurves(autoArcs);
+
+        setShowModal(true);
+    };
+
+    // ── New: create parcel from a filled/hatch entity ─────────────────────────
+    // Identical flow to handleCreateParcel but skips the isParcelLayer check and
+    // skips auto-arc extraction (hatch boundaries are tessellated flat polygons).
+    // No existing code is touched — this is a fully additive new function.
+    const handleCreateParcelFromHatch = (ent) => {
+        setEditingParcelId(null);
+        setSaveMode('new');
+        setCurves([]);
+        setEditingCurveIdx(null);
+        setCurveFrom('');
+        setCurveTo('');
+        setCurveM('');
+        setCurveSign(1);
+
+        const allLabels = entities.filter(e => e.type === 'TEXT_LABEL');
+        const isNumericLabel = (txt) => /^\s*\d+(\.\d+)?\s*$/.test(txt);
+
+        let parcelNo = '';
+        const labelsInside = allLabels.filter(lbl => isPointInPolygon(lbl.x, lbl.y, ent.points));
+        const descLabelsInside = labelsInside.filter(lbl => /description|desc/i.test(lbl.layer || ''));
+        const numericDescInside = descLabelsInside.filter(lbl => isNumericLabel(lbl.text));
+        const numericInside = labelsInside.filter(lbl => isNumericLabel(lbl.text));
+
+        let searchPool = [];
+        if (numericDescInside.length > 0) searchPool = numericDescInside;
+        else if (descLabelsInside.length > 0) searchPool = descLabelsInside;
+        else if (numericInside.length > 0) searchPool = numericInside;
+        else searchPool = labelsInside;
+
+        if (searchPool.length > 0) {
+            let sx = 0, sy = 0;
+            ent.points.forEach(p => { sx += p.x; sy += p.y; });
+            const centroid = { x: sx / ent.points.length, y: sy / ent.points.length };
+            searchPool.sort((a, b) =>
+                Math.hypot(a.x - centroid.x, a.y - centroid.y) -
+                Math.hypot(b.x - centroid.x, b.y - centroid.y)
+            );
+            parcelNo = searchPool[0].text.trim().replace(/^Parcel\s+|^\#\s*|^No\.\s*/i, '');
+        }
+        if (!parcelNo) {
+            parcelNo = ((savedParcels || []).length + 1).toString();
+        }
+
+        const rawPts = ent.points;
+        const uniqueVerts = [];
+        const MERGE_THRESHOLD = 1e-3;
+        rawPts.forEach(p => {
+            if (uniqueVerts.length === 0) { uniqueVerts.push(p); return; }
+            const prev = uniqueVerts[uniqueVerts.length - 1];
+            if (Math.hypot(p.x - prev.x, p.y - prev.y) > MERGE_THRESHOLD) uniqueVerts.push(p);
+        });
+        if (uniqueVerts.length > 1) {
+            const first = uniqueVerts[0], last = uniqueVerts[uniqueVerts.length - 1];
+            if (Math.hypot(first.x - last.x, first.y - last.y) <= MERGE_THRESHOLD) uniqueVerts.pop();
+        }
+
+        const xs = uniqueVerts.map(p => p.x);
+        const ys = uniqueVerts.map(p => p.y);
+        const bbW = Math.max(...xs) - Math.min(...xs);
+        const bbH = Math.max(...ys) - Math.min(...ys);
+        const bbDiag = Math.hypot(bbW, bbH);
+        const DYNAMIC_THRESHOLD = Math.max(15, Math.min(500, bbDiag * 0.25));
+
+        const detectedPts = [];
+        const missingPoints = {};
+        const candidateLabels = allLabels.filter(lbl => lbl.text && lbl.text.trim().length > 0 && lbl.text.trim().length <= 15);
+
+        const scoreCandidate = (lbl, dist) => {
+            const layer = (lbl.layer || '').toLowerCase();
+            let score = dist;
+            if (/corner|number|mark|point|node|boundary|original|pt|num|no|id/i.test(layer)) score -= DYNAMIC_THRESHOLD * 3;
+            if (/^\s*\d+(\.\d+)?\s*$/.test(lbl.text)) score -= DYNAMIC_THRESHOLD;
+            if (/dimension|dim|table|title|description|desc|road|elevation/i.test(layer)) score += DYNAMIC_THRESHOLD * 3;
+            return score;
+        };
+
+        const allPairs = [];
+        uniqueVerts.forEach((p, vIdx) => {
+            candidateLabels.forEach((lbl, lIdx) => {
+                const d = Math.hypot(lbl.x - p.x, lbl.y - p.y);
+                if (d < DYNAMIC_THRESHOLD) allPairs.push({ vIdx, lIdx, lbl, d, score: scoreCandidate(lbl, d) });
+            });
+        });
+        allPairs.sort((a, b) => a.score - b.score);
+
+        const assignedLabels = new Array(uniqueVerts.length).fill(null);
+        const usedLabelIndices = new Set();
+        const usedVertexIndices = new Set();
+        for (const pair of allPairs) {
+            if (!usedVertexIndices.has(pair.vIdx) && !usedLabelIndices.has(pair.lIdx)) {
+                assignedLabels[pair.vIdx] = { label: pair.lbl.text.trim(), dist: pair.d };
+                usedVertexIndices.add(pair.vIdx);
+                usedLabelIndices.add(pair.lIdx);
+            }
+        }
+
+        uniqueVerts.forEach((p, idx) => {
+            const match = assignedLabels[idx];
+            const matchedLabel = match ? match.label : null;
+            const matchedDist  = match ? match.dist : Infinity;
+            let status = 'missing';
+            let pointId = '';
+            if (matchedLabel) {
+                pointId = matchedLabel;
+                status = loadedPoints[pointId] ? 'matched' : 'missing';
+                if (!loadedPoints[pointId]) missingPoints[pointId] = { x: p.x, y: p.y };
+            } else {
+                let counter = 1;
+                const existingIds = new Set([...Object.keys(loadedPoints), ...Object.keys(missingPoints)]);
+                do { pointId = `CAD_${counter++}`; } while (existingIds.has(pointId));
+                status = 'generated';
+                missingPoints[pointId] = { x: p.x, y: p.y };
+            }
+            detectedPts.push({ vertexIdx: idx, x: p.x, y: p.y, label: matchedLabel, dist: matchedDist, pointId, status });
         });
 
         setDetectedNumber(parcelNo);

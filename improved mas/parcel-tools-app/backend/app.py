@@ -1254,54 +1254,24 @@ def save_project_file():
             except:
                 print(f'[Save] Could not normalize path')
         
-        # Try to write the file
-        print(f'[Save] ==== ATTEMPTING FILE WRITE ====')
+        # Strip large transient data before saving — CAD entities are reloaded from the
+        # original DXF/DWG file and do NOT need to be persisted in the .prcl file.
+        # This is the main reason files were 40MB+ — we strip it here.
+        save_data = dict(project_data)
+        save_data.pop('cadEntities', None)   # Can be 40MB+ of geometry data
+        save_data.pop('rawPoints', None)      # Raw CAD points, redundant with loadedPoints
         
-        try:
-            # Use a more explicit open mode
-            with open(filepath, 'w', encoding='utf-8', newline='') as f:
-                json.dump(project_data, f, indent=2, ensure_ascii=False)
-            print(f'[Save] SUCCESS: File written successfully!')
-            
-            # Verify file was created
-            if os.path.exists(filepath):
-                file_size = os.path.getsize(filepath)
-                print(f'[Save] SUCCESS: File verified - Size: {file_size} bytes')
-            else:
-                print(f'[Save ERROR] File was written but cannot be found!')
-                return jsonify({'error': 'File written but verification failed'}), 500
-                
-        except OSError as write_error:
-            print(f'[Save ERROR] ==== FILE WRITE FAILED (OSError) ====')
-            print(f'[Save ERROR] Error: {write_error}')
-            print(f'[Save ERROR] Error type: {type(write_error).__name__}')
-            print(f'[Save ERROR] Error errno: {getattr(write_error, "errno", "N/A")}')
-            print(f'[Save ERROR] Error strerror: {getattr(write_error, "strerror", "N/A")}')
-            print(f'[Save ERROR] Error filename: {getattr(write_error, "filename", "N/A")}')
-            print(f'[Save ERROR] Error args: {write_error.args}')
-            
-            error_msg = str(write_error)
-            if 'Errno 22' in error_msg or 'Invalid argument' in error_msg:
-                detailed_error = f'Invalid file path. Windows path rules violated. Path: {filepath}'
-                print(f'[Save ERROR] {detailed_error}')
-                # Give more specific hint
-                if len(filepath) > 200:
-                    detailed_error += ' (Path is very long - try a shorter location)'
-                if any(ord(c) > 127 for c in filepath):
-                    detailed_error += ' (Path contains non-English characters - try an English path)'
-                return jsonify({'error': detailed_error}), 400
-            return jsonify({'error': f'Cannot write file: {error_msg}'}), 400
-        except UnicodeError as write_error:
-            print(f'[Save ERROR] ==== UNICODE ERROR ====')
-            print(f'[Save ERROR] Error: {write_error}')
-            return jsonify({'error': f'Unicode encoding error in path or filename: {str(write_error)}'}), 400
-        except Exception as write_error:
-            print(f'[Save ERROR] ==== UNEXPECTED WRITE ERROR ====')
-            print(f'[Save ERROR] Error: {write_error}')
-            print(f'[Save ERROR] Error type: {type(write_error).__name__}')
-            import traceback
-            traceback.print_exc()
-            return jsonify({'error': f'Unexpected error writing file: {str(write_error)}'}), 400
+        # Use a more explicit open mode
+        with open(filepath, 'w', encoding='utf-8', newline='') as f:
+            json.dump(save_data, f, indent=2, ensure_ascii=False)
+        print(f'[Save] SUCCESS: File written successfully! Size: ~{len(json.dumps(save_data))//1024}KB (stripped cadEntities)')
+        # Verify file was written
+        if os.path.exists(filepath):
+            file_size = os.path.getsize(filepath)
+            print(f'[Save] SUCCESS: File verified - Size: {file_size} bytes')
+        else:
+            print(f'[Save ERROR] File was written but cannot be found!')
+            return jsonify({'error': 'File written but verification failed'}), 500
         
         # Add to recent files (don't let this fail the save operation)
         try:
@@ -3506,13 +3476,16 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     a_start = math.atan2(py - cy_arc, px - cx_arc)
                     a_end   = math.atan2(ny - cy_arc, nx - cx_arc)
                     ccw = bool(bulge > 0)
+                    M_val = r * (1.0 - math.cos(theta / 2.0))
                     return {
                         "cx": round(float(cx_arc), 6),
                         "cy": round(float(cy_arc), 6),
                         "r":  round(float(r), 6),
                         "startAngle": round(float(a_start), 8),
                         "endAngle":   round(float(a_end), 8),
-                        "ccw": ccw
+                        "ccw": ccw,
+                        "M": round(float(M_val), 6),
+                        "theta": round(float(theta), 8)
                     }
 
                 for idx, (px, py, bulge) in enumerate(raw_pts):
