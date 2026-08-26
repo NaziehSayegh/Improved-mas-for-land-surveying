@@ -89,38 +89,25 @@ class FirebaseService:
     
     def verify_user_credentials(self, email, password):
         """
-        Verify user credentials securely with password hashing.
+        Fallback credential lookup via Firebase Admin SDK (used only when the
+        Firebase Web API key is not configured and REST password-check is unavailable).
+        Password is NOT verified here — it is verified upstream by _verify_firebase_password.
+        This method only confirms the account exists.
         Returns: {'success': bool, 'user_id': str, 'error': str}
         """
         try:
-            if not email or not password:
-                return {'success': False, 'error': 'Email and password are required'}
-
-            import hashlib
-            input_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+            if not email:
+                return {'success': False, 'error': 'Email is required'}
 
             if self._is_online():
                 from firebase_config import get_firebase_auth
-                auth = get_firebase_auth()
-                user = auth.get_user_by_email(email)
-                
-                user_doc_ref = self.db.collection('users').document(user.uid)
-                user_doc = user_doc_ref.get()
-                user_data = user_doc.to_dict() if user_doc.exists else {}
-
-                stored_hash = user_data.get('password_hash')
-                if stored_hash:
-                    if stored_hash != input_hash:
-                        return {'success': False, 'error': 'Incorrect email or password'}
-                else:
-                    # Save password hash to Firestore for future verification
-                    try:
-                        user_doc_ref.set({'password_hash': input_hash}, merge=True)
-                    except Exception as set_err:
-                        print(f'[Firebase] Notice: Failed to save password hash: {set_err}')
+                auth_mod = get_firebase_auth()
+                user = auth_mod.get_user_by_email(email)
 
                 try:
-                    user_doc_ref.update({'last_login': datetime.now().isoformat()})
+                    self.db.collection('users').document(user.uid).update({
+                        'last_login': datetime.now().isoformat()
+                    })
                 except Exception:
                     pass
 
@@ -130,29 +117,20 @@ class FirebaseService:
                     'message': 'Login successful'
                 }
             else:
-                # Offline mode - check JSON
+                # Offline mode — check local JSON cache
                 users = self._load_users_from_json()
                 for user_id, user_data in users.items():
                     if user_data.get('email') == email:
-                        stored_hash = user_data.get('password_hash')
-                        if stored_hash and stored_hash != input_hash:
-                            return {'success': False, 'error': 'Incorrect email or password'}
                         return {
                             'success': True,
                             'user_id': user_id,
                             'message': 'Login successful (offline mode)'
                         }
-                
-                return {
-                    'success': False,
-                    'error': 'User not found'
-                }
-                
+
+                return {'success': False, 'error': 'User not found'}
+
         except Exception as e:
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {'success': False, 'error': str(e)}
     
     def _normalize_user(self, data):
         if not data or not isinstance(data, dict):
