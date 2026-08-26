@@ -487,12 +487,12 @@ def auth_login():
             uid = _verify_firebase_password(email, password)
         except Exception as pw_err:
             err_msg = str(pw_err)
-            print(f'[Auth] Password verification failed for {email}: {err_msg}')
-            # Reject all password failures (INVALID_PASSWORD, INVALID_LOGIN_CREDENTIALS, EMAIL_NOT_FOUND, etc.)
-            if firebase_service._is_online():
+            print(f'[Auth] Password verification info for {email}: {err_msg}')
+            # Explicit password error from Firebase REST API -> Reject immediately
+            if any(k in err_msg for k in ['INVALID_PASSWORD', 'INVALID_LOGIN_CREDENTIALS', 'EMAIL_NOT_FOUND', 'INVALID_EMAIL', 'TOO_MANY_ATTEMPTS_TRY_LATER']):
                 return jsonify({'error': 'Incorrect email or password'}), 401
             
-            # Offline fallback ONLY when network is disconnected
+            # Fallback for when REST API key is not configured or network issue
             result = firebase_service.verify_user_credentials(email, password)
             if not result['success']:
                 return jsonify({'error': 'Incorrect email or password'}), 401
