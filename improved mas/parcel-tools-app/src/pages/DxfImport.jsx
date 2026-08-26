@@ -1480,7 +1480,12 @@ const DxfImport = () => {
             parcelNo = ((savedParcels || []).length + 1).toString();
         }
 
-        const rawPts = ent.points;
+        // Use original CAD vertices if available (skips tessellated arc points)
+        let rawPts = ent.points;
+        if (ent.segments && ent.segments.length > 0) {
+            rawPts = ent.segments.filter(s => s.type === 'line').map(s => ({ x: s.x, y: s.y }));
+        }
+        
         const uniqueVerts = [];
         const MERGE_THRESHOLD = 1e-3;
         rawPts.forEach(p => {
