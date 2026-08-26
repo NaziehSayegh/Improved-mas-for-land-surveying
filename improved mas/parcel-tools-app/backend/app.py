@@ -3010,9 +3010,11 @@ def get_license_status():
         if user_data and user_data.get('account_type') == 'demo':
             status = license_manager._check_trial_status()
         elif user_data and user_data.get('account_type') == 'premium':
-            status = license_manager.get_license_info()
-            if not status.get('is_valid'):
-                email_val = user_data.get('email', email_to_check or 'premium_user@parceltools.com')
+            # Premium confirmed in Firestore — always activated regardless of local file
+            email_val = user_data.get('email', email_to_check or 'premium_user@parceltools.com')
+            # Re-create local license file if missing so future offline checks work
+            local_status = license_manager.get_license_info()
+            if not local_status.get('is_valid'):
                 try:
                     lic_key = user_data.get('license_key')
                     if not lic_key:
@@ -3024,17 +3026,17 @@ def get_license_status():
                             all_users[user_id_to_check]['license_key'] = lic_key
                             firebase_service._save_users_to_json(all_users)
                     license_manager.activate_license(lic_key, email_val)
-                    print(f'[API] Auto-created local license for online premium user: {email_val}')
+                    print(f'[API] Auto-recreated local license for premium user: {email_val}')
                 except Exception as e:
                     print(f'[API] Warning: auto-create license failed: {e}')
-                
-                status = {
-                    'status': 'activated',
-                    'is_valid': True,
-                    'email': email_val,
-                    'activated_date': user_data.get('upgraded_at', user_data.get('created_at', datetime.now().isoformat())),
-                    'message': 'Licensed version (Premium Account)'
-                }
+            # Firestore is source of truth — always return activated for premium
+            status = {
+                'status': 'activated',
+                'is_valid': True,
+                'email': email_val,
+                'activated_date': user_data.get('upgraded_at', user_data.get('created_at', datetime.now().isoformat())),
+                'message': 'Licensed version (Premium Account)'
+            }
         else:
             status = license_manager.get_license_info()
         print(f'[API] Status result (mode={mode}): {status}')
