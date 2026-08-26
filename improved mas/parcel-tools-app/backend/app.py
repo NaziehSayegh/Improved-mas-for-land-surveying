@@ -487,9 +487,12 @@ def auth_login():
             uid = _verify_firebase_password(email, password)
         except Exception as pw_err:
             err_msg = str(pw_err)
-            if 'INVALID_PASSWORD' in err_msg or 'EMAIL_NOT_FOUND' in err_msg:
+            print(f'[Auth] Password verification failed for {email}: {err_msg}')
+            # Reject all password failures (INVALID_PASSWORD, INVALID_LOGIN_CREDENTIALS, EMAIL_NOT_FOUND, etc.)
+            if firebase_service._is_online():
                 return jsonify({'error': 'Incorrect email or password'}), 401
-            # Fallback: try Admin SDK lookup (offline mode)
+            
+            # Offline fallback ONLY when network is disconnected
             result = firebase_service.verify_user_credentials(email, password)
             if not result['success']:
                 return jsonify({'error': 'Incorrect email or password'}), 401

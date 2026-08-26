@@ -89,39 +89,39 @@ class FirebaseService:
     
     def verify_user_credentials(self, email, password):
         """
-        Verify user credentials
+        Verify user credentials.
         Returns: {'success': bool, 'user_id': str, 'error': str}
         """
         try:
+            if not email or not password:
+                return {'success': False, 'error': 'Email and password required'}
+
             if self._is_online():
-                from firebase_config import get_firebase_auth
-                auth = get_firebase_auth()
-                
-                # Firebase Auth doesn't have a direct verify method
-                # We'll use the REST API or custom token approach
-                # For now, return success if user exists
-                user = auth.get_user_by_email(email)
-                
-                # Update last login
-                self.db.collection('users').document(user.uid).update({
-                    'last_login': datetime.now().isoformat()
-                })
-                
+                # Password MUST be verified via Firebase REST API signInWithPassword.
+                # Returning success without verifying password is strictly forbidden.
                 return {
-                    'success': True,
-                    'user_id': user.uid,
-                    'message': 'Login successful'
+                    'success': False,
+                    'error': 'Password verification requires REST API authentication'
                 }
             else:
-                # Offline mode - check JSON
+                # Offline mode - check password hash stored in local JSON
+                import hashlib
                 users = self._load_users_from_json()
                 for user_id, user_data in users.items():
                     if user_data.get('email') == email:
-                        return {
-                            'success': True,
-                            'user_id': user_id,
-                            'message': 'Login successful (offline mode)'
-                        }
+                        stored_pw_hash = user_data.get('password_hash')
+                        if stored_pw_hash:
+                            input_hash = hashlib.sha256(password.encode()).hexdigest()
+                            if input_hash == stored_pw_hash:
+                                return {
+                                    'success': True,
+                                    'user_id': user_id,
+                                    'message': 'Login successful (offline mode)'
+                                }
+                            else:
+                                return {'success': False, 'error': 'Incorrect password'}
+                        # If no hash stored, fallback reject for security
+                        return {'success': False, 'error': 'Offline password hash missing'}
                 
                 return {
                     'success': False,
