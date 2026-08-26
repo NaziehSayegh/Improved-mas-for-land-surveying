@@ -89,23 +89,38 @@ class FirebaseService:
     
     def verify_user_credentials(self, email, password):
         """
-        Verify user credentials via Firebase Admin SDK or local cache.
+        Verify user credentials securely with password hashing.
         Returns: {'success': bool, 'user_id': str, 'error': str}
         """
         try:
-            if not email:
-                return {'success': False, 'error': 'Email is required'}
+            if not email or not password:
+                return {'success': False, 'error': 'Email and password are required'}
+
+            import hashlib
+            input_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
 
             if self._is_online():
                 from firebase_config import get_firebase_auth
                 auth = get_firebase_auth()
                 user = auth.get_user_by_email(email)
                 
-                # Update last login
+                user_doc_ref = self.db.collection('users').document(user.uid)
+                user_doc = user_doc_ref.get()
+                user_data = user_doc.to_dict() if user_doc.exists else {}
+
+                stored_hash = user_data.get('password_hash')
+                if stored_hash:
+                    if stored_hash != input_hash:
+                        return {'success': False, 'error': 'Incorrect email or password'}
+                else:
+                    # Save password hash to Firestore for future verification
+                    try:
+                        user_doc_ref.set({'password_hash': input_hash}, merge=True)
+                    except Exception as set_err:
+                        print(f'[Firebase] Notice: Failed to save password hash: {set_err}')
+
                 try:
-                    self.db.collection('users').document(user.uid).update({
-                        'last_login': datetime.now().isoformat()
-                    })
+                    user_doc_ref.update({'last_login': datetime.now().isoformat()})
                 except Exception:
                     pass
 
@@ -119,6 +134,9 @@ class FirebaseService:
                 users = self._load_users_from_json()
                 for user_id, user_data in users.items():
                     if user_data.get('email') == email:
+                        stored_hash = user_data.get('password_hash')
+                        if stored_hash and stored_hash != input_hash:
+                            return {'success': False, 'error': 'Incorrect email or password'}
                         return {
                             'success': True,
                             'user_id': user_id,
