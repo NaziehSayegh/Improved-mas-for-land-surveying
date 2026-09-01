@@ -503,6 +503,21 @@ def auth_login():
                 'code': 'ACCOUNT_DISABLED'
             }), 403
 
+        # ── 3.5 Check trial expiration if demo ───────────────────────────────
+        if user_data.get('account_type') == 'demo':
+            trial_start = user_data.get('trial_start')
+            if trial_start:
+                trial_res = license_manager._compute_trial_response(
+                    trial_start,
+                    'Trial Expired',
+                    'Demo Trial'
+                )
+                if trial_res.get('status') == 'expired':
+                    return jsonify({
+                        'error': 'Your 30-day demo trial has expired. Please upgrade your account to continue.',
+                        'code': 'TRIAL_EXPIRED'
+                    }), 403
+
         # ── 4. & 5. Track device and check 2-device limit (maximum 2 devices) ──
         machine_id_hash = license_manager.get_machine_id_hash()
         stored_hash = user_data.get('machine_id_hash', '')
@@ -2322,8 +2337,14 @@ def export_pdf():
             if parcel_idx == 0:
                 y_position = height - 40
             else:
-                # Check if we need a new page (add spacing between parcels)
-                if y_position < 100:
+                # Calculate if the entire parcel can fit on the current page
+                temp_ids = parcel.get('ids', [])
+                temp_ids_unique = temp_ids[:-1] if len(temp_ids) >= 2 and temp_ids[-1] == temp_ids[0] else temp_ids[:]
+                temp_curves = parcel.get('curves', [])
+                req_h = 130 + (len(temp_ids_unique) * 12) + (len(temp_curves) * 12 if temp_curves else 0)
+                
+                # Check if we need a new page
+                if (y_position - req_h < 50) and (y_position < height - 100):
                     draw_page_number(c, page_count)
                     
                     c.showPage()
@@ -3008,7 +3029,15 @@ def get_license_status():
             
         mode = request.args.get('mode', 'premium')
         if user_data and user_data.get('account_type') == 'demo':
-            status = license_manager._check_trial_status()
+            trial_start = user_data.get('trial_start')
+            if trial_start:
+                status = license_manager._compute_trial_response(
+                    trial_start,
+                    'Demo Trial Expired - Please Download the Full Version',
+                    'Demo Trial'
+                )
+            else:
+                status = license_manager._check_demo_trial_status()
         elif user_data and user_data.get('account_type') == 'premium':
             # Premium confirmed in Firestore — always activated regardless of local file
             email_val = user_data.get('email', email_to_check or 'premium_user@parceltools.com')
@@ -3758,13 +3787,82 @@ def _parse_dxf_file(dxf_path: str) -> dict:
             try:
                 from ezdxf import path
                 hatch_paths = path.from_hatch(entity)
+                all_paths_points = []
                 for p in hatch_paths:
                     points = []
-                    # Increase flattening distance to improve performance on large files
                     for vertex in p.flattening(0.5):
                         points.append({"x": round(float(vertex.x), 4), "y": round(float(vertex.y), 4)})
-                    if len(points) >= 2:
-                        append_poly_or_explode("POLYLINE", True, points, None, entity.dxf.layer, get_ent_color(entity, doc), filled=True)
+                    if len(points) >= 3:
+                        # Ensure closed
+                        if points[0]['x'] != points[-1]['x'] or points[0]['y'] != points[-1]['y']:
+                            points.append(points[0])
+                        all_paths_points.append(points)
+                
+                if all_paths_points:
+                    def calc_area(pts):
+                        a = 0
+                        for i in range(len(pts)-1):
+                            a += pts[i]['x'] * pts[i+1]['y'] - pts[i+1]['x'] * pts[i]['y']
+                        return abs(a) / 2.0
+
+                    def point_in_polygon(x, y, poly):
+                        inside = False
+                        n = len(poly)
+                        if n < 3: return False
+                        p1x, p1y = poly[0]['x'], poly[0]['y']
+                        for i in range(1, n + 1):
+                            p2x, p2y = poly[i % n]['x'], poly[i % n]['y']
+                            if y > min(p1y, p2y):
+                                if y <= max(p1y, p2y):
+                                    if x <= max(p1x, p2x):
+                                        if p1y != p2y:
+                                            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                                        if p1x == p2x or x <= xinters:
+                                            inside = not inside
+                            p1x, p1y = p2x, p2y
+                        return inside
+
+                    all_paths_points.sort(key=calc_area, reverse=True)
+                    outer_boundaries = []
+
+                    for pts in all_paths_points:
+                        # Check if this path is inside any known outer boundary
+                        parent_idx = -1
+                        for i, ob in enumerate(outer_boundaries):
+                            if point_in_polygon(pts[0]['x'], pts[0]['y'], ob):
+                                parent_idx = i
+                                break
+                                
+                        if parent_idx == -1:
+                            # Not inside anything, so it's a new separate outer boundary
+                            outer_boundaries.append(pts)
+                        else:
+                            # It's a hole inside outer_boundaries[parent_idx]
+                            hole_points = pts[::-1]
+                            if hole_points[0]['x'] == hole_points[-1]['x'] and hole_points[0]['y'] == hole_points[-1]['y']:
+                                hole_points.pop()
+                                
+                            outer_points = outer_boundaries[parent_idx]
+                            min_dist = float('inf')
+                            best_outer_i = 0
+                            best_hole_i = 0
+                            
+                            for oi, opt in enumerate(outer_points):
+                                for hi, hpt in enumerate(hole_points):
+                                    dist = (opt['x'] - hpt['x'])**2 + (opt['y'] - hpt['y'])**2
+                                    if dist < min_dist:
+                                        min_dist = dist
+                                        best_outer_i = oi
+                                        best_hole_i = hi
+                                        
+                            hole_points = hole_points[best_hole_i:] + hole_points[:best_hole_i]
+                            hole_points.append(hole_points[0])
+                            
+                            outer_boundaries[parent_idx] = outer_points[:best_outer_i+1] + hole_points + [outer_points[best_outer_i]] + outer_points[best_outer_i+1:]
+                            
+                    for ob in outer_boundaries:
+                        if len(ob) >= 2:
+                            append_poly_or_explode("POLYLINE", True, ob, None, entity.dxf.layer, get_ent_color(entity, doc), filled=True)
             except Exception as e:
                 print(f"[parse-cad] Hatch conversion failed: {e}")
 

@@ -4052,26 +4052,55 @@ const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport
 
 // Memoized list for ALL parcels (including duplicates)
 const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, selectedIds = [], onToggleSelect }) => {
+  const [searchQuery, setSearchQuery] = React.useState('');
+
   if (savedParcels.length === 0) {
     return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
   }
 
-  return (
-    <div className="space-y-3">
-      {savedParcels.map((parcel, index) => {
-        // Check if this parcel number has duplicates
-        const duplicateCount = savedParcels.filter(p =>
-          p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
-        ).length;
-        const isDuplicate = duplicateCount > 1 && savedParcels.findIndex(p =>
-          p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
-        ) !== index;
+  const filteredParcels = savedParcels.filter(parcel => 
+    parcel.number && parcel.number.toString().toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
-        return (
-          <div
-            key={parcel.id}
-            className={`glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group ${isDuplicate ? 'border-l-4 border-blue-500' : ''
-              }`}
+  return (
+    <div className="space-y-4">
+      <div className="relative">
+        <input
+          type="text"
+          placeholder="Search parcels by number..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full bg-dark-800 border border-dark-600 rounded-md px-4 py-2.5 text-sm text-white focus:border-primary/50 focus:outline-none transition-colors"
+        />
+        {searchQuery && (
+          <button 
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white"
+          >
+            &times;
+          </button>
+        )}
+      </div>
+      
+      {filteredParcels.length === 0 ? (
+        <p className="text-dark-400 text-center py-8">No parcels match your search.</p>
+      ) : (
+        <div className="space-y-3">
+          {filteredParcels.map((parcel) => {
+            // Check if this parcel number has duplicates
+            const duplicateCount = savedParcels.filter(p =>
+              p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
+            ).length;
+            const firstOccurrenceId = savedParcels.find(p => 
+              p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
+            )?.id;
+            const isDuplicate = duplicateCount > 1 && parcel.id !== firstOccurrenceId;
+
+            return (
+              <div
+                key={parcel.id}
+                className={`glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group ${isDuplicate ? 'border-l-4 border-blue-500' : ''
+                  }`}
           >
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-start gap-3 flex-1">
@@ -4150,6 +4179,8 @@ const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, s
           </div>
         );
       })}
+        </div>
+      )}
     </div>
   );
 });
