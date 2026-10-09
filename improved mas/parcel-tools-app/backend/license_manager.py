@@ -4,6 +4,7 @@ Handles license validation, trial mode, and activation
 """
 
 import json as json_lib
+from atomic_io import atomic_write_text
 import os
 import hashlib
 import hmac
@@ -420,8 +421,7 @@ class LicenseManager:
             os.makedirs(self.data_dir, exist_ok=True)
             print(f'[License] Saving license to: {self.license_file}')
             
-            with open(self.license_file, 'w', encoding='utf-8') as f:
-                json_lib.dump(license_data, f, indent=2)
+            atomic_write_text(self.license_file, json_lib.dumps(license_data, indent=2))
             
             # Verify the file was created
             if os.path.exists(self.license_file):
@@ -456,8 +456,7 @@ class LicenseManager:
         }
         data['signature'] = self._sign_license(data)
         os.makedirs(self.data_dir, exist_ok=True)
-        with open(self.license_file, 'w', encoding='utf-8') as f:
-            json_lib.dump(data, f, indent=2)
+        atomic_write_text(self.license_file, json_lib.dumps(data, indent=2))
         return {'success': True}
 
     def validate_license_key(self, license_key, email):

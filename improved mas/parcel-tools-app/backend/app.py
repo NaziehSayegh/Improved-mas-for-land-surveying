@@ -26,6 +26,7 @@ _file_io_lock = threading.RLock()
 # Add current directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from atomic_io import atomic_write_text as _atomic_write_text
 from license_manager import LicenseManager
 from firebase_service import FirebaseService
 from firebase_config import is_firebase_available
@@ -222,6 +223,9 @@ def _safe_archive_name(name):
     return '/'.join(parts) or 'file'
 
 
+_recent_files_lock = threading.RLock()
+
+
 def load_projects():
     """Load projects from JSON file"""
     if os.path.exists(PROJECTS_FILE):
@@ -232,8 +236,7 @@ def load_projects():
 
 def save_projects(projects):
     """Save projects to JSON file"""
-    with open(PROJECTS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(projects, f, indent=2, ensure_ascii=False)
+    _atomic_write_text(PROJECTS_FILE, json.dumps(projects, indent=2, ensure_ascii=False))
 
 
 def load_ai_config():
@@ -248,8 +251,7 @@ def load_ai_config():
 
 def save_ai_config(cfg):
     try:
-        with open(AI_CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(cfg, f, indent=2)
+        _atomic_write_text(AI_CONFIG_FILE, json.dumps(cfg, indent=2))
         return True
     except Exception:
         return False
@@ -274,8 +276,7 @@ def save_recent_files(recent_files):
         if recent_dir and not os.path.exists(recent_dir):
             os.makedirs(recent_dir, exist_ok=True)
         
-        with open(RECENT_FILES_FILE, 'w', encoding='utf-8') as f:
-            json.dump(recent_files, f, indent=2, ensure_ascii=False)
+        _atomic_write_text(RECENT_FILES_FILE, json.dumps(recent_files, indent=2, ensure_ascii=False))
         return True
     except Exception as e:
         print(f'[Recent Files ERROR] Failed to save: {e}')
@@ -284,6 +285,11 @@ def save_recent_files(recent_files):
 
 def add_to_recent_files(file_type, file_path, file_name, metadata=None):
     """Add a file to recent files history"""
+    with _recent_files_lock:
+        return _add_to_recent_files_locked(file_type, file_path, file_name, metadata)
+
+
+def _add_to_recent_files_locked(file_type, file_path, file_name, metadata=None):
     print(f'[Recent Files] Adding {file_type}: {file_path}')
     recent = load_recent_files()
     print(f'[Recent Files] Current {file_type} count: {len(recent.get(file_type, []))}')
@@ -401,11 +407,21 @@ def auth_signup():
     Premium: { "email": "...", "password": "...", "accountType": "premium", "licenseKey": "XXXX-..." }
     """
     try:
-        data = request.get_json()
-        email = data.get('email', '').strip().lower()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'A JSON object body is required'}), 400
+        email = data.get('email', '')
         password = data.get('password', '')
         account_type = data.get('accountType', 'premium')   # 'demo' | 'premium'
-        license_key = data.get('licenseKey', '').strip()
+        license_key = data.get('licenseKey', '')
+        if not all(isinstance(v, str) for v in (email, password, account_type, license_key)):
+            return jsonify({'error': 'Invalid request data'}), 400
+        email = email.strip().lower()
+        license_key = license_key.strip()
+        if account_type not in ('demo', 'premium'):
+            return jsonify({'error': 'Invalid account type'}), 400
+        if email and not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+            return jsonify({'error': 'Please enter a valid email address'}), 400
 
         print(f'[Auth] Signup attempt: {email}, type={account_type}')
 
@@ -516,9 +532,14 @@ def auth_login():
     Expected JSON: { "email": "...", "password": "..." }
     """
     try:
-        data = request.get_json()
-        email = data.get('email', '').strip().lower()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'A JSON object body is required'}), 400
+        email = data.get('email', '')
         password = data.get('password', '')
+        if not isinstance(email, str) or not isinstance(password, str):
+            return jsonify({'error': 'Invalid request data'}), 400
+        email = email.strip().lower()
 
         print(f'[Auth] Login attempt for: {email}')
 
@@ -644,7 +665,8 @@ def auth_verify():
     Expected JSON: { "sessionToken": "...", "userId": "..." } (userId kept for backward-compat)
     """
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
         session_token = data.get('sessionToken') or request.headers.get('X-Session-Token')
         machine_hash = license_manager.get_machine_id_hash()
         now_ts = int(datetime.now().timestamp())
@@ -812,21 +834,25 @@ def calculate_area():
     Expected JSON: { "points": [{"x": 0, "y": 0}, ...], "curves": [...] (optional) }
     """
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'A JSON object body is required'}), 400
         raw_points = data.get('points', [])
         curves = data.get('curves', [])
-        
+        if not isinstance(raw_points, list):
+            return jsonify({'error': 'points must be a list'}), 400
+        if curves is None:
+            curves = []
+        if not isinstance(curves, list):
+            return jsonify({'error': 'curves must be a list'}), 400
+
         # Sanitize and parse point coordinates
         points = []
         for p in raw_points:
             if isinstance(p, dict):
-                try:
-                    x = float(p.get('x', 0))
-                    y = float(p.get('y', 0))
-                    if not (math.isnan(x) or math.isnan(y) or math.isinf(x) or math.isinf(y)):
-                        points.append({'x': x, 'y': y})
-                except (ValueError, TypeError):
-                    continue
+                x, y = _num(p.get('x', 0)), _num(p.get('y', 0))
+                if x is not None and y is not None:
+                    points.append({'x': x, 'y': y})
 
         if len(points) < 3:
             return jsonify({'error': 'At least 3 valid coordinate points are required'}), 400
@@ -864,12 +890,17 @@ def calculate_area():
         
         if curves:
             for curve in curves:
-                M = curve.get('M', 0)
-                sign = curve.get('sign', 1)
+                if not isinstance(curve, dict):
+                    return jsonify({'error': 'Each curve must be an object'}), 400
+                M = _num(curve.get('M', 0))
+                sign = _num(curve.get('sign', 1))
                 from_idx = curve.get('fromIndex', 0)
                 to_idx = curve.get('toIndex', 1)
-                
-                if M > 0 and from_idx < len(points) and to_idx < len(points):
+                if M is None or sign is None or not isinstance(from_idx, int) or not isinstance(to_idx, int) \
+                        or isinstance(from_idx, bool) or isinstance(to_idx, bool):
+                    return jsonify({'error': 'Curve values must be finite numbers and integer point indexes'}), 400
+
+                if M > 0 and 0 <= from_idx < len(points) and 0 <= to_idx < len(points):
                     # Calculate chord length
                     from_pt = points[from_idx]
                     to_pt = points[to_idx]
@@ -895,8 +926,16 @@ def calculate_area():
                         })
         
         final_area = base_area + total_curve_adjustment
-        
+
+        if not all(math.isfinite(v) for v in (base_area, perimeter, final_area, cx, cy)):
+            return jsonify({'error': 'Coordinates are too large or invalid to calculate an area'}), 400
+
+        warnings = []
+        if _polygon_self_intersects(points):
+            warnings.append('Boundary crosses itself - the calculated area is not valid. Check the point order.')
+
         return jsonify({
+            'warnings': warnings,
             'baseArea': round(base_area, 4),
             'curveAdjustment': round(total_curve_adjustment, 4),
             'area': round(final_area, 4),
@@ -922,11 +961,26 @@ def calculate_area_error():
     }
     """
     try:
-        data = request.get_json()
-        points = data.get('points', [])
-        area = data.get('area', 0)
-        default_coord_error = data.get('coordinateError', 0.01)  # Default 1cm error
-        
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'A JSON object body is required'}), 400
+        raw = data.get('points', [])
+        area = _num(data.get('area', 0))
+        default_coord_error = _num(data.get('coordinateError', 0.01))
+        if not isinstance(raw, list) or area is None or default_coord_error is None:
+            return jsonify({'error': 'points must be a list; area and coordinateError must be numbers'}), 400
+
+        points = []
+        for p in raw:
+            if not isinstance(p, dict):
+                return jsonify({'error': 'Each point must be an object with x and y'}), 400
+            x, y = _num(p.get('x')), _num(p.get('y'))
+            ex = _num(p.get('errorX', default_coord_error))
+            ey = _num(p.get('errorY', default_coord_error))
+            if None in (x, y, ex, ey):
+                return jsonify({'error': 'Point coordinates and errors must be finite numbers'}), 400
+            points.append({'x': x, 'y': y, 'errorX': ex, 'errorY': ey})
+
         if len(points) < 3:
             return jsonify({'error': 'At least 3 points required'}), 400
         
@@ -1010,6 +1064,51 @@ def calculate_area_error():
         return jsonify({'error': str(e)}), 500
 
 
+def _num(value):
+    """float(value) or None when it is not a finite number."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _segments_intersect(p1, p2, p3, p4):
+    """Proper (crossing) intersection of segments p1p2 and p3p4."""
+    def orient(a, b, c):
+        v = (b['x'] - a['x']) * (c['y'] - a['y']) - (b['y'] - a['y']) * (c['x'] - a['x'])
+        return (v > 0) - (v < 0)
+    o1, o2 = orient(p1, p2, p3), orient(p1, p2, p4)
+    o3, o4 = orient(p3, p4, p1), orient(p3, p4, p2)
+    return o1 * o2 < 0 and o3 * o4 < 0
+
+
+def _polygon_self_intersects(points, limit=1500):
+    """True if any two non-adjacent edges cross (area would be meaningless). Skipped for huge polygons."""
+    n = len(points)
+    if n < 4 or n > limit:
+        return False
+    for i in range(n):
+        a1, a2 = points[i], points[(i + 1) % n]
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            if _segments_intersect(a1, a2, points[j], points[(j + 1) % n]):
+                return True
+    return False
+
+
+def _read_text_file(path):
+    """Read a text file trying the encodings surveying tools produce (UTF-8 with/without BOM, Arabic cp1256, cp1252)."""
+    raw = open(path, 'rb').read()
+    for enc in ('utf-8-sig', 'cp1256', 'cp1252'):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode('latin-1')
+
+
 def parse_points_content(text_data):
     """Parse raw points file content into a list of points dicts"""
     points = []
@@ -1033,6 +1132,16 @@ def parse_points_content(text_data):
             except ValueError:
                 continue
     return points
+
+
+def _missing_point_ids(parcel, points_map):
+    """IDs a parcel refers to that have no usable coordinates in points_map."""
+    missing = []
+    for pid in parcel.get('ids', []) or []:
+        pt = points_map.get(str(pid)) if isinstance(points_map, dict) else None
+        if not (isinstance(pt, dict) and _num(pt.get('x')) is not None and _num(pt.get('y')) is not None):
+            missing.append(str(pid))
+    return missing
 
 
 def calculate_single_parcel_metrics(parcel, points_map):
@@ -1112,21 +1221,36 @@ def calculate_batch_areas():
     }
     """
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'A JSON object body is required'}), 400
         parcels = data.get('parcels', [])
         points_map = data.get('points', {})
-        
+        if not isinstance(parcels, list) or not isinstance(points_map, dict):
+            return jsonify({'error': 'parcels must be a list and points an object'}), 400
+
         results = []
-        
+        skipped = []
         for parcel in parcels:
+            if not isinstance(parcel, dict):
+                continue
+            # A parcel that refers to unknown points must NOT get an area computed from (0,0):
+            # leave it out so the caller keeps the previously stored values, and report why.
+            missing = _missing_point_ids(parcel, points_map)
+            if missing:
+                skipped.append({'id': parcel.get('id'), 'missingPoints': missing})
+                continue
             area, perimeter = calculate_single_parcel_metrics(parcel, points_map)
+            if not (math.isfinite(area) and math.isfinite(perimeter)):
+                skipped.append({'id': parcel.get('id'), 'missingPoints': []})
+                continue
             results.append({
                 'id': parcel.get('id'),
                 'area': area,
                 'perimeter': perimeter
             })
-            
-        return jsonify({'results': results})
+
+        return jsonify({'results': results, 'skipped': skipped})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1291,8 +1415,7 @@ def save_project_file():
         save_data.pop('rawPoints', None)      # Raw CAD points, redundant with loadedPoints
         
         # Use a more explicit open mode
-        with open(filepath, 'w', encoding='utf-8', newline='') as f:
-            json.dump(save_data, f, indent=2, ensure_ascii=False)
+        _atomic_write_text(filepath, json.dumps(save_data, indent=2, ensure_ascii=False))
         print(f'[Save] SUCCESS: File written successfully! Size: ~{len(json.dumps(save_data))//1024}KB (stripped cadEntities)')
         # Verify file was written
         if os.path.exists(filepath):
@@ -1560,10 +1683,12 @@ def load_project_file():
         if project_data.get('loadedPoints'):
             pts_map = project_data['loadedPoints']
             for parcel in project_data.get('savedParcels', []):
+                if _missing_point_ids(parcel, pts_map):
+                    continue   # keep the stored values instead of computing from (0,0)
                 area, perimeter = calculate_single_parcel_metrics(parcel, pts_map)
-                if area is not None:
+                if math.isfinite(area):
                     parcel['area'] = area
-                if perimeter is not None:
+                if math.isfinite(perimeter):
                     parcel['perimeter'] = perimeter
         
         # Add to recent files if we have a valid path
@@ -1839,35 +1964,42 @@ def reload_points_file():
         if not os.path.exists(file_path):
             return jsonify({'error': 'File not found'}), 404
         
-        # Read points with automatic deduplication
+        # Read points with automatic deduplication (duplicates are reported, not silently lost)
         points = []
         seen_point_ids = set()
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#') or line.startswith('//'):
-                    continue
-                
-                line = line.replace(';', ',')
-                parts = [p.strip() for p in (line.split(',') if ',' in line else line.split()) if p.strip()]
-                
-                if len(parts) >= 3:
-                    try:
-                        point_id = parts[0].strip()
-                        if not point_id or point_id in seen_point_ids:
-                            continue
-                        x = float(parts[1])
-                        y = float(parts[2])
-                        seen_point_ids.add(point_id)
-                        points.append({'id': point_id, 'x': x, 'y': y})
-                    except ValueError:
+        duplicates = []
+        skipped_lines = 0
+        for line in _read_text_file(file_path).splitlines():
+            line = line.strip().lstrip('\ufeff')
+            if not line or line.startswith('#') or line.startswith('//'):
+                continue
+
+            line = line.replace(';', ',')
+            parts = [p.strip() for p in (line.split(',') if ',' in line else line.split()) if p.strip()]
+
+            if len(parts) >= 3:
+                try:
+                    point_id = parts[0].strip()
+                    x, y = float(parts[1]), float(parts[2])
+                    if not point_id or not (math.isfinite(x) and math.isfinite(y)):
+                        skipped_lines += 1
                         continue
-        
+                    if point_id in seen_point_ids:
+                        duplicates.append(point_id)
+                        continue
+                    seen_point_ids.add(point_id)
+                    points.append({'id': point_id, 'x': x, 'y': y})
+                except ValueError:
+                    skipped_lines += 1
+            else:
+                skipped_lines += 1
+
         # Add to recent files
         metadata = {'pointsCount': len(points)}
         add_to_recent_files('points', file_path, os.path.basename(file_path), metadata)
         
-        return jsonify({'points': points, 'count': len(points)})
+        return jsonify({'points': points, 'count': len(points), 'duplicateIds': duplicates[:100],
+                        'duplicateCount': len(duplicates), 'skippedLines': skipped_lines})
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1887,8 +2019,9 @@ def import_points():
         
         points = []
         seen_point_ids = set()
-        for line in text_data.strip().split('\n'):
-            line = line.strip()
+        duplicates = []
+        for line in text_data.lstrip('\ufeff').strip().split('\n'):
+            line = line.strip().lstrip('\ufeff')
             if not line or line.startswith('#') or line.startswith('//'):
                 continue
             
@@ -1901,7 +2034,10 @@ def import_points():
             if len(parts) >= 3:
                 try:
                     point_id = parts[0].strip()
-                    if not point_id or point_id in seen_point_ids:
+                    if not point_id:
+                        continue
+                    if point_id in seen_point_ids:
+                        duplicates.append(point_id)
                         continue
                     x = float(parts[1])
                     y = float(parts[2])
@@ -1915,7 +2051,8 @@ def import_points():
             return jsonify({'error': 'No valid coordinate points found in input text'}), 400
 
         
-        return jsonify({'points': points, 'count': len(points)})
+        return jsonify({'points': points, 'count': len(points), 'duplicateIds': duplicates[:100],
+                        'duplicateCount': len(duplicates)})
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1945,8 +2082,9 @@ def save_points_file():
         os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else DATA_DIR, exist_ok=True)
         
         # Write file
-        with open(save_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        if not isinstance(content, str):
+            return jsonify({'error': 'content must be text'}), 400
+        _atomic_write_text(save_path, content)
         
         return jsonify({
             'success': True,
@@ -1966,8 +2104,11 @@ def export_points():
     Expected JSON: { "points": [{"id": "1", "x": 0, "y": 0}, ...] }
     """
     try:
-        data = request.get_json()
-        points = data.get('points', [])
+        data = request.get_json(silent=True)
+        points = data.get('points', []) if isinstance(data, dict) else None
+        if not isinstance(points, list):
+            return jsonify({'error': 'points must be a list'}), 400
+        points = [p for p in points if isinstance(p, dict)]
         
         lines = ['# Parcel Tools - Point Export', f'# Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', '# Format: ID, X, Y', '']
         
@@ -2723,12 +2864,14 @@ def ai_ask():
     Expected JSON: { "messages": [{role, content}, ...] }
     """
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
         messages = data.get('messages', [])
+        messages = messages if isinstance(messages, list) else []
         user_q = ''
         for m in reversed(messages):
-            if m.get('role') == 'user':
-                user_q = m.get('content', '').strip()
+            if isinstance(m, dict) and m.get('role') == 'user' and isinstance(m.get('content'), str):
+                user_q = m['content'].strip()
                 break
         if not user_q:
             return jsonify({ 'answer': 'Please type a question about Parcel Tools.' })
@@ -2968,14 +3111,14 @@ def clear_recent_files():
         data = request.get_json() or {}
         file_type = data.get('type')  # 'projects', 'points', or None for all
         
-        recent = load_recent_files()
-        if file_type:
-            if file_type in recent:
-                recent[file_type] = []
-        else:
-            recent = {'projects': [], 'points': []}
-        
-        save_recent_files(recent)
+        with _recent_files_lock:
+            recent = load_recent_files()
+            if file_type:
+                if file_type in recent:
+                    recent[file_type] = []
+            else:
+                recent = {'projects': [], 'points': []}
+            save_recent_files(recent)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -3110,7 +3253,7 @@ def activate_license():
         
         print(f'[API] ═══ LICENSE ACTIVATION ═══')
         print(f'[API] Email: {email}')
-        print(f'[API] Key: {license_key}')
+        print(f'[API] Key: {license_key[:4]}…(hidden)')
         
         if not license_key or not email:
             return jsonify({
