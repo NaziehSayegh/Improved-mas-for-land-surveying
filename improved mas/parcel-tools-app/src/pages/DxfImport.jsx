@@ -10,7 +10,7 @@ import {
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
 import { customConfirm } from '../utils/dialogs';
-import { validateLabelMatches } from '../utils/labelMatch';
+import { reconcileCorners } from '../utils/labelMatch';
 
 // ─── Colour palette for layers fallback ──────────────────────────────────────
 const LAYER_COLORS = [
@@ -718,6 +718,8 @@ const DxfImport = () => {
     const [detectedNumber, setDetectedNumber] = useState('');
     const [detectedPoints, setDetectedPoints] = useState([]);
     const [matchWarnings, setMatchWarnings] = useState([]);
+    // true when every corner has been brought into the points-file coordinate frame (no 'mixed' coordinates)
+    const [coordsConsistent, setCoordsConsistent] = useState(false);
     const [parcelNumberInput, setParcelNumberInput] = useState('');
     const [newPointsToRegister, setNewPointsToRegister] = useState({});
     const [renumberStartInput, setRenumberStartInput] = useState('1');
@@ -804,7 +806,7 @@ const DxfImport = () => {
         if (!detectedPoints || detectedPoints.length < 3) return null;
 
         const unmatched = detectedPoints.filter(p => !loadedPoints[p.pointId]);
-        const isMixed = unmatched.length > 0 && unmatched.length < detectedPoints.length;
+        const isMixed = unmatched.length > 0 && unmatched.length < detectedPoints.length && !coordsConsistent;
 
         // Build coordinate array
         const coords = detectedPoints.map(p => {
@@ -825,7 +827,7 @@ const DxfImport = () => {
             matchedCount: detectedPoints.length - unmatched.length,
             unmatchedCount: unmatched.length
         };
-    }, [detectedPoints, loadedPoints, curves]);
+    }, [detectedPoints, loadedPoints, curves, coordsConsistent]);
 
     const toggleLayer = (layerName) => {
         const newVis = { ...visibleLayers, [layerName]: !visibleLayers[layerName] };
@@ -1206,6 +1208,7 @@ const DxfImport = () => {
         });
 
         setMatchWarnings([]);
+        setCoordsConsistent(false);
         setDetectedNumber(parcel.number);
         setParcelNumberInput(parcel.number);
         setDetectedPoints(pts);
@@ -1673,8 +1676,9 @@ const DxfImport = () => {
             });
         });
 
-        const mapCheck = validateLabelMatches(detectedPts, missingPoints, loadedPoints, bbDiag);
+        const mapCheck = reconcileCorners(detectedPts, missingPoints, loadedPoints, bbDiag);
         setMatchWarnings(mapCheck.warnings);
+        setCoordsConsistent(mapCheck.consistent);
 
         setDetectedNumber(parcelNo);
         setParcelNumberInput(parcelNo);
@@ -1811,8 +1815,9 @@ const DxfImport = () => {
             detectedPts.push({ vertexIdx: idx, x: p.x, y: p.y, label: matchedLabel, dist: matchedDist, pointId, status });
         });
 
-        const mapCheck = validateLabelMatches(detectedPts, missingPoints, loadedPoints, bbDiag);
+        const mapCheck = reconcileCorners(detectedPts, missingPoints, loadedPoints, bbDiag);
         setMatchWarnings(mapCheck.warnings);
+        setCoordsConsistent(mapCheck.consistent);
 
         setDetectedNumber(parcelNo);
         setParcelNumberInput(parcelNo);
@@ -1837,6 +1842,7 @@ const DxfImport = () => {
     };
 
     const handleUpdatePointId = (vertexIdx, newId) => {
+        setCoordsConsistent(false);   // the user is overriding the automatic identification
         const updated = [...detectedPoints];
         const row = updated[vertexIdx];
         const cleanedId = newId.trim();
@@ -2071,7 +2077,7 @@ const DxfImport = () => {
         let perimeter = null;
         const allMatched = unmatchedIds.length === 0;
         const allUnmatched = unmatchedIds.length === pointIds.length;
-        const isMixed = !allMatched && !allUnmatched;
+        const isMixed = !allMatched && !allUnmatched && !coordsConsistent;
 
         if (!isMixed) {
             try {
@@ -2796,7 +2802,7 @@ const DxfImport = () => {
                                         <div>
                                             <span className="text-[9px] text-dark-500 uppercase block font-sans">Coordinates</span>
                                             <span className={`font-bold text-xs ${modalLiveMetrics.allMatched ? 'text-green-400' : modalLiveMetrics.isMixed ? 'text-red-400' : 'text-blue-400'}`}>
-                                                {modalLiveMetrics.allMatched ? 'Real (.pnt)' : modalLiveMetrics.isMixed ? 'Mixed ⚠️' : 'CAD Coords'}
+                                                {modalLiveMetrics.allMatched ? 'Real (.pnt)' : modalLiveMetrics.isMixed ? 'Mixed ⚠️' : (coordsConsistent ? 'Real (.pnt) + new' : 'CAD Coords')}
                                             </span>
                                         </div>
                                     </div>
@@ -3184,7 +3190,17 @@ const DxfImport = () => {
                                         const total = detectedPoints.length;
                                         const allMatched = unmatchedCount === 0;
                                         const allUnmatched = matchedCount === 0;
-                                        const isMixed = !allMatched && !allUnmatched;
+                                        const isMixed = !allMatched && !allUnmatched && !coordsConsistent;
+
+                                        if (!allMatched && coordsConsistent) return (
+                                            <div className="bg-blue-500/5 border border-blue-500/20 p-3 rounded-lg flex items-start gap-2.5 font-sans">
+                                                <span className="text-blue-400 text-sm mt-0.5">ℹ️</span>
+                                                <div className="text-[11px] text-dark-300 leading-normal">
+                                                    <span className="font-bold text-blue-400">{matchedCount} of {total} corners found in your points file</span>
+                                                    {' '}(by label or position). The other <span className="font-semibold text-white">{unmatchedCount}</span> are new points; they are placed in the same coordinate system as your file and added to it when you confirm, so the area is calculated from consistent coordinates.
+                                                </div>
+                                            </div>
+                                        );
 
                                         if (allMatched) return (
                                             <div className="bg-green-500/5 border border-green-500/20 p-3 rounded-lg flex items-start gap-2.5 font-sans">

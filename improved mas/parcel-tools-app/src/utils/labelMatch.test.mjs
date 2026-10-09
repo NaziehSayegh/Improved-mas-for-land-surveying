@@ -61,3 +61,70 @@ test('new CAD ids never collide with existing points', () => {
     validateLabelMatches(det, missing, loaded, 25);
     assert.equal(det[3].pointId, 'CAD_2');
 });
+
+// ───────── reconcileCorners ─────────
+import { reconcileCorners } from './labelMatch.js';
+
+const square = [[0, 0], [20, 0], [20, 10], [0, 10], [10, 15]];
+function scene({ shift = [0, 0], unlabelled = [], absent = [] } = {}) {
+    const loaded = {}, det = [];
+    square.forEach(([x, y], i) => {
+        const id = String(i + 1);
+        if (!absent.includes(i)) loaded[id] = { x: x + shift[0], y: y + shift[1] };
+        const has = !unlabelled.includes(i) && !absent.includes(i);
+        det.push({ vertexIdx: i, x, y, label: has ? id : null, dist: has ? 0.5 : Infinity,
+            pointId: has ? id : `CAD_${i + 1}`, status: has ? 'matched' : 'generated' });
+    });
+    const missing = {};
+    det.forEach(p => { if (p.status === 'generated') missing[p.pointId] = { x: p.x, y: p.y }; });
+    return { det, loaded, missing };
+}
+
+test('a corner without a label is identified by its position in the points file (same frame)', () => {
+    const { det, loaded, missing } = scene({ unlabelled: [3] });
+    const r = reconcileCorners(det, missing, loaded, 25);
+    assert.equal(det[3].pointId, '4');
+    assert.equal(det[3].status, 'matched');
+    assert.equal(Object.keys(missing).length, 0);        // no CAD_n invented
+    assert.equal(r.consistent, true);
+});
+
+test('a corner without a label is identified when the drawing is offset from the points file', () => {
+    const { det, loaded, missing } = scene({ shift: [50000, 70000], unlabelled: [1, 3] });
+    const r = reconcileCorners(det, missing, loaded, 25);
+    assert.deepEqual([det[1].pointId, det[3].pointId], ['2', '4']);
+    assert.equal(Object.keys(missing).length, 0);
+    assert.equal(r.consistent, true);
+});
+
+test('a genuinely new corner is moved into the points-file frame (no spike, area can be computed)', () => {
+    const { det, loaded, missing } = scene({ shift: [50000, 70000], absent: [4] });   // corner 5 not in the points file
+    const r = reconcileCorners(det, missing, loaded, 25);
+    assert.equal(r.consistent, true);
+    assert.equal(det[4].status, 'generated');
+    assert.deepEqual({ x: det[4].x, y: det[4].y }, { x: 10 + 50000, y: 15 + 70000 });
+    assert.deepEqual(missing[det[4].pointId], { x: 50010, y: 70015 });
+});
+
+test('stray neighbour label + missing own label: rejected, then identified by position', () => {
+    const { det, loaded, missing } = scene({ unlabelled: [3] });
+    loaded['38'] = { x: 100, y: 3 };
+    det[3].pointId = '38'; det[3].label = '38'; det[3].dist = 7; det[3].status = 'matched';
+    const r = reconcileCorners(det, missing, loaded, 25);
+    assert.equal(det[3].pointId, '4');
+    assert.ok(r.warnings.some(w => /the drawing label was ignored/.test(w)));
+});
+
+test('unrelated frames (nothing matches): left alone, not consistent', () => {
+    const { det, loaded, missing } = scene({ shift: [500, 500], unlabelled: [0, 1, 2, 3, 4] });
+    const r = reconcileCorners(det, missing, loaded, 25);
+    assert.equal(r.consistent, false);
+    assert.ok(det.every(p => p.status === 'generated'));
+});
+
+test('two corners never claim the same point', () => {
+    const { det, loaded, missing } = scene({ unlabelled: [0, 1] });
+    det[1].x = 0.05; det[1].y = 0.05;                   // sits on top of corner 1 as well
+    reconcileCorners(det, missing, loaded, 25);
+    assert.notEqual(det[0].pointId, det[1].pointId);
+});
