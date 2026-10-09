@@ -619,55 +619,32 @@ def auth_verify():
                     'loginTimestamp': now_ts,
                 })
             except ValueError:
-                pass  # fall through to userId check
+                return jsonify({'valid': False, 'error': 'Invalid or expired session'}), 401
 
-        # Backward-compat: plain userId fallback
-        if user_id:
-            user_data = firebase_service.get_user(user_id)
-            if user_data and user_data.get('is_active') is False:
-                return jsonify({'valid': False, 'error': 'Account disabled'}), 403
-            
-            device_res = firebase_service.add_device(user_id, machine_hash, "Windows PC")
-            if not device_res.get('success'):
-                return jsonify({'valid': False, 'error': device_res.get('error', 'Device limit reached. Maximum 2 devices allowed.'), 'code': 'DEVICE_LIMIT_REACHED'}), 403
-
-            email_val = user_data.get('email') if user_data else ''
-            account_type_val = user_data.get('account_type', 'premium') if user_data else 'premium'
-            is_admin_val = user_data.get('is_admin', False) or (email_val.lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']) if user_data else False
-            _ensure_premium_license_activated(user_id, user_data, email_val)
-            new_token = license_manager.generate_session_token(user_id, machine_hash)
-            return jsonify({
-                'valid': True,
-                'email': email_val,
-                'accountType': account_type_val,
-                'isAdmin': is_admin_val,
-                'licenseKey': user_data.get('license_key') if user_data else None,
-                'sessionToken': new_token,
-                'loginTimestamp': now_ts,
-            })
-
+        # A bare userId is NOT proof of identity: never issue a token without a valid one.
         return jsonify({'valid': False, 'error': 'Invalid or expired session'}), 401
 
     except Exception as e:
         print(f'[Auth ERROR] Verification failed: {e}')
-        return jsonify({'valid': False, 'error': str(e)}), 500
+        return jsonify({'valid': False, 'error': 'Verification failed'}), 500
 
 
 @app.route('/api/auth/logout', methods=['POST'])
 def auth_logout():
-    """Logout and deactivate device. Expected JSON: { "userId": "..." }"""
+    """Logout and release this device's slot. Identity comes from the session token only."""
     try:
-        data = request.get_json()
-        user_id = data.get('userId')
-        print(f'[Auth] Logout request for user: {user_id}')
-        if not user_id:
-            return jsonify({'error': 'User ID required'}), 400
+        token = request.headers.get('X-Session-Token', '')
         machine_id_hash = license_manager.get_machine_id_hash()
+        try:
+            user_id, _ = license_manager.verify_session_token(token, machine_id_hash)
+        except ValueError:
+            return jsonify({'error': 'Authentication required', 'code': 'INVALID_TOKEN'}), 401
+        print(f'[Auth] Logout request for user: {user_id}')
         firebase_service.remove_device(user_id, machine_id_hash)
         return jsonify({'success': True, 'message': 'Logged out successfully'})
     except Exception as e:
         print(f'[Auth ERROR] Logout failed: {e}')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Logout failed'}), 500
 
 
 # ============================================================================

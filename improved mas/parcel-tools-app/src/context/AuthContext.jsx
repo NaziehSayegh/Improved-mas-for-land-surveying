@@ -109,8 +109,11 @@ export const AuthProvider = ({ children }) => {
             if (userId) {
                 await fetch('http://127.0.0.1:5000/api/auth/logout', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Session-Token': sessionStorage.getItem('sessionToken') || localStorage.getItem('sessionToken') || '',
+                    },
+                    body: JSON.stringify({}),
                 });
             }
         } catch {
