@@ -13,6 +13,7 @@ import { customConfirm } from '../utils/dialogs';
 import { reconcileCorners } from '../utils/labelMatch';
 import { drawHatch } from '../utils/hatchRender';
 import { withExactMetrics } from '../utils/entityMetrics';
+import { NUMBER_LAYERS_STORAGE_KEY, resolveNumberLayers, filterCornerLabels, pickParcelNumberText } from '../utils/numberLayers';
 
 // ─── Colour palette for layers fallback ──────────────────────────────────────
 const LAYER_COLORS = [
@@ -742,6 +743,26 @@ const DxfImport = () => {
     // Layer Management
     const [layerList, setLayerList] = useState([]);
     const layerListRef = useRef([]);
+    // Layers allowed to supply corner numbers (C) and the parcel number (P); text on any other layer is ignored.
+    const [cornerLayers, setCornerLayers] = useState([]);
+    const [parcelLayers, setParcelLayers] = useState([]);
+    useEffect(() => {
+        let saved = null;
+        try { saved = JSON.parse(localStorage.getItem(NUMBER_LAYERS_STORAGE_KEY) || 'null'); } catch { saved = null; }
+        const r = resolveNumberLayers((layerList || []).map(l => l.name), saved);
+        setCornerLayers(r.corner);
+        setParcelLayers(r.parcel);
+    }, [layerList]);
+    const toggleNumberLayer = (kind, name) => {
+        const cur = kind === 'corner' ? cornerLayers : parcelLayers;
+        const next = cur.includes(name) ? cur.filter(n => n !== name) : [...cur, name];
+        if (kind === 'corner') setCornerLayers(next); else setParcelLayers(next);
+        try {
+            const saved = JSON.parse(localStorage.getItem(NUMBER_LAYERS_STORAGE_KEY) || 'null') || {};
+            saved[kind] = next;
+            localStorage.setItem(NUMBER_LAYERS_STORAGE_KEY, JSON.stringify(saved));
+        } catch { /* storage unavailable: choice only lasts for this session */ }
+    };
     useEffect(() => { layerListRef.current = layerList || []; }, [layerList]);
     const [visibleLayers, setVisibleLayers] = useState({});
     const visibleLayersRef = useRef({});
@@ -1582,6 +1603,12 @@ const DxfImport = () => {
             );
             parcelNo = searchPool[0].text.trim().replace(/^Parcel\s+|^\#\s*|^No\.\s*/i, '');
         }
+        {
+            let cx = 0, cy = 0;
+            ent.points.forEach(p => { cx += p.x; cy += p.y; });
+            const onLayer = pickParcelNumberText(labelsInside, parcelLayers, { x: cx / ent.points.length, y: cy / ent.points.length });
+            if (onLayer !== null) parcelNo = onLayer; // only the parcel-number layer(s) may name the parcel
+        }
         if (!parcelNo) {
             parcelNo = ((savedParcels || []).length + 1).toString();
         }
@@ -1620,7 +1647,7 @@ const DxfImport = () => {
 
         const detectedPts = [];
         const missingPoints = {};
-        const candidateLabels = allLabels.filter(lbl => lbl.text && lbl.text.trim().length > 0 && lbl.text.trim().length <= 15);
+        const candidateLabels = filterCornerLabels(allLabels, cornerLayers).filter(lbl => lbl.text && lbl.text.trim().length > 0 && lbl.text.trim().length <= 15);
 
         const scoreCandidate = (lbl, dist) => {
             const layer = (lbl.layer || '').toLowerCase();
@@ -1752,6 +1779,12 @@ const DxfImport = () => {
             );
             parcelNo = searchPool[0].text.trim().replace(/^Parcel\s+|^\#\s*|^No\.\s*/i, '');
         }
+        {
+            let cx = 0, cy = 0;
+            ent.points.forEach(p => { cx += p.x; cy += p.y; });
+            const onLayer = pickParcelNumberText(labelsInside, parcelLayers, { x: cx / ent.points.length, y: cy / ent.points.length });
+            if (onLayer !== null) parcelNo = onLayer; // only the parcel-number layer(s) may name the parcel
+        }
         if (!parcelNo) {
             parcelNo = ((savedParcels || []).length + 1).toString();
         }
@@ -1783,7 +1816,7 @@ const DxfImport = () => {
 
         const detectedPts = [];
         const missingPoints = {};
-        const candidateLabels = allLabels.filter(lbl => lbl.text && lbl.text.trim().length > 0 && lbl.text.trim().length <= 15);
+        const candidateLabels = filterCornerLabels(allLabels, cornerLayers).filter(lbl => lbl.text && lbl.text.trim().length > 0 && lbl.text.trim().length <= 15);
 
         const scoreCandidate = (lbl, dist) => {
             const layer = (lbl.layer || '').toLowerCase();
@@ -2363,6 +2396,18 @@ const DxfImport = () => {
                                                 <div className="w-2.5 h-2.5 rounded-full shadow-sm flex-shrink-0" style={{ backgroundColor: layerColor(l.name, 0) }} />
                                                 <span className={`text-[11px] truncate font-medium ${visibleLayers[l.name] ? 'text-dark-100' : 'text-dark-500'}`}>{l.name}</span>
                                             </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    onClick={() => toggleNumberLayer('corner', l.name)}
+                                                    title="Corner numbers are read from this layer"
+                                                    className={`text-[9px] font-bold px-1.5 py-1 rounded border transition-all ${cornerLayers.includes(l.name) ? 'bg-primary text-black border-primary' : 'bg-dark-800 text-dark-500 border-dark-700 opacity-0 group-hover:opacity-100'}`}
+                                                >C</button>
+                                                <button
+                                                    onClick={() => toggleNumberLayer('parcel', l.name)}
+                                                    title="Parcel number is read from this layer"
+                                                    className={`text-[9px] font-bold px-1.5 py-1 rounded border transition-all ${parcelLayers.includes(l.name) ? 'bg-green-500 text-black border-green-500' : 'bg-dark-800 text-dark-500 border-dark-700 opacity-0 group-hover:opacity-100'}`}
+                                                >P</button>
+                                            </div>
                                             <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <button 
                                                     onClick={() => toggleLayer(l.name)}
@@ -2382,6 +2427,10 @@ const DxfImport = () => {
                             )}
                         </div>
                         
+                        <div className="text-[9px] text-dark-400 leading-snug">
+                            <b className="text-primary">C</b> = corner-number layers ({cornerLayers.length ? cornerLayers.join(', ') : 'none: all text used'})<br />
+                            <b className="text-green-400">P</b> = parcel-number layer ({parcelLayers.length ? parcelLayers.join(', ') : 'none: automatic'})
+                        </div>
                         <div className="pt-2 border-t border-dark-700 flex justify-end">
                             <button onClick={() => setShowLayerPanel(false)} className="text-[10px] text-dark-500 hover:text-white transition-colors">Close Panel</button>
                         </div>
