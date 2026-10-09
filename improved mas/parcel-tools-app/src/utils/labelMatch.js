@@ -12,7 +12,7 @@ export function validateLabelMatches(detectedPts, missingPoints, loadedPoints, b
         const mid = Math.floor(sorted.length / 2);
         return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
     };
-    const matched = detectedPts.filter(p => p.status === 'matched' && loadedPoints[p.pointId]);
+    const matched = detectedPts.filter(p => !p.isCopy && p.status === 'matched' && loadedPoints[p.pointId]);
     if (matched.length >= 3) {
         const dxs = matched.map(p => loadedPoints[p.pointId].x - p.x);
         const dys = matched.map(p => loadedPoints[p.pointId].y - p.y);
@@ -37,16 +37,47 @@ export function validateLabelMatches(detectedPts, missingPoints, loadedPoints, b
         }
     }
     // Soft check: a label much farther from its corner than the others is suspicious even if it can't be proven wrong
-    const dists = detectedPts.filter(p => p.status !== 'generated' && Number.isFinite(p.dist)).map(p => p.dist);
+    const dists = detectedPts.filter(p => !p.isCopy && p.status !== 'generated' && Number.isFinite(p.dist)).map(p => p.dist);
     if (dists.length >= 4) {
         const limit = Math.max(3 * median(dists), 3);
         detectedPts.forEach((p) => {
-            if (p.status !== 'generated' && Number.isFinite(p.dist) && p.dist > limit) {
+            if (!p.isCopy && p.status !== 'generated' && Number.isFinite(p.dist) && p.dist > limit) {
                 warnings.push(`Corner #${p.vertexIdx + 1}: label "${p.pointId}" is ${p.dist.toFixed(1)} away from the corner (other labels are ~${median(dists).toFixed(1)}). Check that the ID is right.`);
             }
         });
     }
     return { warnings };
+}
+
+/**
+ * Corners that sit at exactly the same position (a hole stitched into its outer ring visits a corner twice)
+ * are ONE point. Give every copy the same identification and drop the extra generated ids.
+ */
+export function unifyCoincidentCorners(detectedPts, missingPoints, tol = 1e-3, reselect = true) {
+    const rank = (p) => (p.status === 'matched' ? 0 : p.status === 'missing' ? 1 : 2);
+    const groups = new Map();
+    detectedPts.forEach((p) => {
+        const key = `${Math.round((p.cadX ?? p.x) / tol)}|${Math.round((p.cadY ?? p.y) / tol)}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(p);
+    });
+    groups.forEach((members) => {
+        if (members.length < 2) return;
+        let best = reselect ? null : members.find(p => !p.isCopy);
+        if (!best) {
+            best = members.reduce((a, b) => (rank(b) < rank(a) || (rank(b) === rank(a) && (b.dist ?? Infinity) < (a.dist ?? Infinity)) ? b : a));
+        }
+        members.forEach((p) => {
+            p.isCopy = p !== best;          // copies simply follow their twin: never matched/warned about on their own
+            if (p === best) return;
+            if (p.pointId && p.pointId !== best.pointId && missingPoints[p.pointId]
+                && !detectedPts.some(q => q !== p && q.pointId === p.pointId)) {
+                delete missingPoints[p.pointId];
+            }
+            p.pointId = best.pointId; p.label = best.label; p.dist = best.dist; p.status = best.status;
+            p.byPosition = best.byPosition; p.shifted = best.shifted;
+        });
+    });
 }
 
 /**
@@ -63,6 +94,9 @@ export function validateLabelMatches(detectedPts, missingPoints, loadedPoints, b
  *   consistent === true  -> every corner is expressed in the points-file frame (area can be calculated)
  */
 export function reconcileCorners(detectedPts, missingPoints, loadedPoints, bbDiag, tol = 0.25) {
+    // keep the drawing position: arcs / orientation are worked out in the drawing's own frame
+    detectedPts.forEach((p) => { if (p.cadX === undefined) { p.cadX = p.x; p.cadY = p.y; } });
+    unifyCoincidentCorners(detectedPts, missingPoints);
     const { warnings } = validateLabelMatches(detectedPts, missingPoints, loadedPoints, bbDiag);
     const median = (arr) => {
         const sorted = [...arr].sort((a, b) => a - b);
@@ -70,7 +104,7 @@ export function reconcileCorners(detectedPts, missingPoints, loadedPoints, bbDia
         return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
     };
     const isKnown = (p) => p.status === 'matched' && loadedPoints[p.pointId];
-    const known = detectedPts.filter(isKnown);
+    const known = detectedPts.filter(p => !p.isCopy && isKnown(p));
     const loadedEntries = Object.entries(loadedPoints);
 
     // --- offset between drawing and points file, from the reliable label matches
@@ -87,7 +121,7 @@ export function reconcileCorners(detectedPts, missingPoints, loadedPoints, bbDia
     // --- identify the rest by position
     const used = new Set(known.map(p => p.pointId));
     let positionMatches = 0;
-    detectedPts.filter(p => !isKnown(p)).forEach((p) => {
+    detectedPts.filter(p => !p.isCopy && !isKnown(p)).forEach((p) => {
         let best = null;
         for (const off of tryOffsets) {
             const px = p.x + off.x, py = p.y + off.y;
@@ -115,6 +149,8 @@ export function reconcileCorners(detectedPts, missingPoints, loadedPoints, bbDia
         if (!offset) offset = best.off;     // first position match under the "same frame" assumption
     });
 
+    unifyCoincidentCorners(detectedPts, missingPoints, 1e-3, false);   // copies of a corner just identified get the same id
+
     // --- anything still unidentified is a genuinely new point: bring it into the points-file frame
     const stillOpen = detectedPts.filter(p => !isKnown(p) && !(p.status === 'matched'));
     let consistent = stillOpen.length === 0;
@@ -128,5 +164,6 @@ export function reconcileCorners(detectedPts, missingPoints, loadedPoints, bbDia
         });
         consistent = true;
     }
+    unifyCoincidentCorners(detectedPts, missingPoints, 1e-3, false);
     return { warnings, consistent, positionMatches, offset };
 }

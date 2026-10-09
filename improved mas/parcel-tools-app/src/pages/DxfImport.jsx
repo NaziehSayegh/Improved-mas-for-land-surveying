@@ -11,6 +11,8 @@ import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
 import { customConfirm } from '../utils/dialogs';
 import { reconcileCorners } from '../utils/labelMatch';
+import { drawHatch } from '../utils/hatchRender';
+import { withExactMetrics } from '../utils/entityMetrics';
 
 // ─── Colour palette for layers fallback ──────────────────────────────────────
 const LAYER_COLORS = [
@@ -188,7 +190,7 @@ function extractAutoArcsFromEntity(ent, detectedPts) {
     const COORD_THRESH = 0.05; // 5 cm — enough for surveying coordinates
     const autoArcs = [];
     const segs = ent.segments;
-    const isCCW = isPolygonCCW(detectedPts.map(p => ({ x: p.x, y: p.y })));
+    const isCCW = isPolygonCCW(detectedPts.map(p => ({ x: p.cadX ?? p.x, y: p.cadY ?? p.y })));
 
     for (let i = 0; i < segs.length; i++) {
         if (segs[i].type !== 'arc') continue;
@@ -213,10 +215,10 @@ function extractAutoArcsFromEntity(ent, detectedPts) {
 
         // Match real corner coords to detectedPts (which contain only real corners + CAD_N ids)
         const fromPt = detectedPts.find(p =>
-            Math.hypot(p.x - fromLine.x, p.y - fromLine.y) < COORD_THRESH
+            Math.hypot((p.cadX ?? p.x) - fromLine.x, (p.cadY ?? p.y) - fromLine.y) < COORD_THRESH
         );
         const toPt = detectedPts.find(p =>
-            Math.hypot(p.x - toLine.x, p.y - toLine.y) < COORD_THRESH
+            Math.hypot((p.cadX ?? p.x) - toLine.x, (p.cadY ?? p.y) - toLine.y) < COORD_THRESH
         );
         if (!fromPt || !toPt || fromPt.pointId === toPt.pointId) continue;
 
@@ -798,7 +800,7 @@ const DxfImport = () => {
     const selectedEntity = (selectedIdx !== null && entities[selectedIdx]) ? entities[selectedIdx] : null;
     const selectedEntityMetrics = useMemo(() => {
         if (!selectedEntity || !selectedEntity.points || selectedEntity.points.length < 3) return null;
-        return calculatePolygonMetrics(selectedEntity.points);
+        return withExactMetrics(selectedEntity, calculatePolygonMetrics(selectedEntity.points));
     }, [selectedEntity]);
 
     // Live computed metrics for the Review & Point Correlation Modal
@@ -905,6 +907,17 @@ const DxfImport = () => {
         // ─── Draw a path using the dense tessellated 'points' array ──────────────
         const buildPath = (ctx, ent) => {
             ctx.beginPath();
+            if (ent.rings && ent.rings.length > 1) {
+                // hatch with holes: draw the outer boundary and each hole as its own loop (no stitching line)
+                ent.rings.forEach((ring) => {
+                    ring.forEach((p, pi) => {
+                        const sx = wx2sx(p.x), sy = wy2sy(p.y);
+                        if (pi === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+                    });
+                    ctx.closePath();
+                });
+                return;
+            }
             if (ent.points && ent.points.length > 0) {
                 ent.points.forEach((p, pi) => {
                     const sx = wx2sx(p.x), sy = wy2sy(p.y);
@@ -932,16 +945,17 @@ const DxfImport = () => {
                 ctx.strokeStyle = color;
                 ctx.lineWidth = isSelected ? 3 : 1.5;
                 buildPath(ctx, ent);
-                ctx.stroke();
+                // A hatch has no outline of its own in AutoCAD (only its pattern/fill): outline it only when selected
+                if (!ent.hatch || isSelected) ctx.stroke();
 
                 if (isSelected && ent.closed && ['LWPOLYLINE', 'POLYLINE', 'CIRCLE'].includes(ent.type)) {
                     ctx.fillStyle = '#ffd70025';
                     buildPath(ctx, ent);
-                    ctx.fill();
+                    ctx.fill('evenodd');
 
                     // Draw Live Computed Area Badge near centroid of selected entity
                     if (ent.points && ent.points.length >= 3) {
-                        const metrics = calculatePolygonMetrics(ent.points);
+                        const metrics = withExactMetrics(ent, calculatePolygonMetrics(ent.points));
                         if (metrics) {
                             const cx = ent.points.reduce((sum, p) => sum + p.x, 0) / ent.points.length;
                             const cy = ent.points.reduce((sum, p) => sum + p.y, 0) / ent.points.length;
@@ -986,9 +1000,14 @@ const DxfImport = () => {
                 }
                 // Render filled SOLIDs (from title blocks, filled arrows, etc.)
                 if (ent.filled && ent.closed) {
-                    ctx.fillStyle = color;
-                    buildPath(ctx, ent);
-                    ctx.fill();
+                    const drawn = ent.hatch && drawHatch(ctx, ent, {
+                        wx2sx, wy2sy, zoom: zoomRef.current, color, width: W, height: H, buildPath
+                    });
+                    if (!drawn) {
+                        ctx.fillStyle = color;
+                        buildPath(ctx, ent);
+                        ctx.fill();
+                    }
                 }
             } else if (ent.type === 'TEXT_LABEL' && ent.text) {
                 ctx.save();
@@ -2913,7 +2932,7 @@ const DxfImport = () => {
                                                                 <tr key={idx} className="hover:bg-dark-800/30 transition-colors">
                                                                     <td className="p-2.5 pl-4 text-center text-dark-400 font-bold">{idx + 1}</td>
                                                                     <td className="p-2.5 text-dark-300">
-                                                                        {row.y?.toFixed(3)}, {row.x?.toFixed(3)}
+                                                                        {(row.cadY ?? row.y)?.toFixed(3)}, {(row.cadX ?? row.x)?.toFixed(3)}
                                                                     </td>
                                                                     <td className="p-2.5 text-dark-400 font-sans">
                                                                         {row.label ? (
