@@ -26,13 +26,38 @@ except ImportError:
 # Registry path where trial dates are stored
 _REGISTRY_KEY_PATH = r'Software\NaziehSayegh\ParcelTools'
 
-# Secret key for license validation (CHANGE THIS TO YOUR OWN SECRET!)
-LICENSE_SECRET = "a8f3d9e2c1b74f6a0d5e8c3b2a9f1e4d7c6b5a8f3d9e2c1b74f6a0d5e8c3b2a"
+def _load_or_create_secret(data_dir):
+    """Per-installation signing secret. It is generated randomly on first run and kept in the user's
+    data folder, so nothing in the source code can be used to forge license files or session tokens."""
+    env = os.environ.get('PARCEL_TOOLS_SECRET', '').strip()
+    if env:
+        return env
+    path = os.path.join(data_dir, '.signing_key')
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+        if os.path.exists(path):
+            with open(path, 'r', encoding='ascii') as f:
+                value = f.read().strip()
+            if len(value) >= 32:
+                return value
+        value = os.urandom(32).hex()
+        atomic_write_text(path, value, encoding='ascii')
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return value
+    except Exception as e:
+        # Unwritable data folder: use a secret for this run only (sessions/licenses re-issue next launch)
+        print(f'[License] Warning: could not persist signing key: {e}')
+        return os.urandom(32).hex()
+
 
 class LicenseManager:
     def __init__(self, data_dir):
         self.data_dir = data_dir
         self.license_file = os.path.join(data_dir, 'license.json')
+        self._secret = _load_or_create_secret(data_dir).encode()
         print(f'[License] License file path: {self.license_file}')
         print(f'[License] Data directory: {self.data_dir}')
         
@@ -121,6 +146,9 @@ class LicenseManager:
         """Shared helper: compute days-left and build the trial/expired response dict."""
         start_date = datetime.fromisoformat(start_date_str)
         now = datetime.now()
+        if start_date > now + timedelta(days=1):
+            # A trial that "starts in the future" means the date was tampered with (or the clock was rolled back)
+            return {'status': 'expired', 'is_valid': False, 'message': expired_status}
         expiration_date = start_date + timedelta(days=30)
         days_left = (expiration_date - now).days
 
@@ -186,18 +214,14 @@ class LicenseManager:
         d = dict(data_dict)
         d.pop('signature', None)
         serialized = json_lib.dumps(d, sort_keys=True)
-        return hmac.new(LICENSE_SECRET.encode(), serialized.encode(), 'sha256').hexdigest()
+        return hmac.new(self._secret, serialized.encode(), 'sha256').hexdigest()
 
     def _verify_license_signature(self, data_dict):
-        """Verify HMAC-SHA256 signature of a license data dict.
-        Returns True if signature matches, or if no signature field exists (backward compatibility).
-        Returns False if signature field exists but does not match.
-        """
+        """Verify the HMAC-SHA256 signature of a license data dict. A missing signature is invalid."""
         d = dict(data_dict)
         stored_sig = d.pop('signature', None)
-        if stored_sig is None:
-            # No signature present - old license file, allow for backward compatibility
-            return True
+        if not isinstance(stored_sig, str) or not stored_sig:
+            return False
         expected_sig = self._sign_license(data_dict)
         return hmac.compare_digest(stored_sig, expected_sig)
 
@@ -289,7 +313,7 @@ class LicenseManager:
         payload = f'{uid}:{machine_id_hash}:{expiry}'
         payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode()
         sig = hmac.new(
-            LICENSE_SECRET.encode(),
+            self._secret,
             payload_b64.encode(),
             'sha256'
         ).hexdigest()
@@ -309,7 +333,7 @@ class LicenseManager:
 
             # Verify HMAC
             expected_sig = hmac.new(
-                LICENSE_SECRET.encode(),
+                self._secret,
                 payload_b64.encode(),
                 'sha256'
             ).hexdigest()

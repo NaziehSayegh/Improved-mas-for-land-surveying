@@ -8,7 +8,11 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [email, setEmail] = useState(() => localStorage.getItem('saved_email') || '');
-  const [password, setPassword] = useState(() => localStorage.getItem('saved_password') || '');
+  // Passwords are never stored; wipe any copy saved by older versions.
+  const [password, setPassword] = useState(() => {
+    try { localStorage.removeItem('saved_password'); } catch { /* storage unavailable */ }
+    return '';
+  });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -30,7 +34,6 @@ const LoginPage = () => {
       if (res.ok && data.success) {
         if (rememberMe) {
           localStorage.setItem('saved_email', email);
-          localStorage.setItem('saved_password', password);
           localStorage.setItem('remember_me', 'true');
         } else {
           localStorage.removeItem('saved_email');

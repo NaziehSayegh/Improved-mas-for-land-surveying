@@ -53,7 +53,7 @@ const SignupPage = () => {
 
             if (response.ok && data.success) {
                 localStorage.setItem('saved_email', email);
-                localStorage.setItem('saved_password', password);
+                localStorage.removeItem('saved_password');
                 localStorage.setItem('remember_me', 'true');
                 login(
                     data.userId, data.email, data.licenseKey,

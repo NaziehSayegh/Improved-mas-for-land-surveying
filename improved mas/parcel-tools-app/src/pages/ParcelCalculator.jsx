@@ -7,6 +7,9 @@ import { useProject } from '../context/ProjectContext';
 import { customConfirm, customPrompt } from '../utils/dialogs';
 import { safeHtml, escapeHtml } from '../utils/safeHtml';
 
+// Last area warning shown, so the same warning isn't repeated on every recalculation
+let lastAreaWarning = '';
+
 const ParcelCalculator = () => {
   const navigate = useNavigate();
 
@@ -252,6 +255,10 @@ const ParcelCalculator = () => {
         const data = await response.json();
         setArea(data.area);
         setPerimeter(data.perimeter);
+        // Tell the user once per distinct warning (e.g. boundary crosses itself)
+        const warning = (data.warnings && data.warnings[0]) || '';
+        if (warning && warning !== lastAreaWarning) showErrorToast(`⚠️ ${warning}`);
+        lastAreaWarning = warning;
       } else {
         throw new Error('Calculation failed');
       }
@@ -779,6 +786,10 @@ const ParcelCalculator = () => {
           }
           setHasUnsavedChanges(true);
           showSuccessToast(`✅ Loaded ${result.count} points from ${file.name}<br/><br/>${file.path ? '🔄 File is now being watched for changes!' : '⚠️ File watching unavailable (no file path)'}`);
+          if (result.duplicateCount > 0) {
+            const shown = (result.duplicateIds || []).slice(0, 10).join(', ');
+            setTimeout(() => showErrorToast(`⚠️ ${result.duplicateCount} duplicate point ID(s) ignored (first one kept): ${shown}`), 600);
+          }
 
           // Focus the parcel number input after file loads
           setTimeout(() => {
