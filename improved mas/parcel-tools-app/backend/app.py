@@ -3594,64 +3594,205 @@ def _outline_from_bulge_vertices(verts):
     return final_pts, segments
 
 
-def _hatch_exact_vertices(entity):
-    """For a hatch with ONE boundary made only of lines and arcs, return its corners as
-    [(x, y, bulge), ...] so true arcs are preserved. Returns None when the hatch is anything more
-    complex (holes, splines, ellipses, full circles, rotated plane) - the caller then flattens it."""
-    try:
-        paths = list(entity.paths)
-        if len(paths) != 1:
-            return None
-        ext = tuple(entity.dxf.get('extrusion', (0, 0, 1)))
-        if abs(ext[0]) > 1e-9 or abs(ext[1]) > 1e-9 or ext[2] < 0.999999:
-            return None
-        path = paths[0]
-        kind = type(path).__name__
-        if kind == 'PolylinePath':
-            verts = [(float(v[0]), float(v[1]), float(v[2]) if len(v) > 2 else 0.0) for v in path.vertices]
-            return verts if len(verts) >= 3 else None
-        if kind != 'EdgePath':
-            return None
-        segs = []   # [start, end, bulge]
-        for e in path.edges:
-            name = type(e).__name__
-            if name == 'LineEdge':
-                segs.append([(float(e.start[0]), float(e.start[1])), (float(e.end[0]), float(e.end[1])), 0.0])
-            elif name == 'ArcEdge':
-                cx, cy, r = float(e.center[0]), float(e.center[1]), float(e.radius)
-                a0, a1 = math.radians(float(e.start_angle)), math.radians(float(e.end_angle))
-                two_pi = 2.0 * math.pi
-                sweep = (a1 - a0) % two_pi if e.ccw else -((a0 - a1) % two_pi)
-                if abs(sweep) < 1e-9:
-                    return None            # full circle in one edge
-                segs.append([(cx + r * math.cos(a0), cy + r * math.sin(a0)),
-                             (cx + r * math.cos(a1), cy + r * math.sin(a1)),
-                             math.tan(sweep / 4.0)])
-            else:
+def _ring_signed_area(verts):
+    """Signed area of a ring's corner polygon (arcs ignored): positive = counter-clockwise."""
+    n = len(verts)
+    return sum(verts[k][0] * verts[(k + 1) % n][1] - verts[(k + 1) % n][0] * verts[k][1] for k in range(n)) / 2.0
+
+
+def _point_in_polygon_pts(x, y, pts):
+    inside = False
+    n = len(pts)
+    j = n - 1
+    for k in range(n):
+        xi, yi, xj, yj = pts[k]['x'], pts[k]['y'], pts[j]['x'], pts[j]['y']
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-12) + xi:
+            inside = not inside
+        j = k
+    return inside
+
+
+def _reverse_ring(verts):
+    """Same ring walked the other way (an arc's bulge changes sign when it is walked backwards)."""
+    n = len(verts)
+    return [(verts[n - 1 - k][0], verts[n - 1 - k][1], -verts[(n - 2 - k) % n][2]) for k in range(n)]
+
+
+def _split_arc_vertex(verts, idx):
+    """Split the arc that starts at verts[idx] into two equal arcs (adds a corner at its middle)."""
+    n = len(verts)
+    px, py, b = verts[idx]
+    nx, ny = verts[(idx + 1) % n][0], verts[(idx + 1) % n][1]
+    arc = _bulge_arc_params(px, py, nx, ny, b)
+    if not arc:
+        return False
+    a0, a1 = arc["startAngle"], arc["endAngle"]
+    if b > 0:
+        if a1 <= a0:
+            a1 += 2 * math.pi
+    else:
+        if a1 >= a0:
+            a1 -= 2 * math.pi
+    am = (a0 + a1) / 2.0
+    half = math.tan(math.atan(b) / 2.0)
+    verts[idx] = (px, py, half)
+    verts.insert(idx + 1, (arc["cx"] + arc["r"] * math.cos(am), arc["cy"] + arc["r"] * math.sin(am), half))
+    return True
+
+
+def _ensure_min_corners(verts):
+    """The area calculator needs at least 3 corners: a half-disc (2 corners + arc) gets its arc split."""
+    guard = 0
+    while len(verts) < 3 and guard < 4:
+        idx = max(range(len(verts)), key=lambda k: abs(verts[k][2]))
+        if abs(verts[idx][2]) < 1e-9 or not _split_arc_vertex(verts, idx):
+            break
+        guard += 1
+    return verts
+
+
+def _drop_repeated_vertices(verts, tol=1e-9):
+    out = []
+    for v in verts:
+        if out and math.hypot(v[0] - out[-1][0], v[1] - out[-1][1]) <= tol:
+            continue
+        out.append(v)
+    if len(out) > 1 and math.hypot(out[0][0] - out[-1][0], out[0][1] - out[-1][1]) <= tol:
+        out.pop()
+    return out
+
+
+def _edge_path_ring(path):
+    """Edge boundary made of lines and arcs -> ring [(x, y, bulge)]; None if it contains anything else
+    (ellipse, spline) or the edges do not form one continuous loop."""
+    tol = 1e-5
+    two_pi = 2.0 * math.pi
+    segs = []   # [start, end, bulge]
+    edges = list(path.edges)
+    for e in edges:
+        name = type(e).__name__
+        if name == 'LineEdge':
+            segs.append([(float(e.start[0]), float(e.start[1])), (float(e.end[0]), float(e.end[1])), 0.0])
+        elif name == 'ArcEdge':
+            cx, cy, r = float(e.center[0]), float(e.center[1]), float(e.radius)
+            if abs(float(e.end_angle) - float(e.start_angle)) >= 360.0 - 1e-6 and len(edges) == 1:
+                # a complete circle in one edge: four quarter arcs
+                a0 = math.radians(float(e.start_angle))
+                sgn = 1.0 if e.ccw else -1.0
+                q = sgn * math.tan(math.pi / 8.0)
+                return [(cx + r * math.cos(a0 + sgn * k * math.pi / 2.0), cy + r * math.sin(a0 + sgn * k * math.pi / 2.0), q) for k in range(4)]
+            a0, a1 = math.radians(float(e.start_angle)), math.radians(float(e.end_angle))
+            sweep = (a1 - a0) % two_pi if e.ccw else -((a0 - a1) % two_pi)
+            if abs(sweep) < 1e-9:
                 return None
-        if len(segs) < 2:
+            segs.append([(cx + r * math.cos(a0), cy + r * math.sin(a0)), (cx + r * math.cos(a1), cy + r * math.sin(a1)), math.tan(sweep / 4.0)])
+        else:
             return None
-        chain = [segs.pop(0)]
-        tol = 1e-5
-        while segs:
-            end = chain[-1][1]
-            for i, (s, t, b) in enumerate(segs):
-                if math.hypot(s[0] - end[0], s[1] - end[1]) < tol:
-                    chain.append(segs.pop(i))
-                    break
-                if math.hypot(t[0] - end[0], t[1] - end[1]) < tol:
-                    segs.pop(i)
-                    chain.append([t, s, -b])
-                    break
-            else:
-                return None                # edges do not form one continuous outline
-        if math.hypot(chain[-1][1][0] - chain[0][0][0], chain[-1][1][1] - chain[0][0][1]) > tol:
-            return None
-        verts = [(s[0], s[1], b) for s, t, b in chain]
-        return verts if len(verts) >= 3 else None
-    except Exception as ex:
-        print(f"[parse-cad] exact hatch outline unavailable: {ex}")
+    if len(segs) < 2:
         return None
+    chain = [segs.pop(0)]
+    while segs:
+        end = chain[-1][1]
+        for k, (s, t, b) in enumerate(segs):
+            if math.hypot(s[0] - end[0], s[1] - end[1]) < tol:
+                chain.append(segs.pop(k))
+                break
+            if math.hypot(t[0] - end[0], t[1] - end[1]) < tol:
+                segs.pop(k)
+                chain.append([t, s, -b])
+                break
+        else:
+            return None
+    if math.hypot(chain[-1][1][0] - chain[0][0][0], chain[-1][1][1] - chain[0][0][1]) > tol:
+        return None
+    return [(s[0], s[1], b) for s, t, b in chain]
+
+
+def _flattened_hatch_rings(entity, boundary):
+    """Fallback for boundaries with ellipses/splines/gaps: one flattened ring per continuous piece."""
+    from ezdxf import path as ezpath
+    try:
+        elevation = float(entity.dxf.elevation.z)
+    except Exception:
+        elevation = 0.0
+    p = ezpath.from_hatch_boundary_path(boundary, ocs=entity.ocs(), elevation=elevation)
+    rings = []
+    for sub in p.sub_paths():
+        pts = [(float(v.x), float(v.y), 0.0) for v in sub.flattening(0.005)]
+        pts = _drop_repeated_vertices(pts)
+        if len(pts) >= 3:
+            rings.append(pts)
+    return rings
+
+
+def _hatch_rings(entity):
+    """Every boundary loop of a hatch as a ring [(x, y, bulge)], keeping true arcs wherever possible."""
+    try:
+        ext = tuple(entity.dxf.get('extrusion', (0, 0, 1)))
+    except Exception:
+        ext = (0, 0, 1)
+    plain = abs(ext[0]) < 1e-9 and abs(ext[1]) < 1e-9 and ext[2] > 0.999999
+    rings = []
+    for boundary in entity.paths:
+        ring = None
+        if plain:
+            kind = type(boundary).__name__
+            if kind == 'PolylinePath':
+                ring = [(float(v[0]), float(v[1]), float(v[2]) if len(v) > 2 else 0.0) for v in boundary.vertices]
+            elif kind == 'EdgePath':
+                ring = _edge_path_ring(boundary)
+        if ring is not None:
+            ring = _ensure_min_corners(_drop_repeated_vertices(ring))
+            if len(ring) >= 3:
+                rings.append(ring)
+        else:
+            rings.extend(_flattened_hatch_rings(entity, boundary))
+    return rings
+
+
+def _bridge_hole_into_ring(ring, hole, outer_sign):
+    """Join a hole to the outer ring with a zero-width bridge (a single ring with the hole walked the opposite
+    way), so that one polygon + its true arcs describes 'outer minus hole'."""
+    if _ring_signed_area(hole) * outer_sign > 0:
+        hole = _reverse_ring(hole)
+    best = None
+    for i, o in enumerate(ring):
+        for j, h in enumerate(hole):
+            d = (o[0] - h[0]) ** 2 + (o[1] - h[1]) ** 2
+            if best is None or d < best[0]:
+                best = (d, i, j)
+    _, i, j = best
+    rotated = hole[j:] + hole[:j]
+    o = ring[i]
+    return (ring[:i] + [(o[0], o[1], 0.0)] + rotated + [(rotated[0][0], rotated[0][1], 0.0)] + [o] + ring[i + 1:])
+
+
+def _hatch_to_outlines(entity):
+    """Hatch -> list of closed outlines [(x, y, bulge)]: one per outer boundary, holes bridged in."""
+    rings = _hatch_rings(entity)
+    if not rings:
+        return []
+    infos = []
+    for r in rings:
+        pts = _outline_from_bulge_vertices(r)[0]
+        infos.append({'ring': r, 'pts': pts, 'area': abs(_ring_signed_area([(q['x'], q['y'], 0) for q in pts]))})
+    for i, info in enumerate(infos):
+        fx, fy = info['ring'][0][0], info['ring'][0][1]
+        containers = [k for k, other in enumerate(infos)
+                      if k != i and other['area'] > info['area'] and _point_in_polygon_pts(fx, fy, other['pts'])]
+        info['depth'] = len(containers)
+        info['parent'] = min(containers, key=lambda k: infos[k]['area']) if containers else None
+    outlines = []
+    for i, info in enumerate(infos):
+        if info['depth'] % 2 != 0:
+            continue                                   # a hole: handled with its outer ring
+        ring = list(info['ring'])
+        outer_sign = _ring_signed_area(ring) or 1.0
+        for k, other in enumerate(infos):
+            if other['depth'] % 2 == 1 and other['parent'] == i:
+                ring = _bridge_hole_into_ring(ring, other['ring'], outer_sign)
+        outlines.append(ring)
+    return outlines
 
 
 def _parse_dxf_file(dxf_path: str) -> dict:
@@ -4106,11 +4247,12 @@ def _parse_dxf_file(dxf_path: str) -> dict:
 
         elif etype == "HATCH":
             try:
-                exact = _hatch_exact_vertices(entity)
-                if exact:
-                    pts_x, segs_x = _outline_from_bulge_vertices(exact)
-                    append_poly_or_explode("POLYLINE", True, pts_x, segs_x, entity.dxf.layer,
-                                           get_ent_color(entity, doc), filled=True)
+                outlines = _hatch_to_outlines(entity)
+                if outlines:
+                    for outline in outlines:
+                        pts_x, segs_x = _outline_from_bulge_vertices(outline)
+                        append_poly_or_explode("POLYLINE", True, pts_x, segs_x, entity.dxf.layer,
+                                               get_ent_color(entity, doc), filled=True)
                     return
             except Exception as e:
                 print(f"[parse-cad] exact hatch outline failed, flattening instead: {e}")

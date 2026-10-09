@@ -128,3 +128,51 @@ test('two corners never claim the same point', () => {
     reconcileCorners(det, missing, loaded, 25);
     assert.notEqual(det[0].pointId, det[1].pointId);
 });
+
+// ───────── coincident corners (hole bridges) ─────────
+import { unifyCoincidentCorners } from './labelMatch.js';
+
+test('a corner visited twice (hole bridge) is one point: the copy does not become a new generated point', () => {
+    const { det, loaded, missing } = scene({ unlabelled: [3] });
+    // bridge: the ring visits corner 1 again later, at exactly the same position, without a label
+    det.push({ vertexIdx: 5, x: 0, y: 0, label: null, dist: Infinity, pointId: 'CAD_9', status: 'generated' });
+    missing['CAD_9'] = { x: 0, y: 0 };
+    const r = reconcileCorners(det, missing, loaded, 25);
+    assert.equal(det[5].pointId, '1');
+    assert.equal(det[5].status, 'matched');
+    assert.equal(missing['CAD_9'], undefined);
+    assert.equal(Object.keys(missing).length, 0);
+    assert.equal(r.consistent, true);
+});
+
+test('copies of a new (not in file) corner share ONE generated id', () => {
+    const { det, loaded, missing } = scene({ absent: [4] });
+    det.push({ vertexIdx: 5, x: 10, y: 15, label: null, dist: Infinity, pointId: 'CAD_77', status: 'generated' });
+    missing['CAD_77'] = { x: 10, y: 15 };
+    reconcileCorners(det, missing, loaded, 25);
+    assert.equal(det[5].pointId, det[4].pointId);
+    assert.equal(Object.keys(missing).length, 1);
+});
+
+test('unifyCoincidentCorners keeps the best identification (matched beats generated)', () => {
+    const a = { vertexIdx: 0, x: 1, y: 1, label: null, dist: Infinity, pointId: 'CAD_1', status: 'generated' };
+    const b = { vertexIdx: 1, x: 1, y: 1, label: '7', dist: 0.4, pointId: '7', status: 'matched' };
+    const missing = { CAD_1: { x: 1, y: 1 } };
+    unifyCoincidentCorners([a, b], missing);
+    assert.equal(a.pointId, '7');
+    assert.deepEqual(missing, {});
+});
+
+test('a bridged copy of a corner follows its twin: one identification, one warning, no extra point', () => {
+    const { det, loaded, missing } = scene({ unlabelled: [3] });
+    loaded['500'] = { x: 400, y: 300 };
+    delete missing['CAD_4'];                       // (the app only registers ids that are really in use)
+    // corner 4 appears twice (hole bridge) and BOTH copies grabbed the stray label of another parcel
+    det[3].pointId = '500'; det[3].label = '500'; det[3].dist = 2; det[3].status = 'matched';
+    det.push({ vertexIdx: 5, x: 0, y: 10, label: '500', dist: 2, pointId: '500', status: 'matched' });
+    const r = reconcileCorners(det, missing, loaded, 25);
+    assert.equal(det[3].pointId, '4');
+    assert.equal(det[5].pointId, '4');
+    assert.equal(r.warnings.length, 1);
+    assert.equal(Object.keys(missing).length, 0);
+});
