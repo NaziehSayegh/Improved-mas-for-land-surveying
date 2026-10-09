@@ -1,3 +1,4 @@
+import { escapeHtml } from './safeHtml';
 export const customConfirm = (message) => {
     return new Promise((resolve) => {
         const overlay = document.createElement('div');
@@ -14,7 +15,7 @@ export const customConfirm = (message) => {
     `;
         dialog.innerHTML = `
       <h2 style="color: #c9d1d9; font-size: 18px; font-weight: bold; margin-bottom: 16px;">Confirmation</h2>
-      <p style="color: #8b949e; margin-bottom: 24px; line-height: 1.5; white-space: pre-wrap;">${message.replace(/\n/g, '<br/>')}</p>
+      <p style="color: #8b949e; margin-bottom: 24px; line-height: 1.5; white-space: pre-wrap;">${escapeHtml(message).replace(/\n/g, '<br/>')}</p>
       <div style="display: flex; gap: 12px; justify-content: center;">
         <button id="custom-confirm-cancel" style="background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 24px; border-radius: 6px; cursor: pointer; font-weight: 500;">Cancel</button>
         <button id="custom-confirm-ok" style="background: #238636; border: 1px solid #238636; color: white; padding: 8px 24px; border-radius: 6px; cursor: pointer; font-weight: 500;">OK</button>
@@ -45,8 +46,8 @@ export const customPrompt = (message, defaultValue = '') => {
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); margin: 16px;
     `;
         dialog.innerHTML = `
-      <h2 style="color: #c9d1d9; font-size: 18px; font-weight: bold; margin-bottom: 16px;">${message}</h2>
-      <input type="text" id="custom-prompt-input" value="${defaultValue}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 10px; border-radius: 6px; margin-bottom: 24px; outline: none;" />
+      <h2 style="color: #c9d1d9; font-size: 18px; font-weight: bold; margin-bottom: 16px;">${escapeHtml(message)}</h2>
+      <input type="text" id="custom-prompt-input" value="${escapeHtml(defaultValue)}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 10px; border-radius: 6px; margin-bottom: 24px; outline: none;" />
       <div style="display: flex; gap: 12px; justify-content: flex-end;">
         <button id="custom-prompt-cancel" style="background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;">Cancel</button>
         <button id="custom-prompt-ok" style="background: #238636; border: 1px solid #238636; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;">OK</button>

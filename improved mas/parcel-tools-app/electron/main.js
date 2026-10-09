@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn, exec } from 'child_process';
+import { spawn, execFile } from 'child_process';
 import http from 'http';
 import fs from 'fs';
 import { createRequire } from 'module';
@@ -246,11 +246,9 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: preloadPath,
-      // In dev mode, we need to disable webSecurity for localhost to work
-      // These warnings are expected in dev and won't appear in production builds
-      webSecurity: !process.env.NODE_ENV || process.env.NODE_ENV === 'development' ? false : true,
+      // Keep web security ON everywhere; the backend's CORS allows the app's own origins.
+      webSecurity: true,
       allowRunningInsecureContent: false,
-      // Suppress security warnings in dev console (they're expected)
       sandbox: false
     },
     frame: false,
@@ -262,6 +260,20 @@ function createWindow() {
     },
     autoHideMenuBar: true,
     icon: path.join(__dirname, '../build/app-icon.png')
+  });
+
+  // The window must never navigate away from the app or spawn new windows.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const current = mainWindow.webContents.getURL();
+    const stripHash = (u) => u.split('#')[0];
+    if (stripHash(url) !== stripHash(current)) {
+      event.preventDefault();
+      if (isSafeExternalUrl(url)) shell.openExternal(url);
+    }
   });
 
   // Debug: Check if preload loaded
@@ -675,9 +687,24 @@ ipcMain.handle('show-open-dialog', async (event, options) => {
 });
 
 // Open external URL
+// Only plain web links and mail links may leave the app. Anything else (file:, smb:, custom
+// protocol handlers, ...) could launch programs, so it is refused.
+function isSafeExternalUrl(url) {
+  try {
+    const u = new URL(String(url));
+    return u.protocol === 'https:' || u.protocol === 'mailto:';
+  } catch {
+    return false;
+  }
+}
+
 ipcMain.handle('open-external', async (event, url) => {
-  console.log('[Main] Opening external URL:', url);
-  await shell.openExternal(url);
+  if (!isSafeExternalUrl(url)) {
+    log(`[Main] Blocked open-external for disallowed URL: ${String(url).slice(0, 200)}`);
+    return false;
+  }
+  await shell.openExternal(String(url));
+  return true;
 });
 
 // Save PDF and open it
@@ -754,12 +781,10 @@ ipcMain.handle('save-and-open-pdf', async (event, pdfData, fileName) => {
         try {
           console.log('[Main] Trying Windows exec method...');
 
-          // Use Windows start command to open PDF
-          exec(`start "" "${filePath}"`, (error, stdout, stderr) => {
-            if (error) {
-              console.error('[Main] Error with exec start:', error);
-            } else {
-              console.log('[Main] PDF opened with exec start successfully');
+          // Fall back to Explorer, passing the path as an argument (never through a shell string)
+          execFile('explorer.exe', [filePath], (error) => {
+            if (error && error.code !== 1) {
+              console.error('[Main] Error opening PDF with explorer:', error);
             }
           });
 

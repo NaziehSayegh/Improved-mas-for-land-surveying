@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff, CheckSquare, Square } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { customConfirm, customPrompt } from '../utils/dialogs';
+import { safeHtml, escapeHtml } from '../utils/safeHtml';
 
 const ParcelCalculator = () => {
   const navigate = useNavigate();
@@ -147,7 +148,7 @@ const ParcelCalculator = () => {
   // Helper function to show error toast
   const showErrorToast = useCallback((message) => {
     const toast = document.createElement('div');
-    toast.innerHTML = message;
+    toast.innerHTML = safeHtml(message);
     toast.style.cssText = `
       position: fixed;
       top: 20px;
@@ -177,7 +178,7 @@ const ParcelCalculator = () => {
   // Helper function to show success toast
   const showSuccessToast = useCallback((message) => {
     const toast = document.createElement('div');
-    toast.innerHTML = message;
+    toast.innerHTML = safeHtml(message);
     toast.style.cssText = `
       position: fixed;
       top: 20px;
@@ -1187,7 +1188,7 @@ const ParcelCalculator = () => {
 
         // Show toast notification
         const toast = document.createElement('div');
-        toast.innerHTML = `✅ Overwrote existing parcel "${duplicateParcel.number}" with new drawing!`;
+        toast.innerHTML = safeHtml(`✅ Overwrote existing parcel "${duplicateParcel.number}" with new drawing!`);
         toast.style.cssText = `
           position: fixed;
           top: 20px;
@@ -1215,7 +1216,7 @@ const ParcelCalculator = () => {
 
         // Show toast notification
         const toast = document.createElement('div');
-        toast.innerHTML = `📝 Loaded parcel "${duplicateParcel.number}" for editing`;
+        toast.innerHTML = safeHtml(`📝 Loaded parcel "${duplicateParcel.number}" for editing`);
         toast.style.cssText = `
           position: fixed;
           top: 20px;
@@ -1247,7 +1248,7 @@ const ParcelCalculator = () => {
 
     // Show info toast that duplicate will be saved separately
     const toast = document.createElement('div');
-    toast.innerHTML = `✅ Duplicate allowed! This parcel will be saved separately.<br/>Check "All Parcels" tab to see all versions.`;
+    toast.innerHTML = safeHtml(`✅ Duplicate allowed! This parcel will be saved separately.<br/>Check "All Parcels" tab to see all versions.`);
     toast.style.cssText = `
       position: fixed;
       top: 20px;
@@ -1465,7 +1466,7 @@ const ParcelCalculator = () => {
     // Show success toast
     const toast = document.createElement('div');
     const saveText = (lastSavedPath || projectPath) ? '💾 Auto-saving...' : '⚠️ Remember to save!';
-    toast.innerHTML = `✅ Parcel ${parcelNumber} updated! ${saveText}`;
+    toast.innerHTML = safeHtml(`✅ Parcel ${parcelNumber} updated! ${saveText}`);
     toast.style.cssText = `
       position: fixed;
       top: 20px;
@@ -1964,10 +1965,10 @@ const ParcelCalculator = () => {
 
       const toast = document.createElement('div');
       toast.innerHTML = `
-        <div style="font-weight: bold; margin-bottom: 8px;">✅ Project "${projectName}" saved!</div>
+        <div style="font-weight: bold; margin-bottom: 8px;">✅ Project "${escapeHtml(projectName)}" saved!</div>
         <div style="font-size: 12px; opacity: 0.9;">
-          <div>File: ${result.fileName}</div>
-          <div style="margin-top: 4px;">Location: ${location}</div>
+          <div>File: ${escapeHtml(result.fileName)}</div>
+          <div style="margin-top: 4px;">Location: ${escapeHtml(location)}</div>
           <div style="margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;">
             ${isEmptyProject
           ? '📝 Empty project saved - ready for data!'
@@ -2007,7 +2008,7 @@ const ParcelCalculator = () => {
 
       // Show error toast instead of blocking alert
       const errorToast = document.createElement('div');
-      errorToast.innerHTML = `❌ Error saving project: ${error.message}`;
+      errorToast.innerHTML = safeHtml(`❌ Error saving project: ${error.message}`);
       errorToast.style.cssText = `
         position: fixed;
         top: 20px;
@@ -2415,7 +2416,7 @@ const ParcelCalculator = () => {
     const statusText = exceedsLimit
       ? '⚠️ Error exceeds permissible limits - using original areas'
       : '✅ Within permissible limits - areas adjusted proportionally';
-    toast.innerHTML = `✅ Error calculations completed!<br/>${statusText}`;
+    toast.innerHTML = safeHtml(`✅ Error calculations completed!<br/>${statusText}`);
     toast.style.cssText = `
       position: fixed;
       top: 20px;
@@ -2457,7 +2458,7 @@ const ParcelCalculator = () => {
 
     // Create toast manually to avoid dependencies
     const toast = document.createElement('div');
-    toast.innerHTML = `✅ Error calculation saved!`;
+    toast.innerHTML = safeHtml(`✅ Error calculation saved!`);
     toast.style.cssText = `
       position: fixed;
       top: 20px;
@@ -2530,7 +2531,7 @@ const ParcelCalculator = () => {
 
       dialog.innerHTML = `
         <h2 style="color: #c9d1d9; font-size: 20px; font-weight: bold; margin-bottom: 16px;">
-          📄 Export Parcel #${parcel.number}
+          📄 Export Parcel #${escapeHtml(parcel.number)}
         </h2>
         <div style="margin-bottom: 20px;">
           <label style="display: flex; align-items: center; color: #c9d1d9; cursor: pointer;">
@@ -2541,23 +2542,23 @@ const ParcelCalculator = () => {
         <div id="heading-fields" style="display: none; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
           <div style="margin-bottom: 12px;">
             <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Block</label>
-            <input type="text" id="heading-block" value="${fileHeading.block || ''}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+            <input type="text" id="heading-block" value="${escapeHtml(fileHeading.block || '')}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
           </div>
           <div style="margin-bottom: 12px;">
             <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Quarter</label>
-            <input type="text" id="heading-quarter" value="${fileHeading.quarter || ''}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+            <input type="text" id="heading-quarter" value="${escapeHtml(fileHeading.quarter || '')}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
           </div>
           <div style="margin-bottom: 12px;">
             <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Parcels</label>
-            <input type="text" id="heading-parcels" value="${fileHeading.parcels || ''}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+            <input type="text" id="heading-parcels" value="${escapeHtml(fileHeading.parcels || '')}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
           </div>
           <div style="margin-bottom: 12px;">
             <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Place</label>
-            <input type="text" id="heading-place" value="${fileHeading.place || ''}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+            <input type="text" id="heading-place" value="${escapeHtml(fileHeading.place || '')}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
           </div>
           <div>
             <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Additional Info</label>
-            <input type="text" id="heading-additional" value="${fileHeading.additionalInfo || ''}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+            <input type="text" id="heading-additional" value="${escapeHtml(fileHeading.additionalInfo || '')}" style="width: 100%; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
           </div>
         </div>
         <div style="display: flex; gap: 12px; justify-content: flex-end;">
@@ -2711,7 +2712,7 @@ const ParcelCalculator = () => {
     const titleText = listToExport.length > 1 ? `Export ${listToExport.length} Selected Parcels to 1 PDF File` : `Export Parcel #${listToExport[0].number} to PDF`;
     const descText = listToExport.length > 1
       ? `All ${listToExport.length} selected parcels will be combined and formatted into a single professional surveying report file.`
-      : `Exporting Parcel #${listToExport[0].number} to a PDF surveying report.`;
+      : `Exporting Parcel #${escapeHtml(listToExport[0].number)} to a PDF surveying report.`;
 
     dialog.innerHTML = `
       <h3 style="margin: 0 0 12px 0; font-size: 18px; font-weight: bold; color: #58a6ff;">📄 ${titleText}</h3>
@@ -2725,23 +2726,23 @@ const ParcelCalculator = () => {
       <div id="heading-fields" style="display: ${fileHeading && (fileHeading.block || fileHeading.quarter || fileHeading.parcels || fileHeading.place) ? 'block' : 'none'}; margin-bottom: 20px; padding-left: 20px; border-left: 2px solid #30363d;">
         <div style="margin-bottom: 12px;">
           <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Block</label>
-          <input type="text" id="heading-block" value="${fileHeading?.block || ''}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+          <input type="text" id="heading-block" value="${escapeHtml(fileHeading?.block || '')}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
         </div>
         <div style="margin-bottom: 12px;">
           <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Quarter</label>
-          <input type="text" id="heading-quarter" value="${fileHeading?.quarter || ''}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+          <input type="text" id="heading-quarter" value="${escapeHtml(fileHeading?.quarter || '')}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
         </div>
         <div style="margin-bottom: 12px;">
           <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Parcels</label>
-          <input type="text" id="heading-parcels" value="${fileHeading?.parcels || ''}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+          <input type="text" id="heading-parcels" value="${escapeHtml(fileHeading?.parcels || '')}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
         </div>
         <div style="margin-bottom: 12px;">
           <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Place</label>
-          <input type="text" id="heading-place" value="${fileHeading?.place || ''}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+          <input type="text" id="heading-place" value="${escapeHtml(fileHeading?.place || '')}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
         </div>
         <div>
           <label style="display: block; color: #8b949e; font-size: 12px; margin-bottom: 4px;">Additional Info</label>
-          <input type="text" id="heading-additional" value="${fileHeading?.additionalInfo || ''}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
+          <input type="text" id="heading-additional" value="${escapeHtml(fileHeading?.additionalInfo || '')}" style="width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; color: #c9d1d9; font-size: 14px;" />
         </div>
       </div>
       <div style="display: flex; gap: 12px; justify-content: flex-end;">
