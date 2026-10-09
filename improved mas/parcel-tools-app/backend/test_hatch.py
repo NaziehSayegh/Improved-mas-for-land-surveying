@@ -175,3 +175,60 @@ def test_two_separate_loops_become_two_parcels():
     d.saveas(p)
     ents = [e for e in c.post('/api/parse-cad', json={'filePath': p}).get_json()['entities'] if e.get('filled')]
     assert sorted(round(_area_like_frontend(e)) for e in ents) == [100, 200]
+
+
+# ---- hatch appearance (pattern / solid / gradient) is sent to the CAD view ----
+def _hatch_entity(doc):
+    p = os.path.join(TMP, 'style.dxf')
+    doc.saveas(p)
+    ents = [e for e in c.post('/api/parse-cad', json={'filePath': p}).get_json()['entities'] if e.get('filled')]
+    assert len(ents) == 1
+    return ents[0]
+
+
+def test_pattern_hatch_sends_its_pattern_lines():
+    d = ezdxf.new('R2010')
+    h = d.modelspace().add_hatch(color=1)
+    h.set_pattern_fill('ANSI31', scale=2.0)
+    h.paths.add_polyline_path(RECT_CCW, is_closed=True)
+    style = _hatch_entity(d)['hatch']
+    assert style['solid'] is False and style['name'] == 'ANSI31'
+    assert len(style['lines']) == 1 and style['lines'][0]['angle'] == pytest.approx(45.0)
+    ox, oy = style['lines'][0]['offset']
+    assert math.hypot(ox, oy) == pytest.approx(6.35, rel=1e-3)          # 3.175 x scale 2
+
+
+def test_crosshatch_has_two_line_families_and_angle_is_applied():
+    d = ezdxf.new('R2010')
+    h = d.modelspace().add_hatch(color=2)
+    h.set_pattern_fill('ANSI37', scale=1.0, angle=15)
+    h.paths.add_polyline_path(RECT_CCW, is_closed=True)
+    lines = _hatch_entity(d)['hatch']['lines']
+    assert sorted(round(l['angle']) for l in lines) == [60, 150]
+
+
+def test_solid_hatch_is_marked_solid_and_gradient_is_reported():
+    d = ezdxf.new('R2010')
+    h = d.modelspace().add_hatch(color=3)
+    h.set_solid_fill(color=3)
+    h.paths.add_polyline_path(RECT_CCW, is_closed=True)
+    style = _hatch_entity(d)['hatch']
+    assert style['solid'] is True and style['lines'] == [] and style['gradient'] is None
+    d = ezdxf.new('R2010')
+    h = d.modelspace().add_hatch(color=3)
+    h.set_gradient((255, 0, 0), (0, 0, 255))
+    h.paths.add_polyline_path(RECT_CCW, is_closed=True)
+    g = _hatch_entity(d)['hatch']['gradient']
+    assert g['color1'] == '#ff0000' and g['color2'] == '#0000ff'
+
+
+def test_hatch_with_hole_sends_separate_loops_for_drawing():
+    d, h = _doc()
+    h.paths.add_polyline_path(RECT_CCW, is_closed=True, flags=1)
+    h.paths.add_polyline_path(HOLE_CW, is_closed=True, flags=16)
+    _, ent = _hatch_area(d)
+    assert len(ent['rings']) == 2 and sorted(len(r) for r in ent['rings']) == [4, 4]
+    d, h = _doc()
+    h.paths.add_polyline_path(RECT_CCW, is_closed=True)
+    _, ent = _hatch_area(d)
+    assert 'rings' not in ent                      # simple hatches keep the lighter format

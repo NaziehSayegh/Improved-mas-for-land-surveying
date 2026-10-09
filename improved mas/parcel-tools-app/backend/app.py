@@ -3788,11 +3788,40 @@ def _hatch_to_outlines(entity):
             continue                                   # a hole: handled with its outer ring
         ring = list(info['ring'])
         outer_sign = _ring_signed_area(ring) or 1.0
+        loops = [info['ring']]                      # outer boundary + holes, for drawing (no bridge line)
         for k, other in enumerate(infos):
             if other['depth'] % 2 == 1 and other['parent'] == i:
                 ring = _bridge_hole_into_ring(ring, other['ring'], outer_sign)
-        outlines.append(ring)
+                loops.append(other['ring'])
+        outlines.append((ring, loops))
     return outlines
+
+
+def _hatch_style(entity):
+    """How AutoCAD draws this hatch: solid colour, gradient, or pattern lines (angle/base/offset/dashes)."""
+    style = {'solid': True, 'name': '', 'lines': [], 'gradient': None}
+    try:
+        style['name'] = str(entity.dxf.get('pattern_name', '') or '')
+        solid = bool(entity.dxf.get('solid_fill', 1))
+        grad = getattr(entity, 'gradient', None)
+        if grad:
+            def hexcol(c):
+                return '#%02x%02x%02x' % (int(c[0]), int(c[1]), int(c[2]))
+            style['gradient'] = {'color1': hexcol(grad.color1), 'color2': hexcol(grad.color2),
+                                 'rotation': float(grad.rotation), 'name': str(grad.name)}
+        pattern = getattr(entity, 'pattern', None)
+        if not solid and pattern is not None and len(pattern.lines) > 0:
+            style['solid'] = False
+            for pl in pattern.lines[:64]:
+                style['lines'].append({
+                    'angle': float(pl.angle),
+                    'base': [float(pl.base_point[0]), float(pl.base_point[1])],
+                    'offset': [float(pl.offset[0]), float(pl.offset[1])],
+                    'dashes': [float(x) for x in pl.dash_length_items],
+                })
+    except Exception as ex:
+        print(f"[parse-cad] hatch style unavailable: {ex}")
+    return style
 
 
 def _parse_dxf_file(dxf_path: str) -> dict:
@@ -3864,7 +3893,7 @@ def _parse_dxf_file(dxf_path: str) -> dict:
             return (lu == 'GIS' or 'GIS' in lu)
         return any(k in lu for k in ['PARCEL', 'PLOT', 'TABU', 'QUSAI', 'QASIMA', 'BOUNDARY OF PARTITION'])
 
-    def append_poly_or_explode(poly_type, closed, pts, segments_list, layer_name, color, filled=False):
+    def append_poly_or_explode(poly_type, closed, pts, segments_list, layer_name, color, filled=False, extra=None):
         if not pts or len(pts) < 2:
             return
         # If filled SOLID or if it IS on the GIS/Parcel boundary layer, keep as polyline
@@ -3880,6 +3909,8 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                 ent_dict["segments"] = segments_list
             if filled:
                 ent_dict["filled"] = True
+            if extra:
+                ent_dict.update(extra)
             entities.append(ent_dict)
         else:
             # Explode non-GIS polylines into individual unselectable line segments
@@ -4249,10 +4280,14 @@ def _parse_dxf_file(dxf_path: str) -> dict:
             try:
                 outlines = _hatch_to_outlines(entity)
                 if outlines:
-                    for outline in outlines:
+                    style = {"hatch": _hatch_style(entity)}
+                    for outline, loops in outlines:
                         pts_x, segs_x = _outline_from_bulge_vertices(outline)
+                        extra = dict(style)
+                        if len(loops) > 1:          # holes: also send the separate loops so no bridge line is drawn
+                            extra["rings"] = [_outline_from_bulge_vertices(r)[0] for r in loops]
                         append_poly_or_explode("POLYLINE", True, pts_x, segs_x, entity.dxf.layer,
-                                               get_ent_color(entity, doc), filled=True)
+                                               get_ent_color(entity, doc), filled=True, extra=extra)
                     return
             except Exception as e:
                 print(f"[parse-cad] exact hatch outline failed, flattening instead: {e}")
@@ -4335,9 +4370,10 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                             
                             outer_boundaries[parent_idx] = outer_points[:best_outer_i+1] + hole_points + [outer_points[best_outer_i]] + outer_points[best_outer_i+1:]
                             
+                    fallback_style = {"hatch": _hatch_style(entity)}
                     for ob in outer_boundaries:
                         if len(ob) >= 2:
-                            append_poly_or_explode("POLYLINE", True, ob, None, entity.dxf.layer, get_ent_color(entity, doc), filled=True)
+                            append_poly_or_explode("POLYLINE", True, ob, None, entity.dxf.layer, get_ent_color(entity, doc), filled=True, extra=fallback_style)
             except Exception as e:
                 print(f"[parse-cad] Hatch conversion failed: {e}")
 
