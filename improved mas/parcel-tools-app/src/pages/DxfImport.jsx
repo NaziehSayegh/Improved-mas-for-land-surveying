@@ -1606,8 +1606,7 @@ const DxfImport = () => {
 
     // ── New: create parcel from a filled/hatch entity ─────────────────────────
     // Identical flow to handleCreateParcel but skips the isParcelLayer check and
-    // skips auto-arc extraction (hatch boundaries are tessellated flat polygons).
-    // No existing code is touched — this is a fully additive new function.
+    // and auto-fills curves from the hatch outline's true arcs when the backend provides them.
     const handleCreateParcelFromHatch = (ent) => {
         setEditingParcelId(null);
         setSaveMode('new');
@@ -1647,7 +1646,12 @@ const DxfImport = () => {
             parcelNo = ((savedParcels || []).length + 1).toString();
         }
 
-        const rawPts = ent.points;
+        // Use the real CAD corners when the backend sent exact outline segments (lines + true arcs),
+        // otherwise (holes, circles, splines) fall back to the flattened boundary points.
+        let rawPts = ent.points;
+        if (ent.segments && ent.segments.length > 0) {
+            rawPts = ent.segments.filter(s => s.type === 'line').map(s => ({ x: s.x, y: s.y }));
+        }
         const uniqueVerts = [];
         const MERGE_THRESHOLD = 1e-3;
         rawPts.forEach(p => {
@@ -1724,6 +1728,11 @@ const DxfImport = () => {
         setParcelNumberInput(parcelNo);
         setDetectedPoints(detectedPts);
         setNewPointsToRegister(missingPoints);
+
+        // Exact arcs from the hatch outline (area = corner polygon + true circular segments)
+        const autoArcs = extractAutoArcsFromEntity(ent, detectedPts);
+        if (autoArcs.length > 0) setCurves(autoArcs);
+
         setShowModal(true);
     };
 
