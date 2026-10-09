@@ -1500,6 +1500,11 @@ const ParcelCalculator = () => {
     }, 3000);
   };
 
+  // closePolygonAndPrompt awaits user prompts; by the time the user answers, the handlers it
+  // captured are stale (area/curves still empty). Always call the latest versions through this ref.
+  const latestSaveHandlersRef = useRef({});
+  latestSaveHandlersRef.current = { save: handleSaveParcel, update: handleUpdateSavedParcel };
+
   // Helper to close polygon, calculate, and prompt for curves
   const closePolygonAndPrompt = useCallback(async (ids) => {
     setIsClosed(true);
@@ -1538,9 +1543,9 @@ const ParcelCalculator = () => {
           }, 150);
         } else {
           if (editingParcelId) {
-            handleUpdateSavedParcel();
+            latestSaveHandlersRef.current.update();
           } else {
-            handleSaveParcel();
+            latestSaveHandlersRef.current.save();
           }
         }
       } else {

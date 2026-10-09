@@ -2991,47 +2991,20 @@ def ai_ask():
             except Exception:
                 pass  # Fall back to local docs
 
-        # Local docs/FAQ fallback
-        kb_paths = [
-            os.path.join(os.path.dirname(__file__), '..', 'README.md'),
-            os.path.join(os.path.dirname(__file__), '..', 'SETUP.md'),
-            os.path.join(os.path.dirname(__file__), '..', 'BUILD_INSTRUCTIONS.md'),
-            os.path.join(os.path.dirname(__file__), '..', 'src', 'pages', 'ParcelCalculator.jsx'),
-            os.path.join(os.path.dirname(__file__), '..', 'src', 'pages', 'DataFiles.jsx'),
-            os.path.join(os.path.dirname(__file__), '..', 'WHAT_WAS_CREATED.md'),
-            os.path.join(os.path.dirname(__file__), '..', 'BACKUP_INSTRUCTIONS.md'),
-        ]
-
-        docs = []
-        for p in kb_paths:
-            try:
-                with open(p, 'r', encoding='utf-8', errors='ignore') as f:
-                    text = f.read()
-                    docs.append((os.path.basename(p), text))
-            except Exception:
-                continue
-
-        # Very simple keyword score
-        tokens = [t for t in re.split(r"[^\w]+", user_q.lower()) if t]
-        scored = []
-        for name, text in docs:
-            tl = text.lower()
-            score = sum(tl.count(tok) for tok in tokens)
-            scored.append((score, name, text))
-        scored.sort(reverse=True)
-
-        if not scored or scored[0][0] == 0:
-            return jsonify({ 'answer': 'I could not find this in the docs. Try asking about: loading points, entering IDs, curves (M value), auto-save, or PDF export.' })
-
-        # Return top 3 snippets (first 700 chars each)
-        snippets = []
-        for i, (_, name, text) in enumerate(scored[:3]):
-            snippets.append(f"From {name}:\n" + text[:700].strip())
-        answer = ("Here is what I found:\n\n" + "\n\n---\n\n".join(snippets))
-        return jsonify({ 'answer': answer })
+        # Built-in help (works offline and in the installed app)
+        from assistant_faq import best_answer
+        entry = best_answer(user_q)
+        if entry:
+            return jsonify({'answer': f"{entry['title']}\n\n{entry['answer']}"})
+        return jsonify({'answer': (
+            "I couldn't find that in the built-in help. Try asking about: loading points, closing a parcel, curves (M value), "
+            "saving parcels and projects, PDF export, CAD / hatch import, error calculations, or licenses. "
+            "For free-form questions add an OpenAI key in Work Mode → Assistant."
+        )})
 
     except Exception as e:
-        return jsonify({ 'answer': f'Assistant error: {str(e)}' })
+        print(f'[Assistant ERROR] {e}')
+        return jsonify({ 'answer': 'Sorry, the assistant ran into a problem. Please try again.' })
 
 
 @app.route('/api/ai/config', methods=['GET', 'POST'])
@@ -3555,6 +3528,132 @@ def _convert_dwg_to_dxf(dwg_path: str) -> str:
 
 
 
+def _signed_poly_area(pts):
+    """Signed shoelace area (positive = counter-clockwise) of a closed or open point list."""
+    total = 0.0
+    n = len(pts)
+    for i in range(n):
+        j = (i + 1) % n
+        total += pts[i]['x'] * pts[j]['y'] - pts[j]['x'] * pts[i]['y']
+    return total / 2.0
+
+
+def _bulge_arc_params(px, py, nx, ny, bulge):
+    """Bulge + endpoints -> arc parameters (same convention as LWPOLYLINE arcs)."""
+    theta = 4.0 * math.atan(abs(bulge))
+    d = math.hypot(nx - px, ny - py)
+    if d < 1e-9:
+        return None
+    r = d / (2.0 * math.sin(theta / 2.0))
+    mx_c, my_c = (px + nx) / 2.0, (py + ny) / 2.0
+    dx_c, dy_c = nx - px, ny - py
+    perp_len = math.hypot(-dy_c, dx_c)
+    if perp_len < 1e-9:
+        return None
+    pdx, pdy = -dy_c / perp_len, dx_c / perp_len
+    s = math.sqrt(max(0.0, r * r - (d / 2.0) ** 2))
+    sign = 1 if bulge > 0 else -1
+    cx_arc = mx_c + sign * s * pdx
+    cy_arc = my_c + sign * s * pdy
+    return {
+        "cx": round(float(cx_arc), 6), "cy": round(float(cy_arc), 6), "r": round(float(r), 6),
+        "startAngle": round(float(math.atan2(py - cy_arc, px - cx_arc)), 8),
+        "endAngle": round(float(math.atan2(ny - cy_arc, nx - cx_arc)), 8),
+        "ccw": bool(bulge > 0),
+        "M": round(float(r * (1.0 - math.cos(theta / 2.0))), 6),
+        "theta": round(float(theta), 8),
+    }
+
+
+def _outline_from_bulge_vertices(verts):
+    """Closed outline given as [(x, y, bulge), ...] -> (tessellated points, segments with exact arcs),
+    the same structure the backend produces for LWPOLYLINE so the frontend can use real corners + true arcs."""
+    final_pts, segments = [], []
+    n = len(verts)
+    for idx, (px, py, bulge) in enumerate(verts):
+        final_pts.append({"x": round(float(px), 4), "y": round(float(py), 4)})
+        segments.append({"type": "line", "x": round(float(px), 4), "y": round(float(py), 4)})
+        if abs(bulge) > 1e-9:
+            nx, ny = verts[(idx + 1) % n][0], verts[(idx + 1) % n][1]
+            arc = _bulge_arc_params(px, py, nx, ny, bulge)
+            if arc:
+                segments.append({"type": "arc", **arc})
+                theta = 4.0 * math.atan(abs(bulge))
+                a_start, a_end = arc["startAngle"], arc["endAngle"]
+                if bulge > 0:
+                    if a_end <= a_start:
+                        a_end += 2 * math.pi
+                else:
+                    if a_end >= a_start:
+                        a_end -= 2 * math.pi
+                steps = max(24, int(abs(theta) / math.radians(2)))
+                for si in range(1, steps):
+                    a = a_start + (si / steps) * (a_end - a_start)
+                    final_pts.append({"x": round(float(arc["cx"] + arc["r"] * math.cos(a)), 4),
+                                      "y": round(float(arc["cy"] + arc["r"] * math.sin(a)), 4)})
+    return final_pts, segments
+
+
+def _hatch_exact_vertices(entity):
+    """For a hatch with ONE boundary made only of lines and arcs, return its corners as
+    [(x, y, bulge), ...] so true arcs are preserved. Returns None when the hatch is anything more
+    complex (holes, splines, ellipses, full circles, rotated plane) - the caller then flattens it."""
+    try:
+        paths = list(entity.paths)
+        if len(paths) != 1:
+            return None
+        ext = tuple(entity.dxf.get('extrusion', (0, 0, 1)))
+        if abs(ext[0]) > 1e-9 or abs(ext[1]) > 1e-9 or ext[2] < 0.999999:
+            return None
+        path = paths[0]
+        kind = type(path).__name__
+        if kind == 'PolylinePath':
+            verts = [(float(v[0]), float(v[1]), float(v[2]) if len(v) > 2 else 0.0) for v in path.vertices]
+            return verts if len(verts) >= 3 else None
+        if kind != 'EdgePath':
+            return None
+        segs = []   # [start, end, bulge]
+        for e in path.edges:
+            name = type(e).__name__
+            if name == 'LineEdge':
+                segs.append([(float(e.start[0]), float(e.start[1])), (float(e.end[0]), float(e.end[1])), 0.0])
+            elif name == 'ArcEdge':
+                cx, cy, r = float(e.center[0]), float(e.center[1]), float(e.radius)
+                a0, a1 = math.radians(float(e.start_angle)), math.radians(float(e.end_angle))
+                two_pi = 2.0 * math.pi
+                sweep = (a1 - a0) % two_pi if e.ccw else -((a0 - a1) % two_pi)
+                if abs(sweep) < 1e-9:
+                    return None            # full circle in one edge
+                segs.append([(cx + r * math.cos(a0), cy + r * math.sin(a0)),
+                             (cx + r * math.cos(a1), cy + r * math.sin(a1)),
+                             math.tan(sweep / 4.0)])
+            else:
+                return None
+        if len(segs) < 2:
+            return None
+        chain = [segs.pop(0)]
+        tol = 1e-5
+        while segs:
+            end = chain[-1][1]
+            for i, (s, t, b) in enumerate(segs):
+                if math.hypot(s[0] - end[0], s[1] - end[1]) < tol:
+                    chain.append(segs.pop(i))
+                    break
+                if math.hypot(t[0] - end[0], t[1] - end[1]) < tol:
+                    segs.pop(i)
+                    chain.append([t, s, -b])
+                    break
+            else:
+                return None                # edges do not form one continuous outline
+        if math.hypot(chain[-1][1][0] - chain[0][0][0], chain[-1][1][1] - chain[0][0][1]) > tol:
+            return None
+        verts = [(s[0], s[1], b) for s, t, b in chain]
+        return verts if len(verts) >= 3 else None
+    except Exception as ex:
+        print(f"[parse-cad] exact hatch outline unavailable: {ex}")
+        return None
+
+
 def _parse_dxf_file(dxf_path: str) -> dict:
     """Parse a DXF file and return entities + raw points."""
     try:
@@ -4007,12 +4106,21 @@ def _parse_dxf_file(dxf_path: str) -> dict:
 
         elif etype == "HATCH":
             try:
+                exact = _hatch_exact_vertices(entity)
+                if exact:
+                    pts_x, segs_x = _outline_from_bulge_vertices(exact)
+                    append_poly_or_explode("POLYLINE", True, pts_x, segs_x, entity.dxf.layer,
+                                           get_ent_color(entity, doc), filled=True)
+                    return
+            except Exception as e:
+                print(f"[parse-cad] exact hatch outline failed, flattening instead: {e}")
+            try:
                 from ezdxf import path
                 hatch_paths = path.from_hatch(entity)
                 all_paths_points = []
                 for p in hatch_paths:
                     points = []
-                    for vertex in p.flattening(0.5):
+                    for vertex in p.flattening(0.005):
                         points.append({"x": round(float(vertex.x), 4), "y": round(float(vertex.y), 4)})
                     if len(points) >= 3:
                         # Ensure closed
@@ -4059,8 +4167,11 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                             # Not inside anything, so it's a new separate outer boundary
                             outer_boundaries.append(pts)
                         else:
-                            # It's a hole inside outer_boundaries[parent_idx]
-                            hole_points = pts[::-1]
+                            # It's a hole inside outer_boundaries[parent_idx]. A hole must wind the OPPOSITE
+                            # way to its outer ring (so its area is subtracted); CAD files use either direction.
+                            outer_signed = _signed_poly_area(outer_boundaries[parent_idx])
+                            hole_signed = _signed_poly_area(pts)
+                            hole_points = pts[::-1] if outer_signed * hole_signed > 0 else pts[:]
                             if hole_points[0]['x'] == hole_points[-1]['x'] and hole_points[0]['y'] == hole_points[-1]['y']:
                                 hole_points.pop()
                                 

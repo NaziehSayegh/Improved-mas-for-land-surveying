@@ -34,6 +34,7 @@ const DataFiles = () => {
     setCurrentParcel,
     loadProjectData
   } = useProject();
+  const toast = useToast();
 
   // Local state for editing
   const [editMode, setEditMode] = useState(false);
@@ -187,9 +188,9 @@ const DataFiles = () => {
     await loadSavedProjects(true);
 
     // Show success toast
-    const toast = document.createElement('div');
-    toast.innerHTML = safeHtml(`✅ Scan complete! Found ${savedProjects.length} projects.`);
-    toast.style.cssText = `
+    const domToast = document.createElement('div');
+    domToast.innerHTML = safeHtml(`✅ Scan complete! Found ${savedProjects.length} projects.`);
+    domToast.style.cssText = `
       position: fixed;
       top: 20px;
       right: 20px;
@@ -201,8 +202,8 @@ const DataFiles = () => {
       z-index: 10000;
       box-shadow: 0 8px 32px rgba(0,0,0,0.4);
     `;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
+    document.body.appendChild(domToast);
+    setTimeout(() => domToast.remove(), 3000);
   };
 
   // Load projects on mount and when switching to projects tab
@@ -349,9 +350,9 @@ const DataFiles = () => {
       const targetName = hasCad ? 'CAD map...' : 'calculator...';
 
       // Show success toast
-      const toast = document.createElement('div');
-      toast.innerHTML = safeHtml(`✅ Project "${projectData.projectName}" loaded!<br/>Redirecting to ${targetName}`);
-      toast.style.cssText = `
+      const domToast = document.createElement('div');
+      domToast.innerHTML = safeHtml(`✅ Project "${projectData.projectName}" loaded!<br/>Redirecting to ${targetName}`);
+      domToast.style.cssText = `
         position: fixed;
         top: 20px;
         right: 20px;
@@ -363,9 +364,9 @@ const DataFiles = () => {
         z-index: 10000;
         box-shadow: 0 8px 32px rgba(0,0,0,0.4);
       `;
-      document.body.appendChild(toast);
+      document.body.appendChild(domToast);
       setTimeout(() => {
-        toast.remove();
+        domToast.remove();
         navigate(targetPage);
       }, 1500);
     } catch (error) {
