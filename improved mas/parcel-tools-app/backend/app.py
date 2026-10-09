@@ -64,7 +64,44 @@ builtins.print = safe_print
 print = safe_print  # noqa: A001
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for Electron frontend
+
+# Only the app's own renderer may call the API: packaged Electron loads from file:// (Origin "null"),
+# dev mode from the Vite server. Extra origins (e.g. for testing) via PARCEL_TOOLS_EXTRA_ORIGINS.
+ALLOWED_ORIGINS = ['null', 'http://localhost:5173', 'http://127.0.0.1:5173'] + [
+    o.strip() for o in os.environ.get('PARCEL_TOOLS_EXTRA_ORIGINS', '').split(',') if o.strip()
+]
+CORS(app, origins=ALLOWED_ORIGINS, allow_headers=['Content-Type', 'X-Session-Token', 'X-User-ID'])
+
+# Endpoints reachable without a session token (everything else under /api requires one).
+PUBLIC_ENDPOINTS = {
+    '/api/health',
+    '/api/auth/login',
+    '/api/auth/signup',
+    '/api/auth/verify',          # validates the token itself
+    '/api/license/status',       # read-only status; also polled by the Electron main process at startup
+}
+_ALLOWED_HOSTS = {'127.0.0.1', 'localhost'}
+
+
+@app.before_request
+def _guard_api_requests():
+    """Block DNS-rebinding (foreign Host header) and unauthenticated access to the API."""
+    host = (request.host or '').rsplit(':', 1)[0].strip('[]').lower()
+    if host not in _ALLOWED_HOSTS:
+        return jsonify({'error': 'Invalid host'}), 421
+    if request.method == 'OPTIONS' or not request.path.startswith('/api/'):
+        return None
+    if request.path.rstrip('/') in PUBLIC_ENDPOINTS:
+        return None
+    token = request.headers.get('X-Session-Token', '')
+    if not token:
+        return jsonify({'error': 'Authentication required', 'code': 'NO_TOKEN'}), 401
+    try:
+        license_manager.verify_session_token(token, license_manager.get_machine_id_hash())
+    except ValueError as e:
+        return jsonify({'error': str(e), 'code': 'INVALID_TOKEN'}), 401
+    return None
+
 
 # ----------------------------------------------------------------------------
 # DEBUG LOGGING SETUP
@@ -164,6 +201,25 @@ except Exception as e:
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(POINTS_DIR, exist_ok=True)
     print(f'[Backend] Using fallback temp directory: {DATA_DIR}')
+
+
+_BLOCKED_WRITE_EXTENSIONS = {
+    '.exe', '.bat', '.cmd', '.com', '.scr', '.msi', '.dll', '.ps1', '.psm1', '.vbs', '.vbe', '.js', '.jse',
+    '.wsf', '.wsh', '.hta', '.jar', '.lnk', '.reg', '.cpl', '.py', '.pyw', '.sh', '.url', '.pif', '.gadget',
+}
+
+
+def _is_blocked_write_path(path):
+    """True if writing here could plant something executable (startup scripts, shortcuts, ...)."""
+    return os.path.splitext(str(path))[1].lower() in _BLOCKED_WRITE_EXTENSIONS
+
+
+def _safe_archive_name(name):
+    """Normalise a zip entry name: no drive letters, no absolute paths, no '..' segments."""
+    name = str(name).replace('\\', '/')
+    name = re.sub(r'^[A-Za-z]:', '', name)
+    parts = [p for p in name.split('/') if p not in ('', '.', '..')]
+    return '/'.join(parts) or 'file'
 
 
 def load_projects():
@@ -590,8 +646,6 @@ def auth_verify():
     try:
         data = request.get_json()
         session_token = data.get('sessionToken') or request.headers.get('X-Session-Token')
-        user_id = data.get('userId')
-
         machine_hash = license_manager.get_machine_id_hash()
         now_ts = int(datetime.now().timestamp())
 
@@ -1883,7 +1937,9 @@ def save_points_file():
         if file_path and os.path.dirname(file_path):
             save_path = file_path
         else:
-            save_path = os.path.join(DATA_DIR, file_name)
+            save_path = os.path.join(DATA_DIR, os.path.basename(file_name))
+        if _is_blocked_write_path(save_path):
+            return jsonify({'error': 'This file type cannot be saved by Parcel Tools'}), 400
         
         # Ensure directory exists
         os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else DATA_DIR, exist_ok=True)
@@ -1943,7 +1999,7 @@ def _process_file_for_archive(file_entry):
             archive_name = f"file_{int(time.time() * 1000)}"
 
     # Normalize archive name (forward slashes for zip standard)
-    archive_name = archive_name.replace('\\', '/').lstrip('/')
+    archive_name = _safe_archive_name(archive_name)
 
     if source_path and os.path.isfile(source_path):
         size = os.path.getsize(source_path)
@@ -2016,6 +2072,9 @@ def compress_files_endpoint():
             temp_dir = os.path.join(tempfile.gettempdir(), 'parcel_tools_archives')
             os.makedirs(temp_dir, exist_ok=True)
             output_path = os.path.join(temp_dir, f"archive_{int(time.time() * 1000)}.zip")
+
+        if not str(output_path).lower().endswith('.zip'):
+            return jsonify({'error': 'Output path must end with .zip'}), 400
 
         output_dir = os.path.dirname(output_path)
         if output_dir:
@@ -2108,6 +2167,9 @@ def export_project_archive():
             temp_dir = os.path.join(tempfile.gettempdir(), 'parcel_tools_archives')
             os.makedirs(temp_dir, exist_ok=True)
             output_filepath = os.path.join(temp_dir, f"{safe_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
+
+        if not str(output_filepath).lower().endswith('.zip'):
+            return jsonify({'error': 'Output path must end with .zip'}), 400
 
         files_to_compress = []
 
@@ -2753,7 +2815,7 @@ def ai_ask():
 def ai_config():
     try:
         # Get user ID from query params or headers
-        user_id = request.args.get('userId') or request.headers.get('X-User-ID')
+        user_id = None  # never trust a client-supplied user id (cross-account access); local storage is used
         
         if request.method == 'GET':
             if user_id:
@@ -2804,7 +2866,7 @@ def get_recent_files():
     """Get recent files history - with automatic cleanup of deleted files"""
     try:
         # Get user ID from query params or headers
-        user_id = request.args.get('userId') or request.headers.get('X-User-ID')
+        user_id = None  # never trust a client-supplied user id (cross-account access); local storage is used
         
         if user_id:
             # Try Firebase first
@@ -2860,7 +2922,7 @@ def add_recent_file():
         file_path = data.get('path', '')
         file_name = data.get('name', '')
         metadata = data.get('metadata', {})
-        user_id = data.get('userId')  # Optional user ID
+        user_id = None  # never trust a client-supplied user id
         
         if not file_type or not file_path or not file_name:
             return jsonify({'error': 'Missing required fields: type, path, name'}), 400
@@ -3100,7 +3162,7 @@ def deactivate_license():
         user_id = None
         if token:
             try:
-                user_id, _ = license_manager.verify_session_token(token)
+                user_id, _ = license_manager.verify_session_token(token, license_manager.get_machine_id_hash())
             except Exception as e:
                 print(f'[API] Note verifying session token for deactivation: {e}')
 

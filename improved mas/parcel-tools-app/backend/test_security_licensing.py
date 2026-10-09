@@ -9,7 +9,8 @@ os.environ['LOCALAPPDATA'] = _home
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import app as app_module  # noqa: E402
 
-client = app_module.app.test_client()
+from test_support import authed_client  # noqa: E402
+client = authed_client(app_module)
 lm = app_module.license_manager
 
 
