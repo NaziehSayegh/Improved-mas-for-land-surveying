@@ -4,6 +4,7 @@ Handles license validation, trial mode, and activation
 """
 
 import json as json_lib
+from atomic_io import atomic_write_text
 import os
 import hashlib
 import hmac
@@ -25,13 +26,38 @@ except ImportError:
 # Registry path where trial dates are stored
 _REGISTRY_KEY_PATH = r'Software\NaziehSayegh\ParcelTools'
 
-# Secret key for license validation (CHANGE THIS TO YOUR OWN SECRET!)
-LICENSE_SECRET = "a8f3d9e2c1b74f6a0d5e8c3b2a9f1e4d7c6b5a8f3d9e2c1b74f6a0d5e8c3b2a"
+def _load_or_create_secret(data_dir):
+    """Per-installation signing secret. It is generated randomly on first run and kept in the user's
+    data folder, so nothing in the source code can be used to forge license files or session tokens."""
+    env = os.environ.get('PARCEL_TOOLS_SECRET', '').strip()
+    if env:
+        return env
+    path = os.path.join(data_dir, '.signing_key')
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+        if os.path.exists(path):
+            with open(path, 'r', encoding='ascii') as f:
+                value = f.read().strip()
+            if len(value) >= 32:
+                return value
+        value = os.urandom(32).hex()
+        atomic_write_text(path, value, encoding='ascii')
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return value
+    except Exception as e:
+        # Unwritable data folder: use a secret for this run only (sessions/licenses re-issue next launch)
+        print(f'[License] Warning: could not persist signing key: {e}')
+        return os.urandom(32).hex()
+
 
 class LicenseManager:
     def __init__(self, data_dir):
         self.data_dir = data_dir
         self.license_file = os.path.join(data_dir, 'license.json')
+        self._secret = _load_or_create_secret(data_dir).encode()
         print(f'[License] License file path: {self.license_file}')
         print(f'[License] Data directory: {self.data_dir}')
         
@@ -120,6 +146,9 @@ class LicenseManager:
         """Shared helper: compute days-left and build the trial/expired response dict."""
         start_date = datetime.fromisoformat(start_date_str)
         now = datetime.now()
+        if start_date > now + timedelta(days=1):
+            # A trial that "starts in the future" means the date was tampered with (or the clock was rolled back)
+            return {'status': 'expired', 'is_valid': False, 'message': expired_status}
         expiration_date = start_date + timedelta(days=30)
         days_left = (expiration_date - now).days
 
@@ -185,18 +214,14 @@ class LicenseManager:
         d = dict(data_dict)
         d.pop('signature', None)
         serialized = json_lib.dumps(d, sort_keys=True)
-        return hmac.new(LICENSE_SECRET.encode(), serialized.encode(), 'sha256').hexdigest()
+        return hmac.new(self._secret, serialized.encode(), 'sha256').hexdigest()
 
     def _verify_license_signature(self, data_dict):
-        """Verify HMAC-SHA256 signature of a license data dict.
-        Returns True if signature matches, or if no signature field exists (backward compatibility).
-        Returns False if signature field exists but does not match.
-        """
+        """Verify the HMAC-SHA256 signature of a license data dict. A missing signature is invalid."""
         d = dict(data_dict)
         stored_sig = d.pop('signature', None)
-        if stored_sig is None:
-            # No signature present - old license file, allow for backward compatibility
-            return True
+        if not isinstance(stored_sig, str) or not stored_sig:
+            return False
         expected_sig = self._sign_license(data_dict)
         return hmac.compare_digest(stored_sig, expected_sig)
 
@@ -288,7 +313,7 @@ class LicenseManager:
         payload = f'{uid}:{machine_id_hash}:{expiry}'
         payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode()
         sig = hmac.new(
-            LICENSE_SECRET.encode(),
+            self._secret,
             payload_b64.encode(),
             'sha256'
         ).hexdigest()
@@ -308,7 +333,7 @@ class LicenseManager:
 
             # Verify HMAC
             expected_sig = hmac.new(
-                LICENSE_SECRET.encode(),
+                self._secret,
                 payload_b64.encode(),
                 'sha256'
             ).hexdigest()
@@ -420,8 +445,7 @@ class LicenseManager:
             os.makedirs(self.data_dir, exist_ok=True)
             print(f'[License] Saving license to: {self.license_file}')
             
-            with open(self.license_file, 'w', encoding='utf-8') as f:
-                json_lib.dump(license_data, f, indent=2)
+            atomic_write_text(self.license_file, json_lib.dumps(license_data, indent=2))
             
             # Verify the file was created
             if os.path.exists(self.license_file):
@@ -442,57 +466,28 @@ class LicenseManager:
                 'error': f'Failed to save license: {str(e)}'
             }
     
+    def activate_from_account(self, email):
+        """Write a signed local license for an account the caller has already verified
+        as premium in Firestore (so offline checks keep working)."""
+        data = {
+            'type': 'paid',
+            'key': '',
+            'email': (email or '').lower().strip(),
+            'machine_id': hashlib.sha256(self.get_machine_id().encode()).hexdigest(),
+            'status': 'licensed',
+            'app_id': 'com.parceltools.app',
+            'provider': 'gumroad'
+        }
+        data['signature'] = self._sign_license(data)
+        os.makedirs(self.data_dir, exist_ok=True)
+        atomic_write_text(self.license_file, json_lib.dumps(data, indent=2))
+        return {'success': True}
+
     def validate_license_key(self, license_key, email):
-        """
-        Validate license key against valid_licenses.txt database
-        
-        License Key Format: XXXX-XXXX-XXXX-XXXX
-        """
-        try:
-            # Remove dashes and normalize
-            clean_key = license_key.replace('-', '').upper()
-            clean_email = email.lower().strip()
-            
-            if len(clean_key) != 16:
-                return False
-            
-            # Check against valid_licenses.txt file
-            valid_licenses_file = os.path.join(os.path.dirname(__file__), 'valid_licenses.txt')
-            
-            if os.path.exists(valid_licenses_file):
-                with open(valid_licenses_file, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        line = line.strip()
-                        # Skip comments and empty lines
-                        if not line or line.startswith('#'):
-                            continue
-                        
-                        # Format: email:license_key
-                        if ':' in line:
-                            stored_email, stored_key = line.split(':', 1)
-                            stored_email = stored_email.strip().lower()
-                            stored_key = stored_key.strip().replace('-', '').upper()
-                            
-                            # Check if email and key match
-                            if clean_email == stored_email and clean_key == stored_key:
-                                return True
-            
-            # Fallback: Also check HMAC-generated keys
-            # Use clean_email to ensure no whitespace issues
-            expected = self.generate_license_key(clean_email)
-            
-            # Compare clean keys (ignore dashes)
-            expected_clean = expected.replace('-', '').upper()
-            
-            if clean_key == expected_clean:
-                return True
-            
-            return False
-            
-        except Exception as e:
-            print(f"License validation error: {e}")
-            return False
-    
+        """Legacy email-derived keys were forgeable (public algorithm) and are no longer
+        accepted. Licenses are verified only against Gumroad or a Firestore premium account."""
+        return False
+
     def generate_license_key(self, email):
         """
         Generate a license key for an email

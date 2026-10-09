@@ -26,6 +26,7 @@ _file_io_lock = threading.RLock()
 # Add current directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from atomic_io import atomic_write_text as _atomic_write_text
 from license_manager import LicenseManager
 from firebase_service import FirebaseService
 from firebase_config import is_firebase_available
@@ -64,7 +65,44 @@ builtins.print = safe_print
 print = safe_print  # noqa: A001
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for Electron frontend
+
+# Only the app's own renderer may call the API: packaged Electron loads from file:// (Origin "null"),
+# dev mode from the Vite server. Extra origins (e.g. for testing) via PARCEL_TOOLS_EXTRA_ORIGINS.
+ALLOWED_ORIGINS = ['null', 'http://localhost:5173', 'http://127.0.0.1:5173'] + [
+    o.strip() for o in os.environ.get('PARCEL_TOOLS_EXTRA_ORIGINS', '').split(',') if o.strip()
+]
+CORS(app, origins=ALLOWED_ORIGINS, allow_headers=['Content-Type', 'X-Session-Token', 'X-User-ID'])
+
+# Endpoints reachable without a session token (everything else under /api requires one).
+PUBLIC_ENDPOINTS = {
+    '/api/health',
+    '/api/auth/login',
+    '/api/auth/signup',
+    '/api/auth/verify',          # validates the token itself
+    '/api/license/status',       # read-only status; also polled by the Electron main process at startup
+}
+_ALLOWED_HOSTS = {'127.0.0.1', 'localhost'}
+
+
+@app.before_request
+def _guard_api_requests():
+    """Block DNS-rebinding (foreign Host header) and unauthenticated access to the API."""
+    host = (request.host or '').rsplit(':', 1)[0].strip('[]').lower()
+    if host not in _ALLOWED_HOSTS:
+        return jsonify({'error': 'Invalid host'}), 421
+    if request.method == 'OPTIONS' or not request.path.startswith('/api/'):
+        return None
+    if request.path.rstrip('/') in PUBLIC_ENDPOINTS:
+        return None
+    token = request.headers.get('X-Session-Token', '')
+    if not token:
+        return jsonify({'error': 'Authentication required', 'code': 'NO_TOKEN'}), 401
+    try:
+        license_manager.verify_session_token(token, license_manager.get_machine_id_hash())
+    except ValueError as e:
+        return jsonify({'error': str(e), 'code': 'INVALID_TOKEN'}), 401
+    return None
+
 
 # ----------------------------------------------------------------------------
 # DEBUG LOGGING SETUP
@@ -166,6 +204,28 @@ except Exception as e:
     print(f'[Backend] Using fallback temp directory: {DATA_DIR}')
 
 
+_BLOCKED_WRITE_EXTENSIONS = {
+    '.exe', '.bat', '.cmd', '.com', '.scr', '.msi', '.dll', '.ps1', '.psm1', '.vbs', '.vbe', '.js', '.jse',
+    '.wsf', '.wsh', '.hta', '.jar', '.lnk', '.reg', '.cpl', '.py', '.pyw', '.sh', '.url', '.pif', '.gadget',
+}
+
+
+def _is_blocked_write_path(path):
+    """True if writing here could plant something executable (startup scripts, shortcuts, ...)."""
+    return os.path.splitext(str(path))[1].lower() in _BLOCKED_WRITE_EXTENSIONS
+
+
+def _safe_archive_name(name):
+    """Normalise a zip entry name: no drive letters, no absolute paths, no '..' segments."""
+    name = str(name).replace('\\', '/')
+    name = re.sub(r'^[A-Za-z]:', '', name)
+    parts = [p for p in name.split('/') if p not in ('', '.', '..')]
+    return '/'.join(parts) or 'file'
+
+
+_recent_files_lock = threading.RLock()
+
+
 def load_projects():
     """Load projects from JSON file"""
     if os.path.exists(PROJECTS_FILE):
@@ -176,8 +236,7 @@ def load_projects():
 
 def save_projects(projects):
     """Save projects to JSON file"""
-    with open(PROJECTS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(projects, f, indent=2, ensure_ascii=False)
+    _atomic_write_text(PROJECTS_FILE, json.dumps(projects, indent=2, ensure_ascii=False))
 
 
 def load_ai_config():
@@ -192,8 +251,7 @@ def load_ai_config():
 
 def save_ai_config(cfg):
     try:
-        with open(AI_CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(cfg, f, indent=2)
+        _atomic_write_text(AI_CONFIG_FILE, json.dumps(cfg, indent=2))
         return True
     except Exception:
         return False
@@ -218,8 +276,7 @@ def save_recent_files(recent_files):
         if recent_dir and not os.path.exists(recent_dir):
             os.makedirs(recent_dir, exist_ok=True)
         
-        with open(RECENT_FILES_FILE, 'w', encoding='utf-8') as f:
-            json.dump(recent_files, f, indent=2, ensure_ascii=False)
+        _atomic_write_text(RECENT_FILES_FILE, json.dumps(recent_files, indent=2, ensure_ascii=False))
         return True
     except Exception as e:
         print(f'[Recent Files ERROR] Failed to save: {e}')
@@ -228,6 +285,11 @@ def save_recent_files(recent_files):
 
 def add_to_recent_files(file_type, file_path, file_name, metadata=None):
     """Add a file to recent files history"""
+    with _recent_files_lock:
+        return _add_to_recent_files_locked(file_type, file_path, file_name, metadata)
+
+
+def _add_to_recent_files_locked(file_type, file_path, file_name, metadata=None):
     print(f'[Recent Files] Adding {file_type}: {file_path}')
     recent = load_recent_files()
     print(f'[Recent Files] Current {file_type} count: {len(recent.get(file_type, []))}')
@@ -345,11 +407,21 @@ def auth_signup():
     Premium: { "email": "...", "password": "...", "accountType": "premium", "licenseKey": "XXXX-..." }
     """
     try:
-        data = request.get_json()
-        email = data.get('email', '').strip().lower()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'A JSON object body is required'}), 400
+        email = data.get('email', '')
         password = data.get('password', '')
         account_type = data.get('accountType', 'premium')   # 'demo' | 'premium'
-        license_key = data.get('licenseKey', '').strip()
+        license_key = data.get('licenseKey', '')
+        if not all(isinstance(v, str) for v in (email, password, account_type, license_key)):
+            return jsonify({'error': 'Invalid request data'}), 400
+        email = email.strip().lower()
+        license_key = license_key.strip()
+        if account_type not in ('demo', 'premium'):
+            return jsonify({'error': 'Invalid account type'}), 400
+        if email and not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+            return jsonify({'error': 'Please enter a valid email address'}), 400
 
         print(f'[Auth] Signup attempt: {email}, type={account_type}')
 
@@ -364,8 +436,7 @@ def auth_signup():
         elif account_type == 'premium':
             # Validate the license
             gumroad_ok = license_manager.verify_gumroad_key(license_key)
-            legacy_ok  = license_manager.validate_license_key(license_key, email)
-            if not gumroad_ok.get('valid') and not legacy_ok:
+            if not gumroad_ok.get('valid'):
                 return jsonify({'error': 'Invalid license key. Please check your Gumroad email.'}), 400
 
         # Collect machine binding info
@@ -446,18 +517,6 @@ def _ensure_premium_license_activated(uid, user_data, email_val):
         return
     try:
         lic_key = user_data.get('license_key')
-        if not lic_key and email_val:
-            lic_key = license_manager.generate_license_key(email_val)
-            if firebase_service._is_online() and uid:
-                try:
-                    firebase_service.db.collection('users').document(uid).set({'license_key': lic_key}, merge=True)
-                except Exception as db_e:
-                    print(f'[Auth] Warning: Could not update Firestore license_key: {db_e}')
-            all_u = firebase_service._load_users_from_json()
-            if uid and uid in all_u:
-                all_u[uid]['license_key'] = lic_key
-                firebase_service._save_users_to_json(all_u)
-            user_data['license_key'] = lic_key
         if lic_key and email_val:
             license_manager.activate_license(lic_key, email_val)
             print(f'[Auth] Auto-activated license key locally for {email_val}')
@@ -473,9 +532,14 @@ def auth_login():
     Expected JSON: { "email": "...", "password": "..." }
     """
     try:
-        data = request.get_json()
-        email = data.get('email', '').strip().lower()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'A JSON object body is required'}), 400
+        email = data.get('email', '')
         password = data.get('password', '')
+        if not isinstance(email, str) or not isinstance(password, str):
+            return jsonify({'error': 'Invalid request data'}), 400
+        email = email.strip().lower()
 
         print(f'[Auth] Login attempt for: {email}')
 
@@ -601,10 +665,9 @@ def auth_verify():
     Expected JSON: { "sessionToken": "...", "userId": "..." } (userId kept for backward-compat)
     """
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
         session_token = data.get('sessionToken') or request.headers.get('X-Session-Token')
-        user_id = data.get('userId')
-
         machine_hash = license_manager.get_machine_id_hash()
         now_ts = int(datetime.now().timestamp())
 
@@ -632,55 +695,32 @@ def auth_verify():
                     'loginTimestamp': now_ts,
                 })
             except ValueError:
-                pass  # fall through to userId check
+                return jsonify({'valid': False, 'error': 'Invalid or expired session'}), 401
 
-        # Backward-compat: plain userId fallback
-        if user_id:
-            user_data = firebase_service.get_user(user_id)
-            if user_data and user_data.get('is_active') is False:
-                return jsonify({'valid': False, 'error': 'Account disabled'}), 403
-            
-            device_res = firebase_service.add_device(user_id, machine_hash, "Windows PC")
-            if not device_res.get('success'):
-                return jsonify({'valid': False, 'error': device_res.get('error', 'Device limit reached. Maximum 2 devices allowed.'), 'code': 'DEVICE_LIMIT_REACHED'}), 403
-
-            email_val = user_data.get('email') if user_data else ''
-            account_type_val = user_data.get('account_type', 'premium') if user_data else 'premium'
-            is_admin_val = user_data.get('is_admin', False) or (email_val.lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']) if user_data else False
-            _ensure_premium_license_activated(user_id, user_data, email_val)
-            new_token = license_manager.generate_session_token(user_id, machine_hash)
-            return jsonify({
-                'valid': True,
-                'email': email_val,
-                'accountType': account_type_val,
-                'isAdmin': is_admin_val,
-                'licenseKey': user_data.get('license_key') if user_data else None,
-                'sessionToken': new_token,
-                'loginTimestamp': now_ts,
-            })
-
+        # A bare userId is NOT proof of identity: never issue a token without a valid one.
         return jsonify({'valid': False, 'error': 'Invalid or expired session'}), 401
 
     except Exception as e:
         print(f'[Auth ERROR] Verification failed: {e}')
-        return jsonify({'valid': False, 'error': str(e)}), 500
+        return jsonify({'valid': False, 'error': 'Verification failed'}), 500
 
 
 @app.route('/api/auth/logout', methods=['POST'])
 def auth_logout():
-    """Logout and deactivate device. Expected JSON: { "userId": "..." }"""
+    """Logout and release this device's slot. Identity comes from the session token only."""
     try:
-        data = request.get_json()
-        user_id = data.get('userId')
-        print(f'[Auth] Logout request for user: {user_id}')
-        if not user_id:
-            return jsonify({'error': 'User ID required'}), 400
+        token = request.headers.get('X-Session-Token', '')
         machine_id_hash = license_manager.get_machine_id_hash()
+        try:
+            user_id, _ = license_manager.verify_session_token(token, machine_id_hash)
+        except ValueError:
+            return jsonify({'error': 'Authentication required', 'code': 'INVALID_TOKEN'}), 401
+        print(f'[Auth] Logout request for user: {user_id}')
         firebase_service.remove_device(user_id, machine_id_hash)
         return jsonify({'success': True, 'message': 'Logged out successfully'})
     except Exception as e:
         print(f'[Auth ERROR] Logout failed: {e}')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Logout failed'}), 500
 
 
 # ============================================================================
@@ -794,21 +834,25 @@ def calculate_area():
     Expected JSON: { "points": [{"x": 0, "y": 0}, ...], "curves": [...] (optional) }
     """
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'A JSON object body is required'}), 400
         raw_points = data.get('points', [])
         curves = data.get('curves', [])
-        
+        if not isinstance(raw_points, list):
+            return jsonify({'error': 'points must be a list'}), 400
+        if curves is None:
+            curves = []
+        if not isinstance(curves, list):
+            return jsonify({'error': 'curves must be a list'}), 400
+
         # Sanitize and parse point coordinates
         points = []
         for p in raw_points:
             if isinstance(p, dict):
-                try:
-                    x = float(p.get('x', 0))
-                    y = float(p.get('y', 0))
-                    if not (math.isnan(x) or math.isnan(y) or math.isinf(x) or math.isinf(y)):
-                        points.append({'x': x, 'y': y})
-                except (ValueError, TypeError):
-                    continue
+                x, y = _num(p.get('x', 0)), _num(p.get('y', 0))
+                if x is not None and y is not None:
+                    points.append({'x': x, 'y': y})
 
         if len(points) < 3:
             return jsonify({'error': 'At least 3 valid coordinate points are required'}), 400
@@ -846,12 +890,17 @@ def calculate_area():
         
         if curves:
             for curve in curves:
-                M = curve.get('M', 0)
-                sign = curve.get('sign', 1)
+                if not isinstance(curve, dict):
+                    return jsonify({'error': 'Each curve must be an object'}), 400
+                M = _num(curve.get('M', 0))
+                sign = _num(curve.get('sign', 1))
                 from_idx = curve.get('fromIndex', 0)
                 to_idx = curve.get('toIndex', 1)
-                
-                if M > 0 and from_idx < len(points) and to_idx < len(points):
+                if M is None or sign is None or not isinstance(from_idx, int) or not isinstance(to_idx, int) \
+                        or isinstance(from_idx, bool) or isinstance(to_idx, bool):
+                    return jsonify({'error': 'Curve values must be finite numbers and integer point indexes'}), 400
+
+                if M > 0 and 0 <= from_idx < len(points) and 0 <= to_idx < len(points):
                     # Calculate chord length
                     from_pt = points[from_idx]
                     to_pt = points[to_idx]
@@ -877,8 +926,16 @@ def calculate_area():
                         })
         
         final_area = base_area + total_curve_adjustment
-        
+
+        if not all(math.isfinite(v) for v in (base_area, perimeter, final_area, cx, cy)):
+            return jsonify({'error': 'Coordinates are too large or invalid to calculate an area'}), 400
+
+        warnings = []
+        if _polygon_self_intersects(points):
+            warnings.append('Boundary crosses itself - the calculated area is not valid. Check the point order.')
+
         return jsonify({
+            'warnings': warnings,
             'baseArea': round(base_area, 4),
             'curveAdjustment': round(total_curve_adjustment, 4),
             'area': round(final_area, 4),
@@ -904,11 +961,26 @@ def calculate_area_error():
     }
     """
     try:
-        data = request.get_json()
-        points = data.get('points', [])
-        area = data.get('area', 0)
-        default_coord_error = data.get('coordinateError', 0.01)  # Default 1cm error
-        
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'A JSON object body is required'}), 400
+        raw = data.get('points', [])
+        area = _num(data.get('area', 0))
+        default_coord_error = _num(data.get('coordinateError', 0.01))
+        if not isinstance(raw, list) or area is None or default_coord_error is None:
+            return jsonify({'error': 'points must be a list; area and coordinateError must be numbers'}), 400
+
+        points = []
+        for p in raw:
+            if not isinstance(p, dict):
+                return jsonify({'error': 'Each point must be an object with x and y'}), 400
+            x, y = _num(p.get('x')), _num(p.get('y'))
+            ex = _num(p.get('errorX', default_coord_error))
+            ey = _num(p.get('errorY', default_coord_error))
+            if None in (x, y, ex, ey):
+                return jsonify({'error': 'Point coordinates and errors must be finite numbers'}), 400
+            points.append({'x': x, 'y': y, 'errorX': ex, 'errorY': ey})
+
         if len(points) < 3:
             return jsonify({'error': 'At least 3 points required'}), 400
         
@@ -992,6 +1064,51 @@ def calculate_area_error():
         return jsonify({'error': str(e)}), 500
 
 
+def _num(value):
+    """float(value) or None when it is not a finite number."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _segments_intersect(p1, p2, p3, p4):
+    """Proper (crossing) intersection of segments p1p2 and p3p4."""
+    def orient(a, b, c):
+        v = (b['x'] - a['x']) * (c['y'] - a['y']) - (b['y'] - a['y']) * (c['x'] - a['x'])
+        return (v > 0) - (v < 0)
+    o1, o2 = orient(p1, p2, p3), orient(p1, p2, p4)
+    o3, o4 = orient(p3, p4, p1), orient(p3, p4, p2)
+    return o1 * o2 < 0 and o3 * o4 < 0
+
+
+def _polygon_self_intersects(points, limit=1500):
+    """True if any two non-adjacent edges cross (area would be meaningless). Skipped for huge polygons."""
+    n = len(points)
+    if n < 4 or n > limit:
+        return False
+    for i in range(n):
+        a1, a2 = points[i], points[(i + 1) % n]
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            if _segments_intersect(a1, a2, points[j], points[(j + 1) % n]):
+                return True
+    return False
+
+
+def _read_text_file(path):
+    """Read a text file trying the encodings surveying tools produce (UTF-8 with/without BOM, Arabic cp1256, cp1252)."""
+    raw = open(path, 'rb').read()
+    for enc in ('utf-8-sig', 'cp1256', 'cp1252'):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode('latin-1')
+
+
 def parse_points_content(text_data):
     """Parse raw points file content into a list of points dicts"""
     points = []
@@ -1015,6 +1132,16 @@ def parse_points_content(text_data):
             except ValueError:
                 continue
     return points
+
+
+def _missing_point_ids(parcel, points_map):
+    """IDs a parcel refers to that have no usable coordinates in points_map."""
+    missing = []
+    for pid in parcel.get('ids', []) or []:
+        pt = points_map.get(str(pid)) if isinstance(points_map, dict) else None
+        if not (isinstance(pt, dict) and _num(pt.get('x')) is not None and _num(pt.get('y')) is not None):
+            missing.append(str(pid))
+    return missing
 
 
 def calculate_single_parcel_metrics(parcel, points_map):
@@ -1094,21 +1221,36 @@ def calculate_batch_areas():
     }
     """
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'A JSON object body is required'}), 400
         parcels = data.get('parcels', [])
         points_map = data.get('points', {})
-        
+        if not isinstance(parcels, list) or not isinstance(points_map, dict):
+            return jsonify({'error': 'parcels must be a list and points an object'}), 400
+
         results = []
-        
+        skipped = []
         for parcel in parcels:
+            if not isinstance(parcel, dict):
+                continue
+            # A parcel that refers to unknown points must NOT get an area computed from (0,0):
+            # leave it out so the caller keeps the previously stored values, and report why.
+            missing = _missing_point_ids(parcel, points_map)
+            if missing:
+                skipped.append({'id': parcel.get('id'), 'missingPoints': missing})
+                continue
             area, perimeter = calculate_single_parcel_metrics(parcel, points_map)
+            if not (math.isfinite(area) and math.isfinite(perimeter)):
+                skipped.append({'id': parcel.get('id'), 'missingPoints': []})
+                continue
             results.append({
                 'id': parcel.get('id'),
                 'area': area,
                 'perimeter': perimeter
             })
-            
-        return jsonify({'results': results})
+
+        return jsonify({'results': results, 'skipped': skipped})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1273,8 +1415,7 @@ def save_project_file():
         save_data.pop('rawPoints', None)      # Raw CAD points, redundant with loadedPoints
         
         # Use a more explicit open mode
-        with open(filepath, 'w', encoding='utf-8', newline='') as f:
-            json.dump(save_data, f, indent=2, ensure_ascii=False)
+        _atomic_write_text(filepath, json.dumps(save_data, indent=2, ensure_ascii=False))
         print(f'[Save] SUCCESS: File written successfully! Size: ~{len(json.dumps(save_data))//1024}KB (stripped cadEntities)')
         # Verify file was written
         if os.path.exists(filepath):
@@ -1542,10 +1683,12 @@ def load_project_file():
         if project_data.get('loadedPoints'):
             pts_map = project_data['loadedPoints']
             for parcel in project_data.get('savedParcels', []):
+                if _missing_point_ids(parcel, pts_map):
+                    continue   # keep the stored values instead of computing from (0,0)
                 area, perimeter = calculate_single_parcel_metrics(parcel, pts_map)
-                if area is not None:
+                if math.isfinite(area):
                     parcel['area'] = area
-                if perimeter is not None:
+                if math.isfinite(perimeter):
                     parcel['perimeter'] = perimeter
         
         # Add to recent files if we have a valid path
@@ -1821,35 +1964,42 @@ def reload_points_file():
         if not os.path.exists(file_path):
             return jsonify({'error': 'File not found'}), 404
         
-        # Read points with automatic deduplication
+        # Read points with automatic deduplication (duplicates are reported, not silently lost)
         points = []
         seen_point_ids = set()
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#') or line.startswith('//'):
-                    continue
-                
-                line = line.replace(';', ',')
-                parts = [p.strip() for p in (line.split(',') if ',' in line else line.split()) if p.strip()]
-                
-                if len(parts) >= 3:
-                    try:
-                        point_id = parts[0].strip()
-                        if not point_id or point_id in seen_point_ids:
-                            continue
-                        x = float(parts[1])
-                        y = float(parts[2])
-                        seen_point_ids.add(point_id)
-                        points.append({'id': point_id, 'x': x, 'y': y})
-                    except ValueError:
+        duplicates = []
+        skipped_lines = 0
+        for line in _read_text_file(file_path).splitlines():
+            line = line.strip().lstrip('\ufeff')
+            if not line or line.startswith('#') or line.startswith('//'):
+                continue
+
+            line = line.replace(';', ',')
+            parts = [p.strip() for p in (line.split(',') if ',' in line else line.split()) if p.strip()]
+
+            if len(parts) >= 3:
+                try:
+                    point_id = parts[0].strip()
+                    x, y = float(parts[1]), float(parts[2])
+                    if not point_id or not (math.isfinite(x) and math.isfinite(y)):
+                        skipped_lines += 1
                         continue
-        
+                    if point_id in seen_point_ids:
+                        duplicates.append(point_id)
+                        continue
+                    seen_point_ids.add(point_id)
+                    points.append({'id': point_id, 'x': x, 'y': y})
+                except ValueError:
+                    skipped_lines += 1
+            else:
+                skipped_lines += 1
+
         # Add to recent files
         metadata = {'pointsCount': len(points)}
         add_to_recent_files('points', file_path, os.path.basename(file_path), metadata)
         
-        return jsonify({'points': points, 'count': len(points)})
+        return jsonify({'points': points, 'count': len(points), 'duplicateIds': duplicates[:100],
+                        'duplicateCount': len(duplicates), 'skippedLines': skipped_lines})
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1869,8 +2019,9 @@ def import_points():
         
         points = []
         seen_point_ids = set()
-        for line in text_data.strip().split('\n'):
-            line = line.strip()
+        duplicates = []
+        for line in text_data.lstrip('\ufeff').strip().split('\n'):
+            line = line.strip().lstrip('\ufeff')
             if not line or line.startswith('#') or line.startswith('//'):
                 continue
             
@@ -1883,7 +2034,10 @@ def import_points():
             if len(parts) >= 3:
                 try:
                     point_id = parts[0].strip()
-                    if not point_id or point_id in seen_point_ids:
+                    if not point_id:
+                        continue
+                    if point_id in seen_point_ids:
+                        duplicates.append(point_id)
                         continue
                     x = float(parts[1])
                     y = float(parts[2])
@@ -1897,7 +2051,8 @@ def import_points():
             return jsonify({'error': 'No valid coordinate points found in input text'}), 400
 
         
-        return jsonify({'points': points, 'count': len(points)})
+        return jsonify({'points': points, 'count': len(points), 'duplicateIds': duplicates[:100],
+                        'duplicateCount': len(duplicates)})
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1919,14 +2074,17 @@ def save_points_file():
         if file_path and os.path.dirname(file_path):
             save_path = file_path
         else:
-            save_path = os.path.join(DATA_DIR, file_name)
+            save_path = os.path.join(DATA_DIR, os.path.basename(file_name))
+        if _is_blocked_write_path(save_path):
+            return jsonify({'error': 'This file type cannot be saved by Parcel Tools'}), 400
         
         # Ensure directory exists
         os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else DATA_DIR, exist_ok=True)
         
         # Write file
-        with open(save_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        if not isinstance(content, str):
+            return jsonify({'error': 'content must be text'}), 400
+        _atomic_write_text(save_path, content)
         
         return jsonify({
             'success': True,
@@ -1946,8 +2104,11 @@ def export_points():
     Expected JSON: { "points": [{"id": "1", "x": 0, "y": 0}, ...] }
     """
     try:
-        data = request.get_json()
-        points = data.get('points', [])
+        data = request.get_json(silent=True)
+        points = data.get('points', []) if isinstance(data, dict) else None
+        if not isinstance(points, list):
+            return jsonify({'error': 'points must be a list'}), 400
+        points = [p for p in points if isinstance(p, dict)]
         
         lines = ['# Parcel Tools - Point Export', f'# Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', '# Format: ID, X, Y', '']
         
@@ -1979,7 +2140,7 @@ def _process_file_for_archive(file_entry):
             archive_name = f"file_{int(time.time() * 1000)}"
 
     # Normalize archive name (forward slashes for zip standard)
-    archive_name = archive_name.replace('\\', '/').lstrip('/')
+    archive_name = _safe_archive_name(archive_name)
 
     if source_path and os.path.isfile(source_path):
         size = os.path.getsize(source_path)
@@ -2052,6 +2213,9 @@ def compress_files_endpoint():
             temp_dir = os.path.join(tempfile.gettempdir(), 'parcel_tools_archives')
             os.makedirs(temp_dir, exist_ok=True)
             output_path = os.path.join(temp_dir, f"archive_{int(time.time() * 1000)}.zip")
+
+        if not str(output_path).lower().endswith('.zip'):
+            return jsonify({'error': 'Output path must end with .zip'}), 400
 
         output_dir = os.path.dirname(output_path)
         if output_dir:
@@ -2145,6 +2309,9 @@ def export_project_archive():
             os.makedirs(temp_dir, exist_ok=True)
             output_filepath = os.path.join(temp_dir, f"{safe_name}_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip")
 
+        if not str(output_filepath).lower().endswith('.zip'):
+            return jsonify({'error': 'Output path must end with .zip'}), 400
+
         files_to_compress = []
 
         # 1. Project data JSON
@@ -2237,6 +2404,85 @@ def get_compression_status():
 
 
 
+
+
+# A run starts and ends with a non-Latin character; a single space or - : . between two such characters stays inside it
+_PDF_NONLATIN_SPAN = re.compile(r'[^\x00-\xff](?:[ \-:.]?[^\x00-\xff])*')
+_PDF_UNICODE_FONT = {'name': None, 'checked': False}
+_PDF_FONT_CANDIDATES = [
+    r'C:\Windows\Fonts\tahoma.ttf', r'C:\Windows\Fonts\arial.ttf', r'C:\Windows\Fonts\segoeui.ttf',
+    '/Library/Fonts/Arial Unicode.ttf', '/System/Library/Fonts/Supplemental/Arial.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+]
+
+
+def _pdf_unicode_font():
+    """Name of a registered TrueType font with Arabic/Unicode coverage, or None if the system has none."""
+    if not _PDF_UNICODE_FONT['checked']:
+        _PDF_UNICODE_FONT['checked'] = True
+        try:
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+            for path in _PDF_FONT_CANDIDATES:
+                if os.path.exists(path):
+                    try:
+                        pdfmetrics.registerFont(TTFont('PT-Unicode', path))
+                        _PDF_UNICODE_FONT['name'] = 'PT-Unicode'
+                        break
+                    except Exception as e:
+                        print(f'[PDF] Could not load font {path}: {e}')
+        except Exception as e:
+            print(f'[PDF] Unicode font unavailable: {e}')
+    return _PDF_UNICODE_FONT['name']
+
+
+def _pdf_shape(text):
+    """Join Arabic letters and put right-to-left text in visual order (needs arabic_reshaper + python-bidi)."""
+    try:
+        import arabic_reshaper
+        from bidi.algorithm import get_display
+        # No ligatures: many fonts lack glyphs like the Allah ligature and would draw an empty box
+        reshaper = arabic_reshaper.ArabicReshaper(configuration={'support_ligatures': False})
+        return get_display(reshaper.reshape(text))
+    except Exception:
+        return text
+
+
+def _pdf_draw_line(c, x, y, text):
+    """canvas.drawString that also handles non-Latin characters (e.g. Arabic names/IDs).
+    Plain Latin text is drawn exactly as before."""
+    text = '' if text is None else str(text)
+    if all(ord(ch) <= 255 for ch in text):
+        c.drawString(x, y, text)
+        return
+    uni = _pdf_unicode_font()
+    if not uni:
+        c.drawString(x, y, text)
+        return
+    name, size = c._fontname, c._fontsize
+    pos = 0
+    for m in _PDF_NONLATIN_SPAN.finditer(text):
+        for run, is_uni in ((text[pos:m.start()], False), (m.group(0), True)):
+            if not run:
+                continue
+            if is_uni:
+                c.setFont(uni, size)
+                original_len = len(run)
+                run = _pdf_shape(run)
+            else:
+                c.setFont(name, size)
+            c.drawString(x, y, run)
+            width = c.stringWidth(run, uni if is_uni else name, size)
+            if is_uni:
+                # keep the monospaced table columns aligned after an Arabic ID
+                width = max(width, original_len * c.stringWidth('M', name, size))
+            x += width
+        pos = m.end()
+    tail = text[pos:]
+    if tail:
+        c.setFont(name, size)
+        c.drawString(x, y, tail)
+    c.setFont(name, size)
 
 
 @app.route('/api/export-pdf', methods=['POST'])
@@ -2367,36 +2613,37 @@ def export_pdf():
                 
                 if has_content:
                     c.setFont("Courier-Bold", 11)
-                    c.drawString(40, y_position, "=" * 60)
+                    _pdf_draw_line(c, 40, y_position, "=" * 60)
                     y_position -= 15
                     
                     if file_heading.get('block'):
-                        c.drawString(40, y_position, f"BLOCK: {file_heading['block']}")
+                        _pdf_draw_line(c, 40, y_position, f"BLOCK: {file_heading['block']}")
                         y_position -= 12
                     if file_heading.get('quarter'):
-                        c.drawString(40, y_position, f"QUARTER: {file_heading['quarter']}")
+                        _pdf_draw_line(c, 40, y_position, f"QUARTER: {file_heading['quarter']}")
                         y_position -= 12
                     if file_heading.get('parcels'):
-                        c.drawString(40, y_position, f"PARCELS: {file_heading['parcels']}")
+                        _pdf_draw_line(c, 40, y_position, f"PARCELS: {file_heading['parcels']}")
                         y_position -= 12
                     if file_heading.get('place'):
-                        c.drawString(40, y_position, f"PLACE: {file_heading['place']}")
+                        _pdf_draw_line(c, 40, y_position, f"PLACE: {file_heading['place']}")
                         y_position -= 12
                     if file_heading.get('additionalInfo'):
                         y_position -= 5
                         c.setFont("Courier", 9)
-                        c.drawString(40, y_position, file_heading['additionalInfo'])
+                        _pdf_draw_line(c, 40, y_position, file_heading['additionalInfo'])
                         y_position -= 12
                     
                     c.setFont("Courier-Bold", 11)
-                    c.drawString(40, y_position, "=" * 60)
+                    _pdf_draw_line(c, 40, y_position, "=" * 60)
                     y_position -= 25
                     
                     heading_added = True
             
-            parcel_num = parcel.get('number', 'N/A')
+            parcel_num = parcel.get('number')
+            parcel_num = 'N/A' if parcel_num is None else parcel_num
             ids = parcel.get('ids', [])
-            area = parcel.get('area', 0)
+            area = _num(parcel.get('area', 0)) or 0.0
             curves = parcel.get('curves', [])
             
             # Get unique IDs (remove closing duplicate)
@@ -2404,24 +2651,24 @@ def export_pdf():
             
             # PARCEL NUMBER
             c.setFont("Courier", 12)
-            c.drawString(40, y_position, f"PARCEL  NUMBER    {parcel_num}")
+            _pdf_draw_line(c, 40, y_position, f"PARCEL  NUMBER    {parcel_num}")
             y_position -= 30
             
             # ANGLES IN DEGREES
             c.setFont("Courier", 10)
-            c.drawString(40, y_position, "ANGLES   IN   DEGREES")
+            _pdf_draw_line(c, 40, y_position, "ANGLES   IN   DEGREES")
             y_position -= 15
-            c.drawString(40, y_position, "=" * 60)
+            _pdf_draw_line(c, 40, y_position, "=" * 60)
             y_position -= 25
             
             # Table header
             c.setFont("Courier", 9)
             header = f"{'FROM':<4}  {'TO':<4}  {'DISTANCE':>8}  {'AZIMUTH':>8}    {'POINT':<5}  {'Y':>10}  {'X':>10}"
-            c.drawString(40, y_position, header)
+            _pdf_draw_line(c, 40, y_position, header)
             y_position -= 12
             
             sep = f"{'====':<4}  {'====':<4}  {'========':>8}  {'========':>8}    {'=====':<5}  {'==========':>10}  {'==========':>10}"
-            c.drawString(40, y_position, sep)
+            _pdf_draw_line(c, 40, y_position, sep)
             y_position -= 12
             
             # Calculate and draw each leg
@@ -2448,7 +2695,7 @@ def export_pdf():
                         f"{distance:>8.2f}  {azimuth:>8.4f}    "
                         f"{str(from_id):<5}  {from_pt['x']:>10.2f}  {from_pt['y']:>10.2f}"
                     )
-                    c.drawString(40, y_position, line)
+                    _pdf_draw_line(c, 40, y_position, line)
                     y_position -= 12
                     
                     if y_position < 100:
@@ -2461,9 +2708,9 @@ def export_pdf():
                         
                         # Redraw table header on new page
                         c.setFont("Courier", 9)
-                        c.drawString(40, y_position, header)
+                        _pdf_draw_line(c, 40, y_position, header)
                         y_position -= 12
-                        c.drawString(40, y_position, sep)
+                        _pdf_draw_line(c, 40, y_position, sep)
                         y_position -= 12
             
             y_position -= 10
@@ -2498,7 +2745,7 @@ def export_pdf():
                         sign_symbol = "(+)" if sign == 1 else "(-)"
                         
                         curve_line = f"FROM PARCEL  {from_id} --> {to_id} = {C:.2f}   R = {R:.2f}   F = {F:.3f}   {sign_symbol}   PARCEL AREA= {seg_area:.2f}"
-                        c.drawString(40, y_position, curve_line)
+                        _pdf_draw_line(c, 40, y_position, curve_line)
                         y_position -= 12
                         
                         # Check for page break inside curves loop
@@ -2512,7 +2759,7 @@ def export_pdf():
                             
                             # Redraw curves header
                             c.setFont("Courier-Bold", 10)
-                            c.drawString(40, y_position, "CURVES (continued):")
+                            _pdf_draw_line(c, 40, y_position, "CURVES (continued):")
                             y_position -= 15
                             c.setFont("Courier", 9)
                 
@@ -2520,7 +2767,7 @@ def export_pdf():
             
             # Final AREA
             c.setFont("Courier", 11)
-            c.drawString(40, y_position, f"AREA = {area:.3f}")
+            _pdf_draw_line(c, 40, y_position, f"AREA = {area:.3f}")
             y_position -= 30
         
         
@@ -2554,7 +2801,7 @@ def export_pdf():
             
             # Main Header for Error Section
             c.setFont("Courier-Bold", 14)
-            c.drawString(40, y_position, "ERROR CALCULATIONS REPORT")
+            _pdf_draw_line(c, 40, y_position, "ERROR CALCULATIONS REPORT")
             y_position -= 25
             
             for index, calc in enumerate(all_calculations):
@@ -2579,55 +2826,55 @@ def export_pdf():
                         pass
                 
                 c.setFont("Courier-Bold", 12)
-                c.drawString(40, y_position, "=" * 60)
+                _pdf_draw_line(c, 40, y_position, "=" * 60)
                 y_position -= 15
-                c.drawString(40, y_position, f"{name}  {timestamp}")
+                _pdf_draw_line(c, 40, y_position, f"{name}  {timestamp}")
                 y_position -= 15
-                c.drawString(40, y_position, "=" * 60)
+                _pdf_draw_line(c, 40, y_position, "=" * 60)
                 y_position -= 25
                 
                 # Overall Summary
                 c.setFont("Courier-Bold", 10)
-                c.drawString(40, y_position, "SUMMARY:")
+                _pdf_draw_line(c, 40, y_position, "SUMMARY:")
                 y_position -= 20
                 
                 c.setFont("Courier", 9)
-                c.drawString(40, y_position, f"Total Registered Area:    {calc['totalRegisteredArea']:.4f} m²")
+                _pdf_draw_line(c, 40, y_position, f"Total Registered Area:    {calc['totalRegisteredArea']:.4f} m²")
                 y_position -= 15
-                c.drawString(40, y_position, f"Total Calculated Area:    {calc['totalCalculatedArea']:.4f} m²")
+                _pdf_draw_line(c, 40, y_position, f"Total Calculated Area:    {calc['totalCalculatedArea']:.4f} m²")
                 y_position -= 15
-                c.drawString(40, y_position, f"Absolute Difference:      {calc['absoluteDifference']:.4f} m²")
+                _pdf_draw_line(c, 40, y_position, f"Absolute Difference:      {calc['absoluteDifference']:.4f} m²")
                 y_position -= 15
-                c.drawString(40, y_position, f"Permissible Error:        {calc['permissibleError']:.4f} m²")
+                _pdf_draw_line(c, 40, y_position, f"Permissible Error:        {calc['permissibleError']:.4f} m²")
                 y_position -= 20
                 
                 # Formula
                 c.setFont("Courier", 8)
                 formula_text = f"Formula: Permissible Error = 0.8 * sqrt({calc['totalRegisteredArea']:.2f}) + 0.002 * {calc['totalRegisteredArea']:.2f}"
-                c.drawString(40, y_position, formula_text)
+                _pdf_draw_line(c, 40, y_position, formula_text)
                 y_position -= 20
                 
                 # Status
                 c.setFont("Courier-Bold", 10)
                 if calc['exceedsLimit']:
-                    c.drawString(40, y_position, "WARNING: ERROR EXCEEDS PERMISSIBLE LIMITS - Using original areas")
+                    _pdf_draw_line(c, 40, y_position, "WARNING: ERROR EXCEEDS PERMISSIBLE LIMITS - Using original areas")
                 else:
-                    c.drawString(40, y_position, "OK: WITHIN PERMISSIBLE LIMITS - Areas adjusted proportionally")
+                    _pdf_draw_line(c, 40, y_position, "OK: WITHIN PERMISSIBLE LIMITS - Areas adjusted proportionally")
                 y_position -= 30
                 
                 # Parcel Results Table Header
                 c.setFont("Courier-Bold", 10)
-                c.drawString(40, y_position, "PARCEL BREAKDOWN:")
+                _pdf_draw_line(c, 40, y_position, "PARCEL BREAKDOWN:")
                 y_position -= 20
                 
                 # Table header
                 c.setFont("Courier", 8)
                 header_line = f"{'Parcel #':<12} {'Original (m²)':>15} {'Adjusted (m²)':>15} {'Rounded (m²)':>15} {'Points':>8}"
-                c.drawString(40, y_position, header_line)
+                _pdf_draw_line(c, 40, y_position, header_line)
                 y_position -= 12
                 
                 sep_line = f"{'-'*12:<12} {'-'*15:>15} {'-'*15:>15} {'-'*15:>15} {'-'*8:>8}"
-                c.drawString(40, y_position, sep_line)
+                _pdf_draw_line(c, 40, y_position, sep_line)
                 y_position -= 15
                 
                 # Parcel rows
@@ -2649,7 +2896,7 @@ def export_pdf():
                     points = parcel_result['pointCount']
                     
                     row_line = f"{parcel_num:<12} {original:>15.4f} {adjusted:>15.4f} {rounded:>15} {points:>8}"
-                    c.drawString(40, y_position, row_line)
+                    _pdf_draw_line(c, 40, y_position, row_line)
                     y_position -= 12
                 
                 # Total row
@@ -2669,7 +2916,7 @@ def export_pdf():
                 total_points = sum(p['pointCount'] for p in calc['parcelResults'])
                 
                 total_line = f"{'TOTAL:':<12} {total_original:>15.4f} {total_adjusted:>15.4f} {total_rounded:>15} {total_points:>8}"
-                c.drawString(40, y_position, total_line)
+                _pdf_draw_line(c, 40, y_position, total_line)
                 y_position -= 40 # Space between calculations
         
         # Add final page number
@@ -2697,12 +2944,14 @@ def ai_ask():
     Expected JSON: { "messages": [{role, content}, ...] }
     """
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
         messages = data.get('messages', [])
+        messages = messages if isinstance(messages, list) else []
         user_q = ''
         for m in reversed(messages):
-            if m.get('role') == 'user':
-                user_q = m.get('content', '').strip()
+            if isinstance(m, dict) and m.get('role') == 'user' and isinstance(m.get('content'), str):
+                user_q = m['content'].strip()
                 break
         if not user_q:
             return jsonify({ 'answer': 'Please type a question about Parcel Tools.' })
@@ -2789,7 +3038,7 @@ def ai_ask():
 def ai_config():
     try:
         # Get user ID from query params or headers
-        user_id = request.args.get('userId') or request.headers.get('X-User-ID')
+        user_id = None  # never trust a client-supplied user id (cross-account access); local storage is used
         
         if request.method == 'GET':
             if user_id:
@@ -2840,7 +3089,7 @@ def get_recent_files():
     """Get recent files history - with automatic cleanup of deleted files"""
     try:
         # Get user ID from query params or headers
-        user_id = request.args.get('userId') or request.headers.get('X-User-ID')
+        user_id = None  # never trust a client-supplied user id (cross-account access); local storage is used
         
         if user_id:
             # Try Firebase first
@@ -2896,7 +3145,7 @@ def add_recent_file():
         file_path = data.get('path', '')
         file_name = data.get('name', '')
         metadata = data.get('metadata', {})
-        user_id = data.get('userId')  # Optional user ID
+        user_id = None  # never trust a client-supplied user id
         
         if not file_type or not file_path or not file_name:
             return jsonify({'error': 'Missing required fields: type, path, name'}), 400
@@ -2942,14 +3191,14 @@ def clear_recent_files():
         data = request.get_json() or {}
         file_type = data.get('type')  # 'projects', 'points', or None for all
         
-        recent = load_recent_files()
-        if file_type:
-            if file_type in recent:
-                recent[file_type] = []
-        else:
-            recent = {'projects': [], 'points': []}
-        
-        save_recent_files(recent)
+        with _recent_files_lock:
+            recent = load_recent_files()
+            if file_type:
+                if file_type in recent:
+                    recent[file_type] = []
+            else:
+                recent = {'projects': [], 'points': []}
+            save_recent_files(recent)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -3045,16 +3294,9 @@ def get_license_status():
             local_status = license_manager.get_license_info()
             if not local_status.get('is_valid'):
                 try:
-                    lic_key = user_data.get('license_key')
-                    if not lic_key:
-                        lic_key = license_manager.generate_license_key(email_val)
-                        if firebase_service._is_online() and user_id_to_check:
-                            firebase_service.db.collection('users').document(user_id_to_check).set({'license_key': lic_key}, merge=True)
-                        all_users = firebase_service._load_users_from_json()
-                        if user_id_to_check and user_id_to_check in all_users:
-                            all_users[user_id_to_check]['license_key'] = lic_key
-                            firebase_service._save_users_to_json(all_users)
-                    license_manager.activate_license(lic_key, email_val)
+                    # Only a verified session (not a local file's email) may restore the local license
+                    if user_id_to_check:
+                        license_manager.activate_from_account(email_val)
                     print(f'[API] Auto-recreated local license for premium user: {email_val}')
                 except Exception as e:
                     print(f'[API] Warning: auto-create license failed: {e}')
@@ -3091,7 +3333,7 @@ def activate_license():
         
         print(f'[API] ═══ LICENSE ACTIVATION ═══')
         print(f'[API] Email: {email}')
-        print(f'[API] Key: {license_key}')
+        print(f'[API] Key: {license_key[:4]}…(hidden)')
         
         if not license_key or not email:
             return jsonify({
@@ -3143,7 +3385,7 @@ def deactivate_license():
         user_id = None
         if token:
             try:
-                user_id, _ = license_manager.verify_session_token(token)
+                user_id, _ = license_manager.verify_session_token(token, license_manager.get_machine_id_hash())
             except Exception as e:
                 print(f'[API] Note verifying session token for deactivation: {e}')
 
@@ -3160,26 +3402,6 @@ def deactivate_license():
         return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/license/generate', methods=['POST'])
-def generate_license_key():
-    """
-    Generate a license key for testing purposes
-    NOTE: In production, remove this endpoint and generate keys on your payment server
-    """
-    try:
-        data = request.json
-        email = data.get('email', '').strip()
-        
-        if not email:
-            return jsonify({'error': 'Email is required'}), 400
-        
-        key = license_manager.generate_license_key(email)
-        return jsonify({'license_key': key, 'email': email})
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 
 # ============================================================================

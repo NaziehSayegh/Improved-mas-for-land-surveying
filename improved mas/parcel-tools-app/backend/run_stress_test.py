@@ -7,7 +7,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import app as app_module
 
 app = app_module.app
-client = app.test_client()
+from test_support import authed_client
+client = authed_client(app_module)
 
 def main():
     print("==================================================================")

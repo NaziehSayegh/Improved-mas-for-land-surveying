@@ -5,6 +5,7 @@ import { ArrowLeft, FolderOpen, File, Plus, Trash2, Edit2, Upload, Save, FileTex
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
 import { customConfirm } from '../utils/dialogs';
+import { safeHtml } from '../utils/safeHtml';
 
 const DataFiles = () => {
   const navigate = useNavigate();
@@ -187,7 +188,7 @@ const DataFiles = () => {
 
     // Show success toast
     const toast = document.createElement('div');
-    toast.innerHTML = `✅ Scan complete! Found ${savedProjects.length} projects.`;
+    toast.innerHTML = safeHtml(`✅ Scan complete! Found ${savedProjects.length} projects.`);
     toast.style.cssText = `
       position: fixed;
       top: 20px;
@@ -349,7 +350,7 @@ const DataFiles = () => {
 
       // Show success toast
       const toast = document.createElement('div');
-      toast.innerHTML = `✅ Project "${projectData.projectName}" loaded!<br/>Redirecting to ${targetName}`;
+      toast.innerHTML = safeHtml(`✅ Project "${projectData.projectName}" loaded!<br/>Redirecting to ${targetName}`);
       toast.style.cssText = `
         position: fixed;
         top: 20px;
@@ -370,7 +371,7 @@ const DataFiles = () => {
     } catch (error) {
       console.error('Error loading project:', error);
       const errorToast = document.createElement('div');
-      errorToast.innerHTML = `❌ Error loading project: ${error.message}`;
+      errorToast.innerHTML = safeHtml(`❌ Error loading project: ${error.message}`);
       errorToast.style.cssText = `
         position: fixed;
         top: 20px;

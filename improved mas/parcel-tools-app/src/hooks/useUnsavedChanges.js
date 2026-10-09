@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { safeHtml } from '../utils/safeHtml';
 
 /**
  * Hook to prevent navigation when there are unsaved changes
@@ -101,7 +102,7 @@ const showUnsavedChangesDialog = (message) => {
         ⚠️ Unsaved Changes
       </h2>
       <p style="color: #8b949e; margin-bottom: 24px; line-height: 1.5;">
-        ${message}
+        ${safeHtml(message)}
       </p>
       <div style="display: flex; gap: 12px; justify-content: flex-end;">
         <button id="unsaved-cancel" style="

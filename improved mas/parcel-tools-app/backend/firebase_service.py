@@ -5,6 +5,7 @@ Provides high-level operations for Firestore with offline fallback to JSON files
 
 import json
 import os
+from atomic_io import atomic_write_text
 from datetime import datetime
 from firebase_config import get_firestore_client, is_firebase_available
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -872,15 +873,13 @@ class FirebaseService:
     
     def _save_users_to_json(self, users):
         """Save users to JSON file"""
-        with open(self.users_file, 'w', encoding='utf-8') as f:
-            json.dump(users, f, indent=2, ensure_ascii=False)
+        atomic_write_text(self.users_file, json.dumps(users, indent=2, ensure_ascii=False))
     
     def _save_project_to_json(self, project_id, project_data):
         """Save project to JSON file"""
         projects = self._load_projects_from_json()
         projects[project_id] = project_data
-        with open(self.projects_file, 'w', encoding='utf-8') as f:
-            json.dump(projects, f, indent=2, ensure_ascii=False)
+        atomic_write_text(self.projects_file, json.dumps(projects, indent=2, ensure_ascii=False))
     
     def _load_projects_from_json(self):
         """Load projects from JSON file"""

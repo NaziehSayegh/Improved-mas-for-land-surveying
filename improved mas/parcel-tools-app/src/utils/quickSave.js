@@ -1,3 +1,4 @@
+import { safeHtml } from './safeHtml';
 /**
  * Quick Save As utility - can be called from anywhere in the app
  */
@@ -5,7 +6,7 @@
 // Helper function to show toast notifications
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
-  toast.innerHTML = message;
+  toast.innerHTML = safeHtml(message);
 
   const colors = {
     success: 'linear-gradient(135deg, #22c55e, #16a34a)',
@@ -130,7 +131,7 @@ export async function handleQuickSaveAs() {
 
     // Show success notification
     const toast = document.createElement('div');
-    toast.innerHTML = `✅ Project saved successfully!<br><small>${result.filePath || savePath}</small>`;
+    toast.innerHTML = safeHtml(`✅ Project saved successfully!<br><small>${result.filePath || savePath}</small>`);
     toast.style.cssText = `
       position: fixed;
       top: 20px;
