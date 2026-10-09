@@ -2406,6 +2406,85 @@ def get_compression_status():
 
 
 
+# A run starts and ends with a non-Latin character; a single space or - : . between two such characters stays inside it
+_PDF_NONLATIN_SPAN = re.compile(r'[^\x00-\xff](?:[ \-:.]?[^\x00-\xff])*')
+_PDF_UNICODE_FONT = {'name': None, 'checked': False}
+_PDF_FONT_CANDIDATES = [
+    r'C:\Windows\Fonts\tahoma.ttf', r'C:\Windows\Fonts\arial.ttf', r'C:\Windows\Fonts\segoeui.ttf',
+    '/Library/Fonts/Arial Unicode.ttf', '/System/Library/Fonts/Supplemental/Arial.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+]
+
+
+def _pdf_unicode_font():
+    """Name of a registered TrueType font with Arabic/Unicode coverage, or None if the system has none."""
+    if not _PDF_UNICODE_FONT['checked']:
+        _PDF_UNICODE_FONT['checked'] = True
+        try:
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+            for path in _PDF_FONT_CANDIDATES:
+                if os.path.exists(path):
+                    try:
+                        pdfmetrics.registerFont(TTFont('PT-Unicode', path))
+                        _PDF_UNICODE_FONT['name'] = 'PT-Unicode'
+                        break
+                    except Exception as e:
+                        print(f'[PDF] Could not load font {path}: {e}')
+        except Exception as e:
+            print(f'[PDF] Unicode font unavailable: {e}')
+    return _PDF_UNICODE_FONT['name']
+
+
+def _pdf_shape(text):
+    """Join Arabic letters and put right-to-left text in visual order (needs arabic_reshaper + python-bidi)."""
+    try:
+        import arabic_reshaper
+        from bidi.algorithm import get_display
+        # No ligatures: many fonts lack glyphs like the Allah ligature and would draw an empty box
+        reshaper = arabic_reshaper.ArabicReshaper(configuration={'support_ligatures': False})
+        return get_display(reshaper.reshape(text))
+    except Exception:
+        return text
+
+
+def _pdf_draw_line(c, x, y, text):
+    """canvas.drawString that also handles non-Latin characters (e.g. Arabic names/IDs).
+    Plain Latin text is drawn exactly as before."""
+    text = '' if text is None else str(text)
+    if all(ord(ch) <= 255 for ch in text):
+        c.drawString(x, y, text)
+        return
+    uni = _pdf_unicode_font()
+    if not uni:
+        c.drawString(x, y, text)
+        return
+    name, size = c._fontname, c._fontsize
+    pos = 0
+    for m in _PDF_NONLATIN_SPAN.finditer(text):
+        for run, is_uni in ((text[pos:m.start()], False), (m.group(0), True)):
+            if not run:
+                continue
+            if is_uni:
+                c.setFont(uni, size)
+                original_len = len(run)
+                run = _pdf_shape(run)
+            else:
+                c.setFont(name, size)
+            c.drawString(x, y, run)
+            width = c.stringWidth(run, uni if is_uni else name, size)
+            if is_uni:
+                # keep the monospaced table columns aligned after an Arabic ID
+                width = max(width, original_len * c.stringWidth('M', name, size))
+            x += width
+        pos = m.end()
+    tail = text[pos:]
+    if tail:
+        c.setFont(name, size)
+        c.drawString(x, y, tail)
+    c.setFont(name, size)
+
+
 @app.route('/api/export-pdf', methods=['POST'])
 def export_pdf():
     """
@@ -2534,36 +2613,37 @@ def export_pdf():
                 
                 if has_content:
                     c.setFont("Courier-Bold", 11)
-                    c.drawString(40, y_position, "=" * 60)
+                    _pdf_draw_line(c, 40, y_position, "=" * 60)
                     y_position -= 15
                     
                     if file_heading.get('block'):
-                        c.drawString(40, y_position, f"BLOCK: {file_heading['block']}")
+                        _pdf_draw_line(c, 40, y_position, f"BLOCK: {file_heading['block']}")
                         y_position -= 12
                     if file_heading.get('quarter'):
-                        c.drawString(40, y_position, f"QUARTER: {file_heading['quarter']}")
+                        _pdf_draw_line(c, 40, y_position, f"QUARTER: {file_heading['quarter']}")
                         y_position -= 12
                     if file_heading.get('parcels'):
-                        c.drawString(40, y_position, f"PARCELS: {file_heading['parcels']}")
+                        _pdf_draw_line(c, 40, y_position, f"PARCELS: {file_heading['parcels']}")
                         y_position -= 12
                     if file_heading.get('place'):
-                        c.drawString(40, y_position, f"PLACE: {file_heading['place']}")
+                        _pdf_draw_line(c, 40, y_position, f"PLACE: {file_heading['place']}")
                         y_position -= 12
                     if file_heading.get('additionalInfo'):
                         y_position -= 5
                         c.setFont("Courier", 9)
-                        c.drawString(40, y_position, file_heading['additionalInfo'])
+                        _pdf_draw_line(c, 40, y_position, file_heading['additionalInfo'])
                         y_position -= 12
                     
                     c.setFont("Courier-Bold", 11)
-                    c.drawString(40, y_position, "=" * 60)
+                    _pdf_draw_line(c, 40, y_position, "=" * 60)
                     y_position -= 25
                     
                     heading_added = True
             
-            parcel_num = parcel.get('number', 'N/A')
+            parcel_num = parcel.get('number')
+            parcel_num = 'N/A' if parcel_num is None else parcel_num
             ids = parcel.get('ids', [])
-            area = parcel.get('area', 0)
+            area = _num(parcel.get('area', 0)) or 0.0
             curves = parcel.get('curves', [])
             
             # Get unique IDs (remove closing duplicate)
@@ -2571,24 +2651,24 @@ def export_pdf():
             
             # PARCEL NUMBER
             c.setFont("Courier", 12)
-            c.drawString(40, y_position, f"PARCEL  NUMBER    {parcel_num}")
+            _pdf_draw_line(c, 40, y_position, f"PARCEL  NUMBER    {parcel_num}")
             y_position -= 30
             
             # ANGLES IN DEGREES
             c.setFont("Courier", 10)
-            c.drawString(40, y_position, "ANGLES   IN   DEGREES")
+            _pdf_draw_line(c, 40, y_position, "ANGLES   IN   DEGREES")
             y_position -= 15
-            c.drawString(40, y_position, "=" * 60)
+            _pdf_draw_line(c, 40, y_position, "=" * 60)
             y_position -= 25
             
             # Table header
             c.setFont("Courier", 9)
             header = f"{'FROM':<4}  {'TO':<4}  {'DISTANCE':>8}  {'AZIMUTH':>8}    {'POINT':<5}  {'Y':>10}  {'X':>10}"
-            c.drawString(40, y_position, header)
+            _pdf_draw_line(c, 40, y_position, header)
             y_position -= 12
             
             sep = f"{'====':<4}  {'====':<4}  {'========':>8}  {'========':>8}    {'=====':<5}  {'==========':>10}  {'==========':>10}"
-            c.drawString(40, y_position, sep)
+            _pdf_draw_line(c, 40, y_position, sep)
             y_position -= 12
             
             # Calculate and draw each leg
@@ -2615,7 +2695,7 @@ def export_pdf():
                         f"{distance:>8.2f}  {azimuth:>8.4f}    "
                         f"{str(from_id):<5}  {from_pt['x']:>10.2f}  {from_pt['y']:>10.2f}"
                     )
-                    c.drawString(40, y_position, line)
+                    _pdf_draw_line(c, 40, y_position, line)
                     y_position -= 12
                     
                     if y_position < 100:
@@ -2628,9 +2708,9 @@ def export_pdf():
                         
                         # Redraw table header on new page
                         c.setFont("Courier", 9)
-                        c.drawString(40, y_position, header)
+                        _pdf_draw_line(c, 40, y_position, header)
                         y_position -= 12
-                        c.drawString(40, y_position, sep)
+                        _pdf_draw_line(c, 40, y_position, sep)
                         y_position -= 12
             
             y_position -= 10
@@ -2665,7 +2745,7 @@ def export_pdf():
                         sign_symbol = "(+)" if sign == 1 else "(-)"
                         
                         curve_line = f"FROM PARCEL  {from_id} --> {to_id} = {C:.2f}   R = {R:.2f}   F = {F:.3f}   {sign_symbol}   PARCEL AREA= {seg_area:.2f}"
-                        c.drawString(40, y_position, curve_line)
+                        _pdf_draw_line(c, 40, y_position, curve_line)
                         y_position -= 12
                         
                         # Check for page break inside curves loop
@@ -2679,7 +2759,7 @@ def export_pdf():
                             
                             # Redraw curves header
                             c.setFont("Courier-Bold", 10)
-                            c.drawString(40, y_position, "CURVES (continued):")
+                            _pdf_draw_line(c, 40, y_position, "CURVES (continued):")
                             y_position -= 15
                             c.setFont("Courier", 9)
                 
@@ -2687,7 +2767,7 @@ def export_pdf():
             
             # Final AREA
             c.setFont("Courier", 11)
-            c.drawString(40, y_position, f"AREA = {area:.3f}")
+            _pdf_draw_line(c, 40, y_position, f"AREA = {area:.3f}")
             y_position -= 30
         
         
@@ -2721,7 +2801,7 @@ def export_pdf():
             
             # Main Header for Error Section
             c.setFont("Courier-Bold", 14)
-            c.drawString(40, y_position, "ERROR CALCULATIONS REPORT")
+            _pdf_draw_line(c, 40, y_position, "ERROR CALCULATIONS REPORT")
             y_position -= 25
             
             for index, calc in enumerate(all_calculations):
@@ -2746,55 +2826,55 @@ def export_pdf():
                         pass
                 
                 c.setFont("Courier-Bold", 12)
-                c.drawString(40, y_position, "=" * 60)
+                _pdf_draw_line(c, 40, y_position, "=" * 60)
                 y_position -= 15
-                c.drawString(40, y_position, f"{name}  {timestamp}")
+                _pdf_draw_line(c, 40, y_position, f"{name}  {timestamp}")
                 y_position -= 15
-                c.drawString(40, y_position, "=" * 60)
+                _pdf_draw_line(c, 40, y_position, "=" * 60)
                 y_position -= 25
                 
                 # Overall Summary
                 c.setFont("Courier-Bold", 10)
-                c.drawString(40, y_position, "SUMMARY:")
+                _pdf_draw_line(c, 40, y_position, "SUMMARY:")
                 y_position -= 20
                 
                 c.setFont("Courier", 9)
-                c.drawString(40, y_position, f"Total Registered Area:    {calc['totalRegisteredArea']:.4f} m²")
+                _pdf_draw_line(c, 40, y_position, f"Total Registered Area:    {calc['totalRegisteredArea']:.4f} m²")
                 y_position -= 15
-                c.drawString(40, y_position, f"Total Calculated Area:    {calc['totalCalculatedArea']:.4f} m²")
+                _pdf_draw_line(c, 40, y_position, f"Total Calculated Area:    {calc['totalCalculatedArea']:.4f} m²")
                 y_position -= 15
-                c.drawString(40, y_position, f"Absolute Difference:      {calc['absoluteDifference']:.4f} m²")
+                _pdf_draw_line(c, 40, y_position, f"Absolute Difference:      {calc['absoluteDifference']:.4f} m²")
                 y_position -= 15
-                c.drawString(40, y_position, f"Permissible Error:        {calc['permissibleError']:.4f} m²")
+                _pdf_draw_line(c, 40, y_position, f"Permissible Error:        {calc['permissibleError']:.4f} m²")
                 y_position -= 20
                 
                 # Formula
                 c.setFont("Courier", 8)
                 formula_text = f"Formula: Permissible Error = 0.8 * sqrt({calc['totalRegisteredArea']:.2f}) + 0.002 * {calc['totalRegisteredArea']:.2f}"
-                c.drawString(40, y_position, formula_text)
+                _pdf_draw_line(c, 40, y_position, formula_text)
                 y_position -= 20
                 
                 # Status
                 c.setFont("Courier-Bold", 10)
                 if calc['exceedsLimit']:
-                    c.drawString(40, y_position, "WARNING: ERROR EXCEEDS PERMISSIBLE LIMITS - Using original areas")
+                    _pdf_draw_line(c, 40, y_position, "WARNING: ERROR EXCEEDS PERMISSIBLE LIMITS - Using original areas")
                 else:
-                    c.drawString(40, y_position, "OK: WITHIN PERMISSIBLE LIMITS - Areas adjusted proportionally")
+                    _pdf_draw_line(c, 40, y_position, "OK: WITHIN PERMISSIBLE LIMITS - Areas adjusted proportionally")
                 y_position -= 30
                 
                 # Parcel Results Table Header
                 c.setFont("Courier-Bold", 10)
-                c.drawString(40, y_position, "PARCEL BREAKDOWN:")
+                _pdf_draw_line(c, 40, y_position, "PARCEL BREAKDOWN:")
                 y_position -= 20
                 
                 # Table header
                 c.setFont("Courier", 8)
                 header_line = f"{'Parcel #':<12} {'Original (m²)':>15} {'Adjusted (m²)':>15} {'Rounded (m²)':>15} {'Points':>8}"
-                c.drawString(40, y_position, header_line)
+                _pdf_draw_line(c, 40, y_position, header_line)
                 y_position -= 12
                 
                 sep_line = f"{'-'*12:<12} {'-'*15:>15} {'-'*15:>15} {'-'*15:>15} {'-'*8:>8}"
-                c.drawString(40, y_position, sep_line)
+                _pdf_draw_line(c, 40, y_position, sep_line)
                 y_position -= 15
                 
                 # Parcel rows
@@ -2816,7 +2896,7 @@ def export_pdf():
                     points = parcel_result['pointCount']
                     
                     row_line = f"{parcel_num:<12} {original:>15.4f} {adjusted:>15.4f} {rounded:>15} {points:>8}"
-                    c.drawString(40, y_position, row_line)
+                    _pdf_draw_line(c, 40, y_position, row_line)
                     y_position -= 12
                 
                 # Total row
@@ -2836,7 +2916,7 @@ def export_pdf():
                 total_points = sum(p['pointCount'] for p in calc['parcelResults'])
                 
                 total_line = f"{'TOTAL:':<12} {total_original:>15.4f} {total_adjusted:>15.4f} {total_rounded:>15} {total_points:>8}"
-                c.drawString(40, y_position, total_line)
+                _pdf_draw_line(c, 40, y_position, total_line)
                 y_position -= 40 # Space between calculations
         
         # Add final page number

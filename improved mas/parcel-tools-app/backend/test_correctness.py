@@ -154,3 +154,29 @@ def test_atomic_write_leaves_no_temp_files_and_replaces_content():
     atomic_write_text(p, 'two')
     assert open(p).read() == 'two'
     assert not [f for f in os.listdir(TMP) if f.endswith('.tmp')]
+
+
+# ---------- PDF ----------
+def _pdf(body):
+    import base64
+    r = c.post('/api/export-pdf', json=body)
+    assert r.status_code == 200, r.get_json()
+    return base64.b64decode(r.get_json()['pdfData'])
+
+
+_PTS = {'1': {'x': 0, 'y': 0}, '2': {'x': 100, 'y': 0}, '3': {'x': 100, 'y': 50}, '4': {'x': 0, 'y': 50}}
+_PARCEL = {'number': '1', 'ids': ['1', '2', '3', '4', '1'], 'area': 5000, 'perimeter': 300, 'curves': []}
+
+
+def test_pdf_latin_unchanged_and_arabic_uses_unicode_font():
+    latin = _pdf({'parcels': [_PARCEL], 'points': _PTS, 'fileHeading': {'block': 'B1', 'place': 'Ramallah'}})
+    assert latin.startswith(b'%PDF') and b'/FontFile2' not in latin      # no embedded TTF: unchanged output
+    if app_module._pdf_unicode_font():     # only meaningful where the machine has an Arabic-capable font
+        arabic = _pdf({'parcels': [dict(_PARCEL, number='قطعة ٧')], 'points': _PTS,
+                       'fileHeading': {'block': 'حوض ١٢٣', 'place': 'رام الله'}})
+        assert b'/FontFile2' in arabic                                    # Arabic font was embedded
+
+
+def test_pdf_survives_missing_values_and_markup():
+    _pdf({'parcels': [dict(_PARCEL, number=None, area=None)], 'points': _PTS})
+    _pdf({'parcels': [_PARCEL], 'points': _PTS, 'fileHeading': {'block': '<b>unclosed <font size=99999>', 'place': 5}})
