@@ -10,6 +10,7 @@ import {
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
 import { customConfirm } from '../utils/dialogs';
+import { validateLabelMatches } from '../utils/labelMatch';
 
 // ─── Colour palette for layers fallback ──────────────────────────────────────
 const LAYER_COLORS = [
@@ -234,15 +235,61 @@ function extractAutoArcsFromEntity(ent, detectedPts) {
 // ─── Inline Modal Boundary Preview Component ────────────────────────────────
 function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumber, metrics }) {
     const canvasRef = useRef(null);
+    const viewportRef = useRef(null);
     const [zoom, setZoom] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
+    const [viewSize, setViewSize] = useState({ w: 0, h: 0 });
+    const [hiddenLabels, setHiddenLabels] = useState(0);
     const isDraggingRef = useRef(false);
     const dragStartRef = useRef({ x: 0, y: 0 });
+    const viewRef = useRef({ zoom: 1, pan: { x: 0, y: 0 } });
+    viewRef.current = { zoom, pan };
+
+    const MIN_ZOOM = 0.5;
+    const MAX_ZOOM = 400;   // dense parcels need real magnification to tell neighbouring corners apart
 
     const handleResetView = useCallback(() => {
         setZoom(1);
         setPan({ x: 0, y: 0 });
     }, []);
+
+    // Zoom keeping the point under (mx, my) fixed on screen. mx/my are relative to the viewport centre.
+    const zoomAt = useCallback((factor, mx = 0, my = 0) => {
+        const { zoom: z1, pan: p1 } = viewRef.current;
+        const z2 = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z1 * factor));
+        if (z2 === z1) return;
+        const k = z2 / z1;
+        setZoom(z2);
+        setPan({ x: mx - (mx - p1.x) * k, y: my - (my - p1.y) * k });
+    }, []);
+
+    // Keep the canvas sharp and redraw when the popup is resized
+    useEffect(() => {
+        const el = viewportRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return undefined;
+        const ro = new ResizeObserver((entries) => {
+            const r = entries[0].contentRect;
+            setViewSize({ w: Math.round(r.width), h: Math.round(r.height) });
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+
+    // Wheel zoom must be a NON-passive native listener, otherwise preventDefault is ignored
+    // and the popup scrolls behind the preview while the user is trying to zoom.
+    useEffect(() => {
+        const el = viewportRef.current;
+        if (!el) return undefined;
+        const onWheel = (e) => {
+            e.preventDefault();
+            const rect = el.getBoundingClientRect();
+            const mx = e.clientX - rect.left - rect.width / 2;
+            const my = e.clientY - rect.top - rect.height / 2;
+            zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, mx, my);
+        };
+        el.addEventListener('wheel', onWheel, { passive: false });
+        return () => el.removeEventListener('wheel', onWheel);
+    }, [zoomAt]);
 
     // Derive points coordinates
     const parcelCoords = useMemo(() => {
@@ -374,7 +421,21 @@ function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumb
         ctx.stroke();
         ctx.restore();
 
-        // Draw segment lengths & traverse badges
+        // Label declutter: only draw a label/badge if it does not overlap one that is already drawn.
+        // Priority order: start corner, then corners, then segment lengths. Zoom in to reveal the rest.
+        const placed = [];
+        let hidden = 0;
+        const tryPlace = (x, y, bw, bh) => {
+            const r = { x, y, w: bw, h: bh };
+            if (x > w || y > h || x + bw < 0 || y + bh < 0) return true;   // off-screen: nothing to draw
+            for (const q of placed) {
+                if (r.x < q.x + q.w && r.x + r.w > q.x && r.y < q.y + q.h && r.y + r.h > q.y) return false;
+            }
+            placed.push(r);
+            return true;
+        };
+
+        // Draw segment lengths & traverse badges (skipped for edges too short on screen to carry a label)
         for (let i = 0; i < n; i++) {
             const p1 = parcelCoords[i];
             const p2 = parcelCoords[(i + 1) % n];
@@ -390,7 +451,8 @@ function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumb
             const midY = (sy1 + sy2) / 2;
             const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
 
-            if (dist > 0.01) {
+            const edgePx = Math.hypot(sx2 - sx1, sy2 - sy1);
+            if (dist > 0.01 && edgePx > 38) {
                 ctx.save();
                 const distText = curve ? `Arc M=${curve.M}m (${dist.toFixed(1)}m)` : `${dist.toFixed(2)}m`;
                 ctx.font = '9px JetBrains Mono, monospace, sans-serif';
@@ -401,6 +463,11 @@ function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumb
                 const textW = ctx.measureText(distText).width;
                 const bx = midX - textW / 2 - 4;
                 const by = midY - 7;
+                if (textW + 8 > edgePx * 1.1 || !tryPlace(bx, by, textW + 8, 14)) {
+                    ctx.restore();
+                    hidden++;
+                    continue;
+                }
                 ctx.beginPath();
                 if (typeof ctx.roundRect === 'function') {
                     ctx.roundRect(bx, by, textW + 8, 14, 4);
@@ -418,8 +485,10 @@ function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumb
             }
         }
 
-        // Draw Corner Vertices with badges
-        parcelCoords.forEach((p, i) => {
+        // Draw Corner Vertices with badges (dots always; text only where it fits)
+        const vertexOrder = parcelCoords.map((_, i) => i).sort((a, b) => (a === 0 ? -1 : b === 0 ? 1 : a - b));
+        vertexOrder.forEach((i) => {
+            const p = parcelCoords[i];
             const sx = wx2sx(p.x), sy = wy2sy(p.y);
             const isStart = i === 0;
 
@@ -434,14 +503,21 @@ function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumb
 
             const label = isStart ? `#${i + 1} ★ ${p.id}` : `#${i + 1} ${p.id}`;
             ctx.font = isStart ? 'bold 11px Inter, sans-serif' : '10px Inter, sans-serif';
-            ctx.fillStyle = isStart ? '#fef08a' : '#ffffff';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'bottom';
-            ctx.shadowColor = '#000000';
-            ctx.shadowBlur = 4;
-            ctx.fillText(label, sx + 7, sy - 4);
+            const lw = ctx.measureText(label).width;
+            if (isStart || tryPlace(sx + 5, sy - 17, lw + 4, 14)) {
+                if (isStart) placed.push({ x: sx + 5, y: sy - 17, w: lw + 4, h: 14 });
+                ctx.fillStyle = isStart ? '#fef08a' : '#ffffff';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'bottom';
+                ctx.shadowColor = '#000000';
+                ctx.shadowBlur = 4;
+                ctx.fillText(label, sx + 7, sy - 4);
+            } else {
+                hidden++;
+            }
             ctx.restore();
         });
+        setHiddenLabels((prev) => (prev === hidden ? prev : hidden));
 
         // Centroid Parcel Info Badge
         if (parcelCoords.length >= 3 && bounds) {
@@ -482,25 +558,25 @@ function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumb
             ctx.restore();
         }
 
-    }, [parcelCoords, curves, bounds, zoom, pan, isCCW, parcelNumber, metrics]);
+    }, [parcelCoords, curves, bounds, zoom, pan, isCCW, parcelNumber, metrics, viewSize]);
 
-    // Mouse handlers for dragging/panning
-    const handleMouseDown = (e) => {
+    // Pointer handlers: pointer capture keeps the drag alive when the cursor leaves the preview
+    const handlePointerDown = (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
         isDraggingRef.current = true;
         dragStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* not supported */ }
     };
-    const handleMouseMove = (e) => {
+    const handlePointerMove = (e) => {
         if (!isDraggingRef.current) return;
         setPan({
             x: e.clientX - dragStartRef.current.x,
             y: e.clientY - dragStartRef.current.y
         });
     };
-    const handleMouseUp = () => { isDraggingRef.current = false; };
-    const handleWheel = (e) => {
-        e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.15 : 0.85;
-        setZoom(prev => Math.min(5, Math.max(0.2, prev * factor)));
+    const handlePointerUp = (e) => {
+        isDraggingRef.current = false;
+        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
     };
 
     return (
@@ -519,7 +595,7 @@ function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumb
                 <div className="flex items-center gap-1">
                     <button 
                         type="button"
-                        onClick={() => setZoom(z => Math.min(5, z * 1.2))}
+                        onClick={() => zoomAt(1.4)}
                         className="p-1 hover:bg-dark-750 text-dark-300 hover:text-white rounded transition-colors"
                         title="Zoom In"
                     >
@@ -527,7 +603,7 @@ function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumb
                     </button>
                     <button 
                         type="button"
-                        onClick={() => setZoom(z => Math.max(0.2, z * 0.8))}
+                        onClick={() => zoomAt(1 / 1.4)}
                         className="p-1 hover:bg-dark-750 text-dark-300 hover:text-white rounded transition-colors"
                         title="Zoom Out"
                     >
@@ -545,17 +621,23 @@ function ModalBoundaryPreview({ detectedPoints, loadedPoints, curves, parcelNumb
             </div>
 
             {/* Canvas Viewport */}
-            <div 
-                className="relative h-64 sm:h-80 w-full bg-black cursor-grab active:cursor-grabbing overflow-hidden"
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                onWheel={handleWheel}
+            <div
+                ref={viewportRef}
+                className="relative h-72 sm:h-96 w-full bg-black cursor-grab active:cursor-grabbing overflow-hidden select-none"
+                style={{ touchAction: 'none' }}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onDoubleClick={handleResetView}
             >
                 <canvas ref={canvasRef} className="w-full h-full block" />
-                <div className="absolute bottom-2 left-2 text-[9px] font-mono text-dark-500 bg-dark-950/80 px-2 py-0.5 rounded border border-dark-800 pointer-events-none">
-                    Drag: Pan • Scroll: Zoom • Start: #1 ★
+                <div className="absolute bottom-2 left-2 text-[9px] font-mono text-dark-400 bg-dark-950/80 px-2 py-0.5 rounded border border-dark-800 pointer-events-none">
+                    Drag: Pan • Scroll: Zoom • Double-click: Fit • Start: #1 ★
+                </div>
+                <div className="absolute top-2 right-2 text-[9px] font-mono text-dark-300 bg-dark-950/80 px-2 py-0.5 rounded border border-dark-800 pointer-events-none">
+                    {zoom >= 10 ? `${Math.round(zoom)}×` : `${zoom.toFixed(1)}×`}
+                    {hiddenLabels > 0 ? ` • ${hiddenLabels} labels hidden — zoom in` : ''}
                 </div>
             </div>
 
@@ -635,6 +717,7 @@ const DxfImport = () => {
     const [showModal, setShowModal] = useState(false);
     const [detectedNumber, setDetectedNumber] = useState('');
     const [detectedPoints, setDetectedPoints] = useState([]);
+    const [matchWarnings, setMatchWarnings] = useState([]);
     const [parcelNumberInput, setParcelNumberInput] = useState('');
     const [newPointsToRegister, setNewPointsToRegister] = useState({});
     const [renumberStartInput, setRenumberStartInput] = useState('1');
@@ -1122,6 +1205,7 @@ const DxfImport = () => {
             };
         });
 
+        setMatchWarnings([]);
         setDetectedNumber(parcel.number);
         setParcelNumberInput(parcel.number);
         setDetectedPoints(pts);
@@ -1589,6 +1673,9 @@ const DxfImport = () => {
             });
         });
 
+        const mapCheck = validateLabelMatches(detectedPts, missingPoints, loadedPoints, bbDiag);
+        setMatchWarnings(mapCheck.warnings);
+
         setDetectedNumber(parcelNo);
         setParcelNumberInput(parcelNo);
         setDetectedPoints(detectedPts);
@@ -1723,6 +1810,9 @@ const DxfImport = () => {
             }
             detectedPts.push({ vertexIdx: idx, x: p.x, y: p.y, label: matchedLabel, dist: matchedDist, pointId, status });
         });
+
+        const mapCheck = validateLabelMatches(detectedPts, missingPoints, loadedPoints, bbDiag);
+        setMatchWarnings(mapCheck.warnings);
 
         setDetectedNumber(parcelNo);
         setParcelNumberInput(parcelNo);
@@ -2747,6 +2837,16 @@ const DxfImport = () => {
                                     </div>
                                 </div>
                             </div>
+
+                            {matchWarnings.length > 0 && (
+                                <div className="bg-amber-500/10 border border-amber-500/40 rounded-xl p-3 text-[11px] text-amber-200 font-sans">
+                                    <div className="font-bold mb-1">⚠️ Please check {matchWarnings.length} corner{matchWarnings.length > 1 ? 's' : ''}</div>
+                                    <ul className="list-disc pl-5 space-y-0.5">
+                                        {matchWarnings.slice(0, 8).map((w, i) => <li key={i}>{w}</li>)}
+                                    </ul>
+                                    {matchWarnings.length > 8 && <div className="mt-1 text-amber-300/70">…and {matchWarnings.length - 8} more.</div>}
+                                </div>
+                            )}
 
                             {/* Responsive 2-Column Layout: Left (Mapping & Curves) / Right (Inline Boundary Preview) */}
                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
