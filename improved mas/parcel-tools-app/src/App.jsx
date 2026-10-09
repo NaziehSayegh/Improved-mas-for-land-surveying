@@ -110,7 +110,7 @@ function AppContent() {
 
           {/* Admin route — accessible to admin users */}
           <Route path="/admin" element={
-            user && (user.isAdmin || user.email === 'nsayegh2003@yahoo.com') ? <AdminPanel /> : <Navigate to="/" replace />
+            loading ? null : (user && (user.isAdmin || user.email === 'nsayegh2003@yahoo.com') ? <AdminPanel /> : <Navigate to="/" replace />)
           } />
 
           {/* Protected routes — wrapped in LicenseGuard */}

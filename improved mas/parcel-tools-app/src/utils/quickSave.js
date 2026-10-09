@@ -108,7 +108,7 @@ export async function handleQuickSaveAs() {
         block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
       },
       lastModified: new Date().toISOString(),
-      version: '2.0.7'
+      version: __APP_VERSION__
     };
 
     // Save via backend

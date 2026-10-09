@@ -180,3 +180,31 @@ def test_pdf_latin_unchanged_and_arabic_uses_unicode_font():
 def test_pdf_survives_missing_values_and_markup():
     _pdf({'parcels': [dict(_PARCEL, number=None, area=None)], 'points': _PTS})
     _pdf({'parcels': [_PARCEL], 'points': _PTS, 'fileHeading': {'block': '<b>unclosed <font size=99999>', 'place': 5}})
+
+
+# ---------- Assistant ----------
+def _ask(q):
+    r = c.post('/api/ai/ask', json={'messages': [{'role': 'user', 'content': q}]})
+    assert r.status_code == 200
+    return r.get_json()['answer']
+
+
+def test_assistant_answers_from_builtin_help_not_source_code():
+    expectations = {
+        'how do I add a curve': 'middle ordinate',
+        'how to export pdf': 'Export All to 1 File',
+        'how do I create a parcel from a hatch': 'hatch',
+        'how do I import a dwg file': 'ODA',
+        'what is the permissible limit for error adjustment': '0.8',
+        'how many devices can I use': '2 computers',
+        'loading points file format': 'ID, X, Y',
+    }
+    for question, must_contain in expectations.items():
+        answer = _ask(question)
+        assert must_contain.lower() in answer.lower(), (question, answer[:120])
+        assert 'import React' not in answer and 'useState' not in answer
+
+
+def test_assistant_unknown_question_gets_helpful_fallback():
+    answer = _ask('zzzz qqqq xxxx')
+    assert 'built-in help' in answer and 'import React' not in answer

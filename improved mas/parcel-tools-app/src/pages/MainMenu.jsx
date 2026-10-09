@@ -172,7 +172,7 @@ const MainMenu = () => {
         <div className="flex items-center gap-2 ml-2">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold
                            bg-primary/10 border border-primary/30 text-primary">
-            v2.0 Premium
+            v{__APP_VERSION__} Premium
           </span>
           <LicenseBadge />
           {projectName && (

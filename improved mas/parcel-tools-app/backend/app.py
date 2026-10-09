@@ -2991,47 +2991,20 @@ def ai_ask():
             except Exception:
                 pass  # Fall back to local docs
 
-        # Local docs/FAQ fallback
-        kb_paths = [
-            os.path.join(os.path.dirname(__file__), '..', 'README.md'),
-            os.path.join(os.path.dirname(__file__), '..', 'SETUP.md'),
-            os.path.join(os.path.dirname(__file__), '..', 'BUILD_INSTRUCTIONS.md'),
-            os.path.join(os.path.dirname(__file__), '..', 'src', 'pages', 'ParcelCalculator.jsx'),
-            os.path.join(os.path.dirname(__file__), '..', 'src', 'pages', 'DataFiles.jsx'),
-            os.path.join(os.path.dirname(__file__), '..', 'WHAT_WAS_CREATED.md'),
-            os.path.join(os.path.dirname(__file__), '..', 'BACKUP_INSTRUCTIONS.md'),
-        ]
-
-        docs = []
-        for p in kb_paths:
-            try:
-                with open(p, 'r', encoding='utf-8', errors='ignore') as f:
-                    text = f.read()
-                    docs.append((os.path.basename(p), text))
-            except Exception:
-                continue
-
-        # Very simple keyword score
-        tokens = [t for t in re.split(r"[^\w]+", user_q.lower()) if t]
-        scored = []
-        for name, text in docs:
-            tl = text.lower()
-            score = sum(tl.count(tok) for tok in tokens)
-            scored.append((score, name, text))
-        scored.sort(reverse=True)
-
-        if not scored or scored[0][0] == 0:
-            return jsonify({ 'answer': 'I could not find this in the docs. Try asking about: loading points, entering IDs, curves (M value), auto-save, or PDF export.' })
-
-        # Return top 3 snippets (first 700 chars each)
-        snippets = []
-        for i, (_, name, text) in enumerate(scored[:3]):
-            snippets.append(f"From {name}:\n" + text[:700].strip())
-        answer = ("Here is what I found:\n\n" + "\n\n---\n\n".join(snippets))
-        return jsonify({ 'answer': answer })
+        # Built-in help (works offline and in the installed app)
+        from assistant_faq import best_answer
+        entry = best_answer(user_q)
+        if entry:
+            return jsonify({'answer': f"{entry['title']}\n\n{entry['answer']}"})
+        return jsonify({'answer': (
+            "I couldn't find that in the built-in help. Try asking about: loading points, closing a parcel, curves (M value), "
+            "saving parcels and projects, PDF export, CAD / hatch import, error calculations, or licenses. "
+            "For free-form questions add an OpenAI key in Work Mode → Assistant."
+        )})
 
     except Exception as e:
-        return jsonify({ 'answer': f'Assistant error: {str(e)}' })
+        print(f'[Assistant ERROR] {e}')
+        return jsonify({ 'answer': 'Sorry, the assistant ran into a problem. Please try again.' })
 
 
 @app.route('/api/ai/config', methods=['GET', 'POST'])
