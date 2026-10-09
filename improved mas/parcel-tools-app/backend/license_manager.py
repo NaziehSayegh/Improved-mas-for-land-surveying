@@ -442,57 +442,29 @@ class LicenseManager:
                 'error': f'Failed to save license: {str(e)}'
             }
     
+    def activate_from_account(self, email):
+        """Write a signed local license for an account the caller has already verified
+        as premium in Firestore (so offline checks keep working)."""
+        data = {
+            'type': 'paid',
+            'key': '',
+            'email': (email or '').lower().strip(),
+            'machine_id': hashlib.sha256(self.get_machine_id().encode()).hexdigest(),
+            'status': 'licensed',
+            'app_id': 'com.parceltools.app',
+            'provider': 'gumroad'
+        }
+        data['signature'] = self._sign_license(data)
+        os.makedirs(self.data_dir, exist_ok=True)
+        with open(self.license_file, 'w', encoding='utf-8') as f:
+            json_lib.dump(data, f, indent=2)
+        return {'success': True}
+
     def validate_license_key(self, license_key, email):
-        """
-        Validate license key against valid_licenses.txt database
-        
-        License Key Format: XXXX-XXXX-XXXX-XXXX
-        """
-        try:
-            # Remove dashes and normalize
-            clean_key = license_key.replace('-', '').upper()
-            clean_email = email.lower().strip()
-            
-            if len(clean_key) != 16:
-                return False
-            
-            # Check against valid_licenses.txt file
-            valid_licenses_file = os.path.join(os.path.dirname(__file__), 'valid_licenses.txt')
-            
-            if os.path.exists(valid_licenses_file):
-                with open(valid_licenses_file, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        line = line.strip()
-                        # Skip comments and empty lines
-                        if not line or line.startswith('#'):
-                            continue
-                        
-                        # Format: email:license_key
-                        if ':' in line:
-                            stored_email, stored_key = line.split(':', 1)
-                            stored_email = stored_email.strip().lower()
-                            stored_key = stored_key.strip().replace('-', '').upper()
-                            
-                            # Check if email and key match
-                            if clean_email == stored_email and clean_key == stored_key:
-                                return True
-            
-            # Fallback: Also check HMAC-generated keys
-            # Use clean_email to ensure no whitespace issues
-            expected = self.generate_license_key(clean_email)
-            
-            # Compare clean keys (ignore dashes)
-            expected_clean = expected.replace('-', '').upper()
-            
-            if clean_key == expected_clean:
-                return True
-            
-            return False
-            
-        except Exception as e:
-            print(f"License validation error: {e}")
-            return False
-    
+        """Legacy email-derived keys were forgeable (public algorithm) and are no longer
+        accepted. Licenses are verified only against Gumroad or a Firestore premium account."""
+        return False
+
     def generate_license_key(self, email):
         """
         Generate a license key for an email

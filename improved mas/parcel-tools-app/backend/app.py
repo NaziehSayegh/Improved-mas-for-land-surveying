@@ -364,8 +364,7 @@ def auth_signup():
         elif account_type == 'premium':
             # Validate the license
             gumroad_ok = license_manager.verify_gumroad_key(license_key)
-            legacy_ok  = license_manager.validate_license_key(license_key, email)
-            if not gumroad_ok.get('valid') and not legacy_ok:
+            if not gumroad_ok.get('valid'):
                 return jsonify({'error': 'Invalid license key. Please check your Gumroad email.'}), 400
 
         # Collect machine binding info
@@ -446,18 +445,6 @@ def _ensure_premium_license_activated(uid, user_data, email_val):
         return
     try:
         lic_key = user_data.get('license_key')
-        if not lic_key and email_val:
-            lic_key = license_manager.generate_license_key(email_val)
-            if firebase_service._is_online() and uid:
-                try:
-                    firebase_service.db.collection('users').document(uid).set({'license_key': lic_key}, merge=True)
-                except Exception as db_e:
-                    print(f'[Auth] Warning: Could not update Firestore license_key: {db_e}')
-            all_u = firebase_service._load_users_from_json()
-            if uid and uid in all_u:
-                all_u[uid]['license_key'] = lic_key
-                firebase_service._save_users_to_json(all_u)
-            user_data['license_key'] = lic_key
         if lic_key and email_val:
             license_manager.activate_license(lic_key, email_val)
             print(f'[Auth] Auto-activated license key locally for {email_val}')
@@ -3045,16 +3032,9 @@ def get_license_status():
             local_status = license_manager.get_license_info()
             if not local_status.get('is_valid'):
                 try:
-                    lic_key = user_data.get('license_key')
-                    if not lic_key:
-                        lic_key = license_manager.generate_license_key(email_val)
-                        if firebase_service._is_online() and user_id_to_check:
-                            firebase_service.db.collection('users').document(user_id_to_check).set({'license_key': lic_key}, merge=True)
-                        all_users = firebase_service._load_users_from_json()
-                        if user_id_to_check and user_id_to_check in all_users:
-                            all_users[user_id_to_check]['license_key'] = lic_key
-                            firebase_service._save_users_to_json(all_users)
-                    license_manager.activate_license(lic_key, email_val)
+                    # Only a verified session (not a local file's email) may restore the local license
+                    if user_id_to_check:
+                        license_manager.activate_from_account(email_val)
                     print(f'[API] Auto-recreated local license for premium user: {email_val}')
                 except Exception as e:
                     print(f'[API] Warning: auto-create license failed: {e}')
@@ -3160,26 +3140,6 @@ def deactivate_license():
         return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/license/generate', methods=['POST'])
-def generate_license_key():
-    """
-    Generate a license key for testing purposes
-    NOTE: In production, remove this endpoint and generate keys on your payment server
-    """
-    try:
-        data = request.json
-        email = data.get('email', '').strip()
-        
-        if not email:
-            return jsonify({'error': 'Email is required'}), 400
-        
-        key = license_manager.generate_license_key(email)
-        return jsonify({'license_key': key, 'email': email})
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 
 # ============================================================================
