@@ -16,6 +16,8 @@ const LoginPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [info, setInfo] = useState('');
   const [rememberMe, setRememberMe] = useState(() => {
     return localStorage.getItem('remember_me') !== 'false';
   });
@@ -23,6 +25,8 @@ const LoginPage = () => {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
+    setInfo('');
+    setNeedsVerification(false);
     setLoading(true);
     try {
       const res = await fetch('http://127.0.0.1:5000/api/auth/login', {
@@ -55,6 +59,9 @@ const LoginPage = () => {
           `This account is registered on a different computer. ` +
           `Contact support with your Machine ID: ${data.machineId || 'N/A'}`
         );
+      } else if (data.code === 'EMAIL_NOT_VERIFIED') {
+        setNeedsVerification(true);
+        setError(data.error);
       } else if (data.code === 'ACCOUNT_DISABLED') {
         setError('Your account has been disabled. Please contact support.');
       } else if (data.code === 'DEVICE_LIMIT_REACHED') {
@@ -65,6 +72,26 @@ const LoginPage = () => {
       } else {
         setError(data.error || 'Login failed. Please check your credentials.');
       }
+    } catch {
+      setError('Connection error. Make sure the app engine is running.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setError('');
+    setInfo('');
+    setLoading(true);
+    try {
+      const res = await fetch('http://127.0.0.1:5000/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) setInfo(data.message);
+      else setError(data.error || 'Could not send verification email.');
     } catch {
       setError('Connection error. Make sure the app engine is running.');
     } finally {
@@ -152,6 +179,18 @@ const LoginPage = () => {
               )}
             </AnimatePresence>
 
+            {needsVerification && (
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={loading}
+                className="text-sm text-primary hover:text-primary-light transition-colors font-semibold"
+              >
+                Resend verification email
+              </button>
+            )}
+            {info && <p className="text-green-400 text-sm">{info}</p>}
+
             {/* Email */}
             <div>
               <label className="block text-sm font-medium text-dark-200 mb-1.5">
@@ -200,7 +239,8 @@ const LoginPage = () => {
               </div>
             </div>
 
-            {/* Remember me */}
+            {/* Remember me + forgot password */}
+            <div className="flex items-center justify-between">
             <label className="flex items-center gap-2 cursor-pointer select-none w-fit">
               <input
                 type="checkbox"
@@ -213,6 +253,14 @@ const LoginPage = () => {
                 Remember me
               </span>
             </label>
+            <button
+              type="button"
+              onClick={() => navigate('/forgot-password')}
+              className="text-sm text-primary hover:text-primary-light transition-colors font-semibold"
+            >
+              Forgot password?
+            </button>
+            </div>
 
             {/* Submit */}
             <button

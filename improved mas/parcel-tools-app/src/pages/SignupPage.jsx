@@ -16,6 +16,7 @@ const SignupPage = () => {
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [verificationSent, setVerificationSent] = useState(false);
 
     // Password strength calculator
     const getPasswordStrength = (pwd) => {
@@ -51,7 +52,10 @@ const SignupPage = () => {
             });
             const data = await response.json();
 
-            if (response.ok && data.success) {
+            if (response.ok && data.success && data.verificationRequired) {
+                localStorage.setItem('saved_email', email);
+                setVerificationSent(true);
+            } else if (response.ok && data.success) {
                 localStorage.setItem('saved_email', email);
                 localStorage.removeItem('saved_password');
                 localStorage.setItem('remember_me', 'true');
@@ -141,6 +145,23 @@ const SignupPage = () => {
                     transition={{ delay: 0.5 }}
                     className="bg-dark-800/80 backdrop-blur-xl border border-dark-600/50 rounded-xl sm:rounded-2xl shadow-2xl p-5 sm:p-6 md:p-8"
                 >
+                    {verificationSent ? (
+                        <div className="text-center space-y-4">
+                            <CheckCircle className="w-10 h-10 text-green-400 mx-auto" />
+                            <h2 className="text-lg font-semibold text-dark-100">Verify your email</h2>
+                            <p className="text-sm text-dark-300">
+                                We sent a verification link to <strong>{email}</strong>.
+                                Click it, then sign in to continue.
+                            </p>
+                            <button
+                                onClick={() => navigate('/login')}
+                                className="w-full bg-gradient-to-r from-primary to-primary-dark text-white text-sm font-semibold py-2.5 px-4 rounded-lg"
+                            >
+                                Go to Sign In
+                            </button>
+                        </div>
+                    ) : (
+                    <>
                     <form onSubmit={handleSignup} className="space-y-3.5 sm:space-y-5">
                         {/* Error Message */}
                         <AnimatePresence>
@@ -329,6 +350,8 @@ const SignupPage = () => {
                     >
                         Sign In Instead
                     </button>
+                    </>
+                    )}
                 </motion.div>
 
                 {/* Additional Info */}
