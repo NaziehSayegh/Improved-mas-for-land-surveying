@@ -13,6 +13,7 @@ import Assistant from './pages/Assistant';
 import LicensePage from './pages/LicensePage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import DxfImport from './pages/DxfImport';
 import LicenseGuard from './components/LicenseGuard';
 import TitleBar from './components/TitleBar';
@@ -43,7 +44,7 @@ function AppContent() {
   // Redirect to login if not authenticated (both demo and premium require login)
   useEffect(() => {
     if (!loading && !user) {
-      const publicPaths = ['/login', '/signup'];
+      const publicPaths = ['/login', '/signup', '/forgot-password'];
       if (!publicPaths.includes(location.pathname)) {
         navigate('/login');
       }
@@ -106,6 +107,7 @@ function AppContent() {
           {/* Public routes */}
           <Route path="/login"  element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/license" element={<LicensePage />} />
 
           {/* Admin route — accessible to admin users */}

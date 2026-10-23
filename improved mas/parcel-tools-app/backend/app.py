@@ -78,6 +78,8 @@ PUBLIC_ENDPOINTS = {
     '/api/health',
     '/api/auth/login',
     '/api/auth/signup',
+    '/api/auth/forgot-password',
+    '/api/auth/resend-verification',
     '/api/auth/verify',          # validates the token itself
     '/api/license/status',       # read-only status; also polled by the Electron main process at startup
 }
@@ -340,29 +342,63 @@ def health_check():
 # AUTH HELPERS
 # ============================================================================
 
+# Accounts created before this timestamp predate email verification and may sign in unverified.
+EMAIL_VERIFICATION_START = '2026-10-23'
+
+
+def _firebase_rest(endpoint: str, payload: dict):
+    """POST to the Firebase Identity Toolkit REST API. Returns parsed JSON, raises Exception(message) on error."""
+    import urllib.request, urllib.error, json as _json
+    from firebase_config import get_firebase_api_key
+    api_key = get_firebase_api_key()
+    if not api_key:
+        raise Exception('Firebase API key not configured')
+    url = f'https://identitytoolkit.googleapis.com/v1/accounts:{endpoint}?key={api_key}'
+    req = urllib.request.Request(url, data=_json.dumps(payload).encode(),
+                                 headers={'Content-Type': 'application/json'}, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return _json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        err_body = _json.loads(e.read().decode())
+        raise Exception(err_body.get('error', {}).get('message', 'Authentication failed'))
+
+
+def _firebase_sign_in(email: str, password: str):
+    """Sign in via Firebase REST API. Returns the full response (localId, idToken, ...)."""
+    try:
+        return _firebase_rest('signInWithPassword',
+                              {'email': email, 'password': password, 'returnSecureToken': True})
+    except Exception as e:
+        if 'API key not configured' in str(e):
+            raise Exception('Firebase API key not configured — cannot verify password')
+        raise
+
+
 def _verify_firebase_password(email: str, password: str):
     """
     Verify password via Firebase REST API (sign-in-with-password).
     Returns uid on success, raises Exception on failure.
     Firebase Admin SDK cannot verify passwords — we must use the REST API.
     """
-    import urllib.request, urllib.parse, urllib.error, json as _json
+    return _firebase_sign_in(email, password)['localId']
+
+
+def _firebase_email_verified(id_token: str) -> bool:
+    """True if Firebase reports the account's email address as verified."""
+    info = _firebase_rest('lookup', {'idToken': id_token})
+    users = info.get('users') or []
+    return bool(users and users[0].get('emailVerified'))
+
+
+def _send_verification_email(id_token: str):
+    _firebase_rest('sendOobCode', {'requestType': 'VERIFY_EMAIL', 'idToken': id_token})
+
+
+def _email_verification_enforced() -> bool:
+    """Verification only applies when Firebase is online and the web API key is configured."""
     from firebase_config import get_firebase_api_key
-    api_key = get_firebase_api_key()
-    if not api_key:
-        raise Exception('Firebase API key not configured — cannot verify password')
-    url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}'
-    payload = _json.dumps({'email': email, 'password': password, 'returnSecureToken': True}).encode()
-    req = urllib.request.Request(url, data=payload,
-                                 headers={'Content-Type': 'application/json'}, method='POST')
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = _json.loads(resp.read())
-            return data['localId']  # Firebase uid
-    except urllib.error.HTTPError as e:
-        err_body = _json.loads(e.read().decode())
-        msg = err_body.get('error', {}).get('message', 'Authentication failed')
-        raise Exception(msg)
+    return firebase_service._is_online() and bool(get_firebase_api_key())
 
 
 def require_auth(f):
@@ -460,6 +496,22 @@ def auth_signup():
 
         uid = result['user_id']
 
+        # Real-email check: send a verification email and withhold the session until it is confirmed.
+        verification_required = False
+        if _email_verification_enforced():
+            try:
+                _send_verification_email(_firebase_sign_in(email, password)['idToken'])
+                verification_required = True
+            except Exception as ver_err:
+                print(f'[Auth] Could not send verification email to {email}: {ver_err}')
+                try:
+                    from firebase_config import get_firebase_auth
+                    get_firebase_auth().delete_user(uid)
+                    firebase_service.db.collection('users').document(uid).delete()
+                except Exception as cleanup_err:
+                    print(f'[Auth] Cleanup after failed verification email failed: {cleanup_err}')
+                return jsonify({'error': 'Could not send a verification email. Please check the address and try again.'}), 400
+
         # Save license for premium accounts
         if account_type == 'premium' and license_key:
             firebase_service.save_license(uid, {
@@ -474,6 +526,15 @@ def auth_signup():
                 print(f'[Auth] Auto-activated license key locally on signup for {email}')
             except Exception as lic_err:
                 print(f'[Auth] Warning: Could not auto-activate license on signup: {lic_err}')
+
+        if verification_required:
+            print(f'[Auth] Account created, awaiting email verification: {email} ({account_type})')
+            return jsonify({
+                'success': True,
+                'verificationRequired': True,
+                'message': 'Account created. Check your email to verify your address, then sign in.',
+                'email': email,
+            })
 
         # Issue session token (machine-bound)
         session_token = license_manager.generate_session_token(uid, machine_id_hash)
@@ -547,8 +608,11 @@ def auth_login():
             return jsonify({'error': 'Email and password are required'}), 400
 
         # ── 1. Verify password via Firebase REST API ──────────────────────────
+        id_token = None
         try:
-            uid = _verify_firebase_password(email, password)
+            sign_in = _firebase_sign_in(email, password)
+            uid = sign_in['localId']
+            id_token = sign_in.get('idToken')
         except Exception as pw_err:
             err_msg = str(pw_err)
             print(f'[Auth] Password verification failed for {email}: {err_msg}')
@@ -559,6 +623,19 @@ def auth_login():
         user_data = firebase_service.get_user(uid)
         if not user_data:
             return jsonify({'error': 'User profile not found'}), 404
+
+        # ── 2.5 Require a verified email address (accounts created before this rule are grandfathered) ──
+        if id_token and str(user_data.get('created_at', '9999')) >= EMAIL_VERIFICATION_START:
+            try:
+                verified = _firebase_email_verified(id_token)
+            except Exception as ver_err:
+                print(f'[Auth] Email verification lookup failed for {email}: {ver_err}')
+                return jsonify({'error': 'Could not check email verification. Please try again.'}), 503
+            if not verified:
+                return jsonify({
+                    'error': 'Please verify your email address before signing in. Check your inbox for the verification link.',
+                    'code': 'EMAIL_NOT_VERIFIED'
+                }), 403
 
         # ── 3. Check if account is active ────────────────────────────────────
         if user_data.get('is_active') is False:
@@ -656,6 +733,41 @@ def auth_login():
     except Exception as e:
         print(f'[Auth ERROR] Login failed: {e}')
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/auth/forgot-password', methods=['POST'])
+def auth_forgot_password():
+    """Send a Firebase password-reset email. Always answers the same way so emails can't be enumerated."""
+    data = request.get_json(silent=True)
+    email = data.get('email', '') if isinstance(data, dict) else ''
+    if not isinstance(email, str) or not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email.strip()):
+        return jsonify({'error': 'Please enter a valid email address'}), 400
+    email = email.strip().lower()
+    if not _email_verification_enforced():
+        return jsonify({'error': 'Password reset is unavailable while offline. Please connect to the internet and try again.'}), 503
+    try:
+        _firebase_rest('sendOobCode', {'requestType': 'PASSWORD_RESET', 'email': email})
+    except Exception as e:
+        print(f'[Auth] Password reset request for {email}: {e}')
+    return jsonify({'success': True,
+                    'message': 'If an account exists for that email, a password reset link has been sent.'})
+
+
+@app.route('/api/auth/resend-verification', methods=['POST'])
+def auth_resend_verification():
+    """Re-send the verification email. Requires the account's email and password."""
+    data = request.get_json(silent=True)
+    data = data if isinstance(data, dict) else {}
+    email, password = data.get('email', ''), data.get('password', '')
+    if not isinstance(email, str) or not isinstance(password, str) or not email or not password:
+        return jsonify({'error': 'Email and password are required'}), 400
+    try:
+        sign_in = _firebase_sign_in(email.strip().lower(), password)
+        _send_verification_email(sign_in['idToken'])
+    except Exception as e:
+        print(f'[Auth] Resend verification failed: {e}')
+        return jsonify({'error': 'Could not send verification email. Check your email and password.'}), 400
+    return jsonify({'success': True, 'message': 'Verification email sent. Check your inbox.'})
 
 
 @app.route('/api/auth/verify', methods=['POST'])
