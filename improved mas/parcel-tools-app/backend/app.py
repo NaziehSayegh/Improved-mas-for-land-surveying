@@ -342,6 +342,10 @@ def health_check():
 # AUTH HELPERS
 # ============================================================================
 
+# Accounts created before this timestamp predate email verification and may sign in unverified.
+EMAIL_VERIFICATION_START = '2026-10-23'
+
+
 def _firebase_rest(endpoint: str, payload: dict):
     """POST to the Firebase Identity Toolkit REST API. Returns parsed JSON, raises Exception(message) on error."""
     import urllib.request, urllib.error, json as _json
@@ -615,8 +619,13 @@ def auth_login():
             # Always reject — password was not verified (wrong password, missing key, network error, etc.)
             return jsonify({'error': 'Incorrect email or password'}), 401
 
-        # ── 1.5 Require a verified email address ──────────────────────────────
-        if id_token:
+        # ── 2. Get user profile from Firestore ────────────────────────────────
+        user_data = firebase_service.get_user(uid)
+        if not user_data:
+            return jsonify({'error': 'User profile not found'}), 404
+
+        # ── 2.5 Require a verified email address (accounts created before this rule are grandfathered) ──
+        if id_token and str(user_data.get('created_at', '9999')) >= EMAIL_VERIFICATION_START:
             try:
                 verified = _firebase_email_verified(id_token)
             except Exception as ver_err:
@@ -627,11 +636,6 @@ def auth_login():
                     'error': 'Please verify your email address before signing in. Check your inbox for the verification link.',
                     'code': 'EMAIL_NOT_VERIFIED'
                 }), 403
-
-        # ── 2. Get user profile from Firestore ────────────────────────────────
-        user_data = firebase_service.get_user(uid)
-        if not user_data:
-            return jsonify({'error': 'User profile not found'}), 404
 
         # ── 3. Check if account is active ────────────────────────────────────
         if user_data.get('is_active') is False:
