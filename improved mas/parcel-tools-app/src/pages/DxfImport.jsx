@@ -91,6 +91,7 @@ function getArcPoints(A, B, M, sign, isCCW) {
     let diff = angleB - angleA;
     while (diff < -Math.PI) diff += 2 * Math.PI;
     while (diff > Math.PI) diff -= 2 * Math.PI;
+    if (M > R) diff = (diff >= 0 ? -1 : 1) * (2 * Math.PI - Math.abs(diff)); // arc longer than a half circle: go the long way round
     
     const pts = [];
     const steps = 30;
@@ -147,7 +148,8 @@ function calculatePolygonMetrics(pts, curves = []) {
                 const C = Math.hypot(toPt.x - fromPt.x, toPt.y - fromPt.y);
                 if (C > 0) {
                     const R = (C * C) / (8.0 * M) + (M / 2.0);
-                    const theta = 2.0 * Math.asin(Math.min(1.0, C / (2.0 * R)));
+                    let theta = 2.0 * Math.asin(Math.min(1.0, C / (2.0 * R)));
+                    if (M > R) theta = 2 * Math.PI - theta; // arc longer than a half circle
                     const segArea = 0.5 * R * R * (theta - Math.sin(theta));
                     curveAdjustment += segArea * sign;
                 }

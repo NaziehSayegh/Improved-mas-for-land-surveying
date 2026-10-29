@@ -1048,6 +1048,8 @@ def calculate_area():
                         # Calculate radius and segment area
                         R = (C * C) / (8.0 * M) + (M / 2.0)
                         theta = 2.0 * math.asin(min(1.0, C / (2.0 * R)))
+                        if M > R:
+                            theta = 2.0 * math.pi - theta  # arc longer than a half circle
                         seg_area = 0.5 * R * R * (theta - math.sin(theta))
                         
                         adjustment = seg_area * sign
@@ -1339,6 +1341,8 @@ def calculate_single_parcel_metrics(parcel, points_map):
                 if m > 0 and chord > 0:
                     R = (chord**2)/(8*m) + (m/2)
                     theta = 2 * math.asin(min(1.0, chord/(2*R)))
+                    if m > R:
+                        theta = 2 * math.pi - theta  # arc longer than a half circle
                     segment_area = 0.5 * R**2 * (theta - math.sin(theta))
                     area += sign * segment_area
         except Exception:
@@ -2872,6 +2876,8 @@ def export_pdf():
                         # Calculate radius and segment area
                         R = (C * C) / (8.0 * M) + (M / 2.0) if M > 0 else 0
                         theta = 2.0 * math.asin(min(1.0, C / (2.0 * R))) if R > 0 else 0
+                        if R > 0 and M > R:
+                            theta = 2.0 * math.pi - theta  # arc longer than a half circle
                         seg_area = 0.5 * R * R * (theta - math.sin(theta)) if R > 0 else 0
                         
                         # F value (sagitta factor)
