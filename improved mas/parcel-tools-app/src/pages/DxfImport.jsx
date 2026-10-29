@@ -2136,12 +2136,9 @@ const DxfImport = () => {
         });
         const pointIds = cleanedPoints.map(p => p.pointId.trim());
 
-        const seen = new Set();
-        const repeated = [...new Set(pointIds.filter(id => (seen.has(id) ? true : (seen.add(id), false))))];
-        if (repeated.length > 0) {
-            toast.error(`Point ID(s) used for more than one corner: ${repeated.slice(0, 5).join(', ')}. Give each corner its own ID.`);
-            return;
-        }
+        // The same point ID may legitimately appear more than once (a hatch with a hole visits the
+        // bridge corners twice so the hole's area is subtracted). Same ID = same coordinates, so the
+        // area, perimeter and curves are all computed correctly - nothing to reject here.
 
         // 1. Add new/unmatched points to loadedPoints using CAD coordinates as fallback
         const updatedPoints = { ...loadedPoints };

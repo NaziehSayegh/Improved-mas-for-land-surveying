@@ -170,3 +170,22 @@ def test_block_insert_with_arc_keeps_area(sx, sy, rot):
     r = 10 / (2 * math.sin(theta / 2))
     expected = (50 + _seg_area(r, theta)) * abs(sx * sy)
     assert _frontend_area(ents[0]) == pytest.approx(expected, rel=3e-3)
+
+
+def test_hatch_with_hole_uses_repeated_bridge_points_and_subtracts_hole():
+    d = ezdxf.new('R2010')
+    h = d.modelspace().add_hatch(dxfattribs={'layer': 'PARCEL'})
+    h.paths.add_polyline_path([(0, 0), (100, 0), (100, 50), (0, 50)], is_closed=True, flags=1)
+    h.paths.add_polyline_path([(20, 10), (40, 10), (40, 30), (20, 30)], is_closed=True)
+    ent = [e for e in _parse(d) if e.get('filled')][0]
+    pts = [(p['x'], p['y']) for p in ent['points']]
+    if pts[0] == pts[-1]:
+        pts = pts[:-1]
+    # the outline revisits at least one corner (bridge) -> same "point ID" appears twice
+    assert len(set(pts)) < len(pts)
+    ids = {xy: str(i) for i, xy in enumerate(dict.fromkeys(pts), 1)}
+    seq = [ids[xy] for xy in pts]
+    coords = {v: {'x': xy[0], 'y': xy[1]} for xy, v in ids.items()}
+    r = c.post('/api/calculate-area', json={'points': [coords[i] for i in seq], 'curves': []})
+    assert r.status_code == 200
+    assert r.get_json()['area'] == pytest.approx(5000 - 400)
