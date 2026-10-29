@@ -36,6 +36,7 @@ const ActionButton = ({ onClick, children, color = 'default', disabled, title })
     red:     'bg-red-900/30 hover:bg-red-800/50 text-red-400 border-red-800/40',
     amber:   'bg-amber-900/30 hover:bg-amber-800/50 text-amber-400 border-amber-800/40',
     purple:  'bg-purple-900/30 hover:bg-purple-800/50 text-purple-400 border-purple-800/40',
+    blue:    'bg-blue-900/30 hover:bg-blue-800/50 text-blue-400 border-blue-800/40',
   };
   return (
     <button
@@ -821,6 +822,19 @@ export default function AdminPanel() {
                   </div>
                 )}
 
+                {/* ── Section: Allowed PCs ── */}
+                <DeviceLimitControl
+                  key={selectedUser.uid}
+                  user={selectedUser}
+                  disabled={busy[selectedUser.uid]}
+                  onSave={(n) => handleAction(
+                    selectedUser.uid,
+                    `/api/admin/users/${selectedUser.uid}/set-device-limit`,
+                    { maxDevices: n },
+                    `${selectedUser.email} can now use ${n} PC${n === 1 ? '' : 's'}`
+                  )}
+                />
+
                 {/* ── Section: Security & Access Blocks ── */}
                 <div className="space-y-3">
                   <h4 className="text-xs font-bold text-dark-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -919,11 +933,113 @@ export default function AdminPanel() {
                   </div>
                 </div>
 
+                {/* ── Section: Delete account permanently ── */}
+                {!selectedUser.is_admin && (
+                  <DeleteAccountControl
+                    key={'del-' + selectedUser.uid}
+                    user={selectedUser}
+                    disabled={busy[selectedUser.uid]}
+                    onDelete={async () => {
+                      await handleAction(
+                        selectedUser.uid,
+                        `/api/admin/users/${selectedUser.uid}/delete`,
+                        null,
+                        `Deleted ${selectedUser.email}`
+                      );
+                      setSelectedUser(null);
+                    }}
+                  />
+                )}
+
               </div>
             </motion.div>
           </>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function DeviceLimitControl({ user, disabled, onSave }) {
+  const current = Number(user.max_devices) > 0 ? Number(user.max_devices) : 2;
+  const [value, setValue] = useState(current);
+  const used = user.devices && typeof user.devices === 'object' ? Object.keys(user.devices).length : 0;
+  return (
+    <div className="space-y-3">
+      <h4 className="text-xs font-bold text-dark-400 uppercase tracking-wider flex items-center gap-1.5">
+        <Monitor className="w-4 h-4 text-blue-400" />
+        Allowed PCs
+      </h4>
+      <div className="bg-dark-950/30 border border-dark-800 rounded-2xl p-4 space-y-3">
+        <p className="text-[11px] text-dark-500 leading-normal">
+          This user is using {used} of {current} allowed PC{current === 1 ? '' : 's'}. Raise the limit to let them sign in from more computers.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number" min="1" max="50" value={value}
+            onChange={e => setValue(e.target.value)}
+            className="w-20 px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-sm text-dark-100"
+          />
+          <ActionButton
+            color="blue"
+            disabled={disabled || !(Number(value) >= 1 && Number(value) <= 50) || Number(value) === current}
+            onClick={() => onSave(Number(value))}
+          >
+            <Check className="w-3.5 h-3.5" /> Save PC Limit
+          </ActionButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteAccountControl({ user, disabled, onDelete }) {
+  const [typed, setTyped] = useState('');
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-3">
+      <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
+        <UserX className="w-4 h-4" />
+        Danger Zone
+      </h4>
+      <div className="bg-red-950/20 border border-red-900/60 rounded-2xl p-4 space-y-3">
+        {open ? (
+          <>
+            <p className="text-xs text-red-300 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-red-400" />
+              <span>This permanently deletes the login and record for {user.email}. It cannot be undone. Type the email to confirm.</span>
+            </p>
+            <input
+              value={typed} onChange={e => setTyped(e.target.value)} placeholder={user.email}
+              className="w-full px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setOpen(false); setTyped(''); }}
+                className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-300 border border-dark-700"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={disabled || typed.trim().toLowerCase() !== (user.email || '').toLowerCase()}
+                onClick={onDelete}
+                className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white"
+              >
+                Delete Permanently
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-[11px] text-dark-500 leading-normal">
+              Suspending only blocks access. Deleting removes the account completely so the email can register again.
+            </p>
+            <ActionButton color="red" disabled={disabled} onClick={() => setOpen(true)}>
+              <UserX className="w-3.5 h-3.5" /> Delete Account Permanently
+            </ActionButton>
+          </>
+        )}
+      </div>
     </div>
   );
 }

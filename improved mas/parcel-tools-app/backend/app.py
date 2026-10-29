@@ -917,6 +917,30 @@ def admin_reset_machine(uid):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/admin/users/<uid>/set-device-limit', methods=['POST'])
+@_require_admin
+def admin_set_device_limit(uid):
+    """Admin: set how many PCs a user may use."""
+    try:
+        data = request.get_json() or {}
+        return jsonify(firebase_service.set_user_max_devices(uid, data.get('maxDevices')))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/<uid>/delete', methods=['POST'])
+@_require_admin
+def admin_delete_user(uid):
+    """Admin: permanently delete a user account (not just suspend)."""
+    from flask import g
+    try:
+        if uid == g.uid:
+            return jsonify({'success': False, 'error': 'You cannot delete your own account'}), 400
+        return jsonify(firebase_service.delete_user_account(uid))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/admin/users/<uid>/upgrade-premium', methods=['POST'])
 @_require_admin
 def admin_upgrade_premium(uid):

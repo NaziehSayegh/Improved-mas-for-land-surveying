@@ -353,7 +353,15 @@ class FirebaseService:
     
     # ==================== DEVICE MANAGEMENT ====================
     
-    def add_device(self, user_id, machine_id, device_name="Unknown Device", computer_name=None, os_user=None, os_platform=None):
+    @staticmethod
+    def _max_devices(user_data):
+        """Allowed PCs for a user: admin-set 'max_devices', default 2."""
+        try:
+            return max(1, int((user_data or {}).get('max_devices', 2)))
+        except (TypeError, ValueError):
+            return 2
+
+    def add_device( user_id, machine_id, device_name="Unknown Device", computer_name=None, os_user=None, os_platform=None):
         """
         Add a device to user's active devices
         Returns: {'success': bool, 'error': str, 'device_count': int}
@@ -409,11 +417,12 @@ class FirebaseService:
                         user_ref.update(update_fields)
                         return {'success': True, 'device_count': len(devices), 'device_id': device_id}
                 
-                # Check device limit (max 2 devices)
-                if len(devices) >= 2:
+                # Check device limit (default 2, admin can raise it per user)
+                max_devices = self._max_devices(user_data)
+                if len(devices) >= max_devices:
                     return {
                         'success': False,
-                        'error': 'Device limit reached. Maximum 2 devices allowed. Please sign out from another device first.',
+                        'error': f'Device limit reached. Maximum {max_devices} devices allowed. Please sign out from another device first.',
                         'device_count': len(devices)
                     }
                 
@@ -470,10 +479,11 @@ class FirebaseService:
                         return {'success': True, 'device_count': len(devices), 'device_id': device_id}
                 
                 # Check device limit
-                if len(devices) >= 2:
+                max_devices = self._max_devices(users[user_id])
+                if len(devices) >= max_devices:
                     return {
                         'success': False,
-                        'error': 'Device limit reached. Maximum 2 devices allowed.',
+                        'error': f'Device limit reached. Maximum {max_devices} devices allowed.',
                         'device_count': len(devices)
                     }
                 
@@ -732,6 +742,41 @@ class FirebaseService:
             if uid not in users:
                 users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
             users[uid]['trial_start'] = new_trial_start_iso
+            self._save_users_to_json(users)
+            return {'success': True}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def set_user_max_devices(self, uid, max_devices: int):
+        """Admin: set how many PCs a user may sign in from."""
+        try:
+            max_devices = int(max_devices)
+            if max_devices < 1 or max_devices > 50:
+                return {'success': False, 'error': 'Device limit must be between 1 and 50'}
+            if self._is_online():
+                self.db.collection('users').document(uid).set({'max_devices': max_devices}, merge=True)
+            users = self._load_users_from_json()
+            if uid not in users:
+                users[uid] = {'email': '', 'created_at': datetime.now().isoformat()}
+            users[uid]['max_devices'] = max_devices
+            self._save_users_to_json(users)
+            return {'success': True, 'max_devices': max_devices}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def delete_user_account(self, uid):
+        """Admin: permanently delete a user (Firebase Auth, Firestore record, local backup)."""
+        try:
+            if self._is_online():
+                try:
+                    from firebase_config import get_firebase_auth
+                    get_firebase_auth().delete_user(uid)
+                except Exception as auth_err:
+                    if 'not found' not in str(auth_err).lower() and 'USER_NOT_FOUND' not in str(auth_err):
+                        return {'success': False, 'error': f'Could not delete auth account: {auth_err}'}
+                self.db.collection('users').document(uid).delete()
+            users = self._load_users_from_json()
+            users.pop(uid, None)
             self._save_users_to_json(users)
             return {'success': True}
         except Exception as e:
