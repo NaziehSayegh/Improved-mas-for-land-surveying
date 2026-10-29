@@ -103,6 +103,7 @@ const Plotting = () => {
     let diff = angleB - angleA;
     while (diff < -Math.PI) diff += 2 * Math.PI;
     while (diff > Math.PI) diff -= 2 * Math.PI;
+    if (M > R) diff = (diff >= 0 ? -1 : 1) * (2 * Math.PI - Math.abs(diff)); // arc longer than a half circle: go the long way round
     
     const pts = [];
     const steps = 30;

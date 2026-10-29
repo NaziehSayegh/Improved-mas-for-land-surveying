@@ -361,7 +361,7 @@ class FirebaseService:
         except (TypeError, ValueError):
             return 2
 
-    def add_device( user_id, machine_id, device_name="Unknown Device", computer_name=None, os_user=None, os_platform=None):
+    def add_device(self, user_id, machine_id, device_name="Unknown Device", computer_name=None, os_user=None, os_platform=None):
         """
         Add a device to user's active devices
         Returns: {'success': bool, 'error': str, 'device_count': int}
