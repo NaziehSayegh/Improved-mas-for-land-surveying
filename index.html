@@ -606,6 +606,25 @@
     .g-note { margin-top:32px; text-align:center; font-size:.8rem; color:var(--c-text3); }
     @media (max-width:640px) { .gallery-grid { grid-template-columns:1fr; } }
 
+    /* Large screens: let the layout and the screenshots grow instead of floating in a narrow column */
+    @media (min-width:1500px) {
+      html { font-size:106%; }
+      .container { max-width:1320px; }
+      .hero-shot { max-width:1240px; }
+      .hero-inner { max-width:900px; }
+    }
+    @media (min-width:1900px) {
+      html { font-size:112%; }
+      .container { max-width:1560px; }
+      .hero-shot { max-width:1440px; }
+      .hero-inner { max-width:1000px; }
+    }
+    @media (min-width:2400px) {
+      html { font-size:125%; }
+      .container { max-width:1880px; }
+      .hero-shot { max-width:1740px; }
+    }
+
     @media (max-width:1024px) {
       .feat-grid-top { grid-template-columns:1fr; }
       .feat-grid-bot { grid-template-columns:1fr 1fr; }
