@@ -1175,12 +1175,23 @@ const DxfImport = () => {
         const canvas = canvasRef.current;
         const ents = entitiesRef.current;
         if (!canvas || !ents.length) return;
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        ents.forEach(ent => (ent.points || []).forEach(p => {
-            minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-            minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-        }));
-        if (minX === Infinity) return;
+        // Frame the drawing itself: only layers that are switched on, and ignore a few stray
+        // far-away objects so the real drawing fills the screen instead of a tiny speck.
+        const vis = visibleLayersRef.current || {};
+        const xs = [], ys = [];
+        ents.forEach(ent => {
+            if (vis[ent.layer] === false) return;
+            (ent.points || []).forEach(p => {
+                if (typeof p.x === 'number' && typeof p.y === 'number' && isFinite(p.x) && isFinite(p.y)) {
+                    xs.push(p.x); ys.push(p.y);
+                }
+            });
+        });
+        if (!xs.length) return;
+        xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
+        const trim = xs.length > 200 ? Math.floor(xs.length * 0.01) : 0;
+        let minX = xs[trim], maxX = xs[xs.length - 1 - trim];
+        let minY = ys[trim], maxY = ys[ys.length - 1 - trim];
         const W = canvas.width, H = canvas.height, pad = 40;
         const wx = (maxX - minX) || 1, wy = (maxY - minY) || 1;
         const scale = Math.min((W - pad * 2) / wx, (H - pad * 2) / wy, 1000);
@@ -1296,14 +1307,24 @@ const DxfImport = () => {
         toast.success(`Deleted ${parcelName}`);
     };
 
+    // Latest layer settings, read inside the effect below without making it re-run (and re-fit the view)
+    // every time a layer is switched on or off.
+    const cadLayersLatestRef = useRef(cadLayers);
+    const cadVisibleLayersLatestRef = useRef(cadVisibleLayers);
+    cadLayersLatestRef.current = cadLayers;
+    cadVisibleLayersLatestRef.current = cadVisibleLayers;
+    const lastLoadedEntitiesRef = useRef(null);
+
     useEffect(() => {
         if (cadEntities && cadEntities.length > 0) {
+            if (lastLoadedEntitiesRef.current === cadEntities) return; // same file: keep the user's current view
+            lastLoadedEntitiesRef.current = cadEntities;
             entitiesRef.current = cadEntities;
             setEntities(cadEntities);
             setFileName(cadFileName || '');
-            setLayerList(cadLayers || []);
-            setVisibleLayers(cadVisibleLayers || {});
-            visibleLayersRef.current = cadVisibleLayers || {};
+            setLayerList(cadLayersLatestRef.current || []);
+            setVisibleLayers(cadVisibleLayersLatestRef.current || {});
+            visibleLayersRef.current = cadVisibleLayersLatestRef.current || {};
             setTimeout(fitView, 100);
         } else if (cadFilePath && (!cadEntities || cadEntities.length === 0)) {
             setLoading(true);
@@ -1340,7 +1361,7 @@ const DxfImport = () => {
             })
             .finally(() => setLoading(false));
         }
-    }, [cadFilePath, cadEntities, cadFileName, cadLayers, cadVisibleLayers, fitView]);
+    }, [cadFilePath, cadEntities, cadFileName, fitView]);
 
     // Auto-save CAD state changes to the active project file on disk
     useEffect(() => {
