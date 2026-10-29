@@ -2125,7 +2125,7 @@ const DxfImport = () => {
         let addedCount = 0;
         const unmatchedIds = [];
 
-        detectedPoints.forEach(item => {
+        cleanedPoints.forEach(item => {
             const pid = item.pointId;
             if (!loadedPoints[pid]) {
                 updatedPoints[pid] = { x: item.x, y: item.y };
