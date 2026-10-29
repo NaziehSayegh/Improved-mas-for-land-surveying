@@ -2098,15 +2098,25 @@ const DxfImport = () => {
             return;
         }
 
-        const pointIds = detectedPoints.map(p => p.pointId.trim());
-        if (pointIds.some(id => !id)) {
+        if (detectedPoints.some(p => !p.pointId.trim())) {
             toast.error('All corners must have a point ID');
             return;
         }
 
-        const uniqueIds = new Set(pointIds);
-        if (uniqueIds.size !== pointIds.length) {
-            toast.error('Duplicate Point IDs are not allowed in the same boundary');
+        // Hatch/polyline boundaries often repeat a corner (closing vertex, or the same
+        // vertex twice in a row). Drop those instead of refusing to calculate.
+        const cleanedPoints = detectedPoints.filter((p, i, arr) => {
+            const id = p.pointId.trim();
+            if (i > 0 && arr[i - 1].pointId.trim() === id) return false;
+            if (i === arr.length - 1 && arr.length > 3 && arr[0].pointId.trim() === id) return false;
+            return true;
+        });
+        const pointIds = cleanedPoints.map(p => p.pointId.trim());
+
+        const seen = new Set();
+        const repeated = [...new Set(pointIds.filter(id => (seen.has(id) ? true : (seen.add(id), false))))];
+        if (repeated.length > 0) {
+            toast.error(`Point ID(s) used for more than one corner: ${repeated.slice(0, 5).join(', ')}. Give each corner its own ID.`);
             return;
         }
 
