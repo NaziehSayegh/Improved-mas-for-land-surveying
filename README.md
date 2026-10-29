@@ -73,15 +73,11 @@ The website uses Tailwind CSS. Main colors:
 - Background: `gray-900` to `blue-900` gradient
 - Accent: `blue-400`
 
-### Add Screenshots
-Replace placeholder images (lines 179 & 184):
-```html
-<img src="screenshot-dashboard.png" alt="Dashboard">
-```
-
-Take screenshots of your app and save as:
-- `screenshot-dashboard.png`
-- `screenshot-calculator.png`
+### Update Screenshots
+The website uses real screenshots of the app, stored as WebP files in `screenshots/`
+(`cad-import`, `cad-layers`, `cad-review-arc`, `calculator-map`, `calculator-saved`, `plotting`, `menu`).
+To refresh them after a UI change, capture the same screens at 1920x1080 from the running app,
+convert to WebP, and replace the files with the same names. Keep them real - no mock-ups.
 
 ### Update Content
 Edit the text directly in `index.html`:
@@ -95,8 +91,7 @@ Edit the text directly in `index.html`:
 parcel-tools-website/
 ├── index.html              # Main website (single page)
 ├── README.md              # This file
-├── screenshot-dashboard.png   # (Add your screenshots)
-└── screenshot-calculator.png  # (Add your screenshots)
+└── screenshots/           # Real app screenshots (WebP)
 ```
 
 ## 🌐 Hosting Options

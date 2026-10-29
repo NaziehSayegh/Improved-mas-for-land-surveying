@@ -589,6 +589,23 @@
     /* ─────────────────────────────────────────────
        RESPONSIVE
     ───────────────────────────────────────────── */
+
+    /* ── Gallery (real app screenshots) */
+    .gallery-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+    .g-item { margin:0; }
+    .g-item.wide { grid-column:1 / -1; }
+    .g-shot {
+      border:1px solid var(--c-border2); border-radius:var(--r-xl); overflow:hidden;
+      background:#0c0e17;
+      box-shadow:0 24px 70px rgba(0,0,0,.5), 0 0 40px rgba(99,102,241,.06);
+    }
+    .g-shot img { display:block; width:100%; height:auto; }
+    .g-item figcaption { padding:16px 4px 0; }
+    .g-item figcaption h3 { font-size:1.05rem; font-weight:700; color:var(--c-text1); margin-bottom:4px; }
+    .g-item figcaption p { font-size:.9rem; line-height:1.6; color:var(--c-text2); }
+    .g-note { margin-top:32px; text-align:center; font-size:.8rem; color:var(--c-text3); }
+    @media (max-width:768px) { .gallery-grid { grid-template-columns:1fr; } }
+
     @media (max-width:1024px) {
       .feat-grid-top { grid-template-columns:1fr; }
       .feat-grid-bot { grid-template-columns:1fr 1fr; }
@@ -636,6 +653,7 @@
       </a>
       <nav class="nav-links">
         <a href="#features">Features</a>
+        <a href="#gallery">Screenshots</a>
         <a href="#workflow">How It Works</a>
         <a href="#specs">Specs</a>
         <a href="https://github.com/NaziehSayegh/Improved-mas-for-land-surveying/releases" target="_blank">Changelog</a>
@@ -652,6 +670,7 @@
 <div class="mobile-menu" id="mobile-menu">
   <button class="mobile-close" id="menu-close" aria-label="Close menu">✕</button>
   <a href="#features" class="mm-link">Features</a>
+  <a href="#gallery" class="mm-link">Screenshots</a>
   <a href="#workflow" class="mm-link">How It Works</a>
   <a href="#specs" class="mm-link">Specs</a>
   <a href="https://sayegh8.gumroad.com/l/uaupi" target="_blank">Buy License</a>
@@ -706,9 +725,9 @@
           <span class="dot-y"></span>
           <span class="dot-g"></span>
         </div>
-        <div class="shot-url">Parcel Tools — Dashboard &amp; Project Manager</div>
+        <div class="shot-url">Parcel Tools — CAD Import</div>
       </div>
-      <img src="screenshot-dashboard.png" alt="Parcel Tools — Dashboard screenshot" />
+      <img src="screenshots/cad-import.webp" width="1920" height="1080" alt="Parcel Tools CAD Import showing a DXF subdivision drawing with parcel boundaries, corner numbers, a hatched parcel and a curved road corner" />
     </div>
   </div>
 
@@ -744,7 +763,7 @@
         <div class="f-icon">📐</div>
         <h3>Advanced Parcel Area Calculator</h3>
         <p>Compute parcel areas with sub-centimeter precision. Handles arcs, curved boundaries, irregular polygons, and multiple coordinate systems — automatically.</p>
-        <img src="screenshot-calculator.png" alt="Area calculator with live plot" />
+        <img src="screenshots/calculator-map.webp" width="1920" height="1080" loading="lazy" alt="Area calculator visual map showing twelve parcels with their corner points" />
       </div>
 
       <div class="f-card tall accent-purple js-reveal delay-2">
@@ -752,7 +771,7 @@
         <div class="f-icon">🗺️</div>
         <h3>Real-Time Plot Visualization</h3>
         <p>Enter a point and watch the plot update instantly. An interactive, high-fidelity canvas mirrors your data live — no refresh, no lag, no guessing.</p>
-        <img src="screenshot-dashboard.png" alt="Live visualization dashboard" />
+        <img src="screenshots/plotting.webp" width="1920" height="1080" loading="lazy" alt="Plotting view with colour-coded parcels, point IDs and labels" />
       </div>
     </div>
 
@@ -789,6 +808,60 @@
         <p>The calculation engine runs entirely offline with zero latency. No cloud dependency. Works in the field, even without signal.</p>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- ████████████████ GALLERY ████████████████ -->
+<section id="gallery" class="sec">
+  <div class="container">
+    <div class="sec-head js-reveal">
+      <div class="sec-eyebrow">See It In Action</div>
+      <h2 class="sec-title">The real app,<br />straight from the screen.</h2>
+      <p class="sec-desc">Every image below is a screenshot of Parcel Tools itself — no mock-ups.</p>
+    </div>
+
+    <div class="gallery-grid">
+      <figure class="g-item wide js-reveal">
+        <div class="g-shot"><img src="screenshots/cad-review-arc.webp" width="1920" height="1080" loading="lazy" alt="Review Parcel and Point Mapping dialog with an attached arc, live computed area and boundary plot" /></div>
+        <figcaption>
+          <h3>Pick a parcel in your DXF — get a verified area</h3>
+          <p>Click a boundary and Parcel Tools reads the parcel number, matches every corner to your points file, detects true arcs from the drawing and shows the live area, perimeter and boundary plot before you save.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="g-item js-reveal">
+        <div class="g-shot"><img src="screenshots/cad-layers.webp" width="1920" height="1080" loading="lazy" alt="CAD Import with the Layer Manager open, listing the drawing's layers" /></div>
+        <figcaption>
+          <h3>Full layer control</h3>
+          <p>Turn layers on and off, search them, and choose which layers hold corner numbers and parcel numbers. Your view stays exactly where you left it.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="g-item js-reveal delay-1">
+        <div class="g-shot"><img src="screenshots/calculator-saved.webp" width="1920" height="1080" loading="lazy" alt="Saved parcels list with areas in square metres and corner point IDs" /></div>
+        <figcaption>
+          <h3>Saved parcels at a glance</h3>
+          <p>Every parcel keeps its corner sequence, area and version history, with one-click edit, PDF export and multi-parcel reports.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="g-item js-reveal">
+        <div class="g-shot"><img src="screenshots/plotting.webp" width="1920" height="1080" loading="lazy" alt="Plotting view of twelve colour-coded parcels with point IDs" /></div>
+        <figcaption>
+          <h3>Plot your whole block</h3>
+          <p>See every point and parcel in real coordinates, with labels and point IDs you can switch on and off.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="g-item js-reveal delay-1">
+        <div class="g-shot"><img src="screenshots/menu.webp" width="1920" height="1080" loading="lazy" alt="Parcel Tools main menu with Work Mode, Data Files, Plotting, Area Calculator and CAD Import" /></div>
+        <figcaption>
+          <h3>Everything one click away</h3>
+          <p>Work Mode, Data Files, Plotting, the Area Calculator and CAD Import, with keyboard shortcuts for each.</p>
+        </figcaption>
+      </figure>
+    </div>
+    <p class="g-note">Screenshots show Parcel Tools v2.0.21 with a sample survey project.</p>
   </div>
 </section>
 
