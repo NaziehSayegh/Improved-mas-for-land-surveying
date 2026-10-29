@@ -3689,6 +3689,8 @@ def _bulge_arc_params(px, py, nx, ny, bulge):
     pdx, pdy = -dy_c / perp_len, dx_c / perp_len
     s = math.sqrt(max(0.0, r * r - (d / 2.0) ** 2))
     sign = 1 if bulge > 0 else -1
+    if abs(bulge) > 1.0:
+        sign = -sign  # arc longer than a half circle: centre lies on the other side of the chord
     cx_arc = mx_c + sign * s * pdx
     cy_arc = my_c + sign * s * pdy
     return {
@@ -4110,47 +4112,13 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                 final_pts = []
                 segments = []   # for pixel-perfect arc rendering on the canvas
 
-                def _bulge_to_arc(px, py, nx, ny, bulge):
-                    """Convert bulge + two endpoints into arc params for canvas arc().
-                    Returns dict with cx, cy, r, startAngle, endAngle, ccw (all in radians).
-                    """
-                    theta = 4.0 * math.atan(abs(bulge))
-                    d = math.hypot(nx - px, ny - py)
-                    if d < 1e-9:
-                        return None
-                    r = d / (2.0 * math.sin(theta / 2.0))
-                    mx_c, my_c = (px + nx) / 2.0, (py + ny) / 2.0
-                    dx_c, dy_c = nx - px, ny - py
-                    perp_len = math.hypot(-dy_c, dx_c)
-                    if perp_len < 1e-9:
-                        return None
-                    pdx, pdy = -dy_c / perp_len, dx_c / perp_len
-                    s = math.sqrt(max(0.0, r * r - (d / 2.0) ** 2))
-                    sign = 1 if bulge > 0 else -1
-                    cx_arc = mx_c + sign * s * pdx
-                    cy_arc = my_c + sign * s * pdy
-                    a_start = math.atan2(py - cy_arc, px - cx_arc)
-                    a_end   = math.atan2(ny - cy_arc, nx - cx_arc)
-                    ccw = bool(bulge > 0)
-                    M_val = r * (1.0 - math.cos(theta / 2.0))
-                    return {
-                        "cx": round(float(cx_arc), 6),
-                        "cy": round(float(cy_arc), 6),
-                        "r":  round(float(r), 6),
-                        "startAngle": round(float(a_start), 8),
-                        "endAngle":   round(float(a_end), 8),
-                        "ccw": ccw,
-                        "M": round(float(M_val), 6),
-                        "theta": round(float(theta), 8)
-                    }
-
                 for idx, (px, py, bulge) in enumerate(raw_pts):
                     final_pts.append({"x": round(float(px), 4), "y": round(float(py), 4)})
 
-                    if abs(bulge) > 1e-9:
+                    if abs(bulge) > 1e-9 and (closed or idx < len(raw_pts) - 1):
                         next_idx = (idx + 1) % len(raw_pts)
                         nx, ny = raw_pts[next_idx][0], raw_pts[next_idx][1]
-                        arc_params = _bulge_to_arc(px, py, nx, ny, bulge)
+                        arc_params = _bulge_arc_params(px, py, nx, ny, bulge)
                         if arc_params:
                             # Add the start point as a line-to segment, then the arc
                             segments.append({"type": "line", "x": round(float(px), 4), "y": round(float(py), 4)})
@@ -4177,6 +4145,10 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     else:
                         segments.append({"type": "line", "x": round(float(px), 4), "y": round(float(py), 4)})
 
+                if float(entity.dxf.get('extrusion', (0, 0, 1))[2]) < 0:
+                    # drawn in a flipped coordinate system: mirror X, and use the flattened points (exact arcs would be mirrored too)
+                    final_pts = [{"x": -p["x"], "y": p["y"]} for p in final_pts]
+                    segments = None
                 append_poly_or_explode("LWPOLYLINE", closed, final_pts, segments, entity.dxf.layer, get_ent_color(entity, doc))
             except Exception as ex:
                 print(f"[parse-cad] LWPOLYLINE failed: {ex}")
@@ -4194,11 +4166,11 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                     final_pts.append({"x": round(px, 4), "y": round(py, 4)})
                     bulge = float(v.dxf.get('bulge', 0.0))
 
-                    if abs(bulge) > 1e-9:
+                    if abs(bulge) > 1e-9 and (closed or idx < len(verts) - 1):
                         next_idx = (idx + 1) % len(verts)
                         nx = float(verts[next_idx].dxf.location.x)
                         ny = float(verts[next_idx].dxf.location.y)
-                        arc_params = _bulge_to_arc(px, py, nx, ny, bulge)
+                        arc_params = _bulge_arc_params(px, py, nx, ny, bulge)
                         if arc_params:
                             segments.append({"type": "line", "x": round(px, 4), "y": round(py, 4)})
                             segments.append({"type": "arc", **arc_params})
@@ -4250,15 +4222,18 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                 start_angle = math.radians(entity.dxf.start_angle)
                 end_angle = math.radians(entity.dxf.end_angle)
                 
-                if end_angle < start_angle:
+                if end_angle <= start_angle:
                     end_angle += 2 * math.pi
                     
                 points = []
-                steps = 16
+                steps = max(16, int((end_angle - start_angle) / math.radians(2)))
+                mirrored = float(entity.dxf.get('extrusion', (0, 0, 1))[2]) < 0
                 for i in range(steps + 1):
                     angle = start_angle + (end_angle - start_angle) * (i / steps)
                     px = center.x + radius * math.cos(angle)
                     py = center.y + radius * math.sin(angle)
+                    if mirrored:  # arc drawn in a flipped coordinate system (extrusion 0,0,-1)
+                        px = -px
                     points.append({"x": round(float(px), 4), "y": round(float(py), 4)})
                 
                 entities.append({
@@ -4276,10 +4251,11 @@ def _parse_dxf_file(dxf_path: str) -> dict:
                 center = entity.dxf.center
                 radius = entity.dxf.radius
                 points = []
-                steps = 32
+                steps = 360
+                cx_w = -center.x if float(entity.dxf.get('extrusion', (0, 0, 1))[2]) < 0 else center.x
                 for i in range(steps):
                     angle = 2 * math.pi * (i / steps)
-                    px = center.x + radius * math.cos(angle)
+                    px = cx_w + radius * math.cos(angle)
                     py = center.y + radius * math.sin(angle)
                     points.append({"x": round(float(px), 4), "y": round(float(py), 4)})
                 points.append(points[0]) # Close circle
