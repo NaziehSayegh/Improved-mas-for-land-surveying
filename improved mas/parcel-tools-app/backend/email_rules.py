@@ -31,6 +31,22 @@ guerrillamail.info clrmail.com fexbox.org fexpost.com mailbox.in.ua getairmail.c
 """.split())
 
 
+_BUNDLED = None
+
+
+def _bundled_domains():
+    """The maintained public list shipped with the app (backend/disposable_domains.txt)."""
+    global _BUNDLED
+    if _BUNDLED is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'disposable_domains.txt')
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                _BUNDLED = frozenset(ln.strip().lower() for ln in f if ln.strip() and not ln.startswith('#'))
+        except OSError:
+            _BUNDLED = frozenset()
+    return _BUNDLED
+
+
 def _extra_domains(data_dir):
     path = os.path.join(data_dir or '', 'blocked_email_domains.txt')
     try:
@@ -40,11 +56,114 @@ def _extra_domains(data_dir):
         return set()
 
 
-def is_disposable_email(email, data_dir=None):
-    """True when the address belongs to a throw-away mailbox service (or one of its sub-domains)."""
+def _domain_of(email):
     if not isinstance(email, str) or '@' not in email:
-        return False
-    domain = email.rsplit('@', 1)[1].strip().lower().rstrip('.')
-    blocked = DISPOSABLE_DOMAINS | _extra_domains(data_dir)
+        return ''
+    return email.rsplit('@', 1)[1].strip().lower().rstrip('.')
+
+
+def _domain_in(domain, blocked):
     parts = domain.split('.')
     return any('.'.join(parts[i:]) in blocked for i in range(len(parts) - 1))
+
+
+# Well-known providers accepted in strict mode (admins can approve more, e.g. a company domain).
+MAJOR_PROVIDERS = frozenset("""
+gmail.com googlemail.com outlook.com hotmail.com live.com msn.com windowslive.com passport.com
+hotmail.co.uk hotmail.fr hotmail.de hotmail.it hotmail.es outlook.sa outlook.fr outlook.de
+yahoo.com yahoo.co.uk yahoo.fr yahoo.de yahoo.it yahoo.es yahoo.ca yahoo.com.au yahoo.co.in yahoo.co.jp ymail.com rocketmail.com
+icloud.com me.com mac.com aol.com proton.me protonmail.com pm.me gmx.com gmx.net gmx.de web.de mail.com
+zoho.com zohomail.com yandex.com yandex.ru mail.ru fastmail.com hey.com tutanota.com tuta.io
+walla.co.il walla.com 012.net.il netvision.net.il bezeqint.net 013.net.il
+""".split())
+
+
+def is_disposable_email(email, data_dir=None, extra_blocked=()):
+    """True when the address belongs to a throw-away mailbox service (or one of its sub-domains)."""
+    domain = _domain_of(email)
+    if not domain:
+        return False
+    blocked = DISPOSABLE_DOMAINS | _bundled_domains() | _extra_domains(data_dir) | set(extra_blocked)
+    return _domain_in(domain, blocked)
+
+
+class EmailPolicy:
+    """Admin-managed rules shared by every install through Firestore (`app_config/email_policy`):
+    {'blocked_domains': [...], 'allowed_domains': [...], 'strict': bool}. Cached, and kept on disk for offline use."""
+    CACHE_SECONDS = 300
+
+    def __init__(self, firebase_service, data_dir):
+        import json  # noqa: F401  (used by the helpers below)
+        self.fs = firebase_service
+        self.data_dir = data_dir
+        self.path = os.path.join(data_dir, 'email_policy.json')
+        self._cache = None
+        self._cache_time = 0.0
+
+    def _read_disk(self):
+        import json
+        try:
+            with open(self.path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def _write_disk(self, policy):
+        import json
+        try:
+            os.makedirs(self.data_dir, exist_ok=True)
+            with open(self.path, 'w', encoding='utf-8') as f:
+                json.dump(policy, f)
+        except OSError:
+            pass
+
+    def get(self):
+        import time
+        now = time.time()
+        if self._cache is not None and now - self._cache_time < self.CACHE_SECONDS:
+            return self._cache
+        policy = None
+        try:
+            if self.fs._is_online():
+                doc = self.fs.db.collection('app_config').document('email_policy').get()
+                policy = doc.to_dict() if doc.exists else {}
+                self._write_disk(policy)
+        except Exception as e:
+            print(f'[EmailPolicy] Could not read the email rules: {e}')
+            policy = None
+        if policy is None:
+            policy = self._read_disk()
+        self._cache, self._cache_time = policy or {}, now
+        return self._cache
+
+    @staticmethod
+    def _clean(domains):
+        out = []
+        for d in domains or []:
+            d = str(d).strip().lower().lstrip('@')
+            if d and '.' in d and ' ' not in d and d not in out:
+                out.append(d)
+        return out
+
+    def set(self, strict, blocked_domains, allowed_domains):
+        import time
+        policy = {'strict': bool(strict), 'blocked_domains': self._clean(blocked_domains),
+                  'allowed_domains': self._clean(allowed_domains), 'updated_at': time.strftime('%Y-%m-%dT%H:%M:%S')}
+        if self.fs._is_online():
+            self.fs.db.collection('app_config').document('email_policy').set(policy)
+        self._write_disk(policy)
+        self._cache, self._cache_time = policy, time.time()
+        return policy
+
+    def check(self, email):
+        """None when the address may be used, otherwise (code, message)."""
+        domain = _domain_of(email)
+        if not domain:
+            return None
+        p = self.get()
+        if is_disposable_email(email, self.data_dir, p.get('blocked_domains') or ()):
+            return ('EMAIL_NOT_ALLOWED', 'Temporary / disposable email addresses are not allowed. Please use your real email address.')
+        if p.get('strict') and not _domain_in(domain, set(MAJOR_PROVIDERS) | set(p.get('allowed_domains') or ())):
+            return ('EMAIL_DOMAIN_NOT_APPROVED', 'Please sign up with a personal email from a well-known provider (Gmail, Outlook, Yahoo, iCloud...). '
+                                                  'Using a company address? Contact support to have your domain approved.')
+        return None
