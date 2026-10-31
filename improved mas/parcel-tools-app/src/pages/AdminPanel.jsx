@@ -124,6 +124,7 @@ export default function AdminPanel() {
     const daysLeft = u.trial_days_left;
     const isExpired = u.account_type === 'demo' && typeof daysLeft === 'number' && daysLeft <= 0;
 
+    if (filterStatus === 'unverified' && !(u.email_verified === false || u.disposable_email)) return false;
     if (filterStatus === 'blocked' && !isBlocked) return false;
     if (filterStatus === 'expired' && (!isExpired || isBlocked)) return false;
     if (filterStatus === 'active' && (isBlocked || isExpired)) return false;
@@ -279,7 +280,7 @@ export default function AdminPanel() {
 
             {/* Account Status Filter */}
             <div className="flex items-center gap-1.5 bg-dark-950/60 border border-dark-800 rounded-xl p-1">
-              {['all', 'active', 'expired', 'blocked'].map(f => (
+              {['all', 'active', 'expired', 'blocked', 'unverified'].map(f => (
                 <button
                   key={f}
                   onClick={() => setFilterStatus(f)}
@@ -292,6 +293,14 @@ export default function AdminPanel() {
             </div>
           </div>
         </div>
+
+        {filterStatus === 'unverified' && (
+          <BulkDeleteBar
+            users={filteredUsers.filter(u => !u.is_admin && u.uid !== user?.userId)}
+            onDone={async (msg) => { showToast(msg); await fetchUsers(); }}
+            onError={(msg) => showToast(msg, 'error')}
+          />
+        )}
 
         {/* ── Users Table ── */}
         <div className="flex-1 glass border border-dark-800 rounded-2xl overflow-hidden flex flex-col shadow-inner">
@@ -351,6 +360,15 @@ export default function AdminPanel() {
                             </div>
                             <div className="flex flex-col truncate">
                               <span className="truncate group-hover:text-primary transition-colors">{u.email}</span>
+                              {u.disposable_email ? (
+                                <span className="text-[10px] text-red-400 flex items-center gap-1 font-bold mt-0.5">
+                                  <AlertTriangle className="w-2.5 h-2.5" /> Disposable email
+                                </span>
+                              ) : u.email_verified === false && !u.is_admin ? (
+                                <span className="text-[10px] text-amber-400 flex items-center gap-1 font-bold mt-0.5">
+                                  <AlertTriangle className="w-2.5 h-2.5" /> Email not verified
+                                </span>
+                              ) : null}
                               {u.is_admin && (
                                 <span className="text-[10px] text-purple-400 flex items-center gap-1 font-bold mt-0.5">
                                   <Shield className="w-2.5 h-2.5" /> Staff Admin
@@ -1040,6 +1058,51 @@ function DeleteAccountControl({ user, disabled, onDelete }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function BulkDeleteBar({ users, onDone, onError }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [working, setWorking] = useState(false);
+  // paying customers are never part of a bulk clean-up
+  const targets = users.filter(u => u.account_type !== 'premium');
+  const run = async () => {
+    setWorking(true);
+    try {
+      const res = await apiFetch('/api/admin/users/bulk-delete', { method: 'POST', body: JSON.stringify({ uids: targets.map(u => u.uid) }) });
+      const data = await res.json();
+      if (data.success) { setOpen(false); setTyped(''); await onDone(`Deleted ${data.deleted.length} account(s)${data.skipped.length ? `, skipped ${data.skipped.length}` : ''}`); }
+      else onError(data.error || 'Bulk delete failed');
+    } catch { onError('Connection error'); }
+    finally { setWorking(false); }
+  };
+  return (
+    <div className="bg-red-950/20 border border-red-900/60 rounded-2xl p-4 flex flex-col gap-3">
+      <p className="text-xs text-red-300 flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-red-400" />
+        <span>{targets.length} unverified or disposable-email account(s) match this filter. Premium (paid) accounts and admins are never included. Review the list below before deleting.</span>
+      </p>
+      {open ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type DELETE to confirm"
+            className="px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+          <button disabled={working || typed !== 'DELETE' || targets.length === 0} onClick={run}
+            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white">
+            {working ? 'Deleting…' : `Delete ${targets.length} account(s) permanently`}
+          </button>
+          <button onClick={() => { setOpen(false); setTyped(''); }}
+            className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-300 border border-dark-700">Cancel</button>
+        </div>
+      ) : (
+        <div>
+          <button disabled={targets.length === 0} onClick={() => setOpen(true)}
+            className="px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-800/50 disabled:opacity-40 text-xs text-red-300 border border-red-800/50">
+            Delete these {targets.length} account(s)…
+          </button>
+        </div>
+      )}
     </div>
   );
 }

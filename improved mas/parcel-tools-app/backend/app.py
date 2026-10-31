@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from atomic_io import atomic_write_text as _atomic_write_text
 from license_manager import LicenseManager
 from firebase_service import FirebaseService
+from email_rules import is_disposable_email
 from firebase_config import is_firebase_available
 
 # Some environments (like packaged Windows apps) don't have a writable console.
@@ -100,10 +101,36 @@ def _guard_api_requests():
     if not token:
         return jsonify({'error': 'Authentication required', 'code': 'NO_TOKEN'}), 401
     try:
-        license_manager.verify_session_token(token, license_manager.get_machine_id_hash())
+        uid, _ = license_manager.verify_session_token(token, license_manager.get_machine_id_hash())
     except ValueError as e:
         return jsonify({'error': str(e), 'code': 'INVALID_TOKEN'}), 401
+    if _account_deleted(uid):
+        return jsonify({'error': 'This account no longer exists.', 'code': 'ACCOUNT_DELETED'}), 401
     return None
+
+
+_ACCOUNT_CHECK_TTL = 60  # seconds; keeps the Firestore lookups to about one per minute per user
+_account_check_cache = {}
+
+
+def _account_deleted(uid):
+    """True only when Firestore confirms the account is gone (a deleted account must not keep working on a
+    session token that was issued earlier, or on a stale local copy of the user list)."""
+    import time
+    now = time.time()
+    hit = _account_check_cache.get(uid)
+    if hit and now - hit[0] < _ACCOUNT_CHECK_TTL:
+        return hit[1]
+    gone = firebase_service.user_exists_online(uid) is False
+    _account_check_cache[uid] = (now, gone)
+    if gone:
+        try:  # drop the stale local copy so it cannot be used as a fallback
+            users = firebase_service._load_users_from_json()
+            if users.pop(uid, None) is not None:
+                firebase_service._save_users_to_json(users)
+        except Exception:
+            pass
+    return gone
 
 
 # ----------------------------------------------------------------------------
@@ -459,6 +486,10 @@ def auth_signup():
         if email and not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
             return jsonify({'error': 'Please enter a valid email address'}), 400
 
+        if is_disposable_email(email, DATA_DIR):
+            return jsonify({'error': 'Temporary / disposable email addresses are not allowed. Please use your real email address.',
+                            'code': 'EMAIL_NOT_ALLOWED'}), 400
+
         print(f'[Auth] Signup attempt: {email}, type={account_type}')
 
         if not email or not password:
@@ -606,6 +637,10 @@ def auth_login():
 
         if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
+
+        if is_disposable_email(email, DATA_DIR):
+            return jsonify({'error': 'Temporary / disposable email addresses are not allowed. Please contact support if this is your real email.',
+                            'code': 'EMAIL_NOT_ALLOWED'}), 403
 
         # ── 1. Verify password via Firebase REST API ──────────────────────────
         id_token = None
@@ -786,6 +821,8 @@ def auth_verify():
         if session_token:
             try:
                 uid, _ = license_manager.verify_session_token(session_token, machine_hash)
+                if _account_deleted(uid):
+                    return jsonify({'valid': False, 'error': 'This account no longer exists.', 'code': 'ACCOUNT_DELETED'}), 401
                 user_data = firebase_service.get_user(uid)
                 if user_data and user_data.get('is_active') is False:
                     return jsonify({'valid': False, 'error': 'Account disabled'}), 403
@@ -876,6 +913,10 @@ def admin_list_users():
                 except Exception:
                     u['trial_days_left'] = None
                     u['trial_expires_at'] = None
+        verified = firebase_service.get_email_verified_map([u['uid'] for u in users if u.get('uid')])
+        for u in users:
+            u['email_verified'] = verified.get(u.get('uid'))  # None = unknown (offline)
+            u['disposable_email'] = is_disposable_email(u.get('email', ''), DATA_DIR)
         return jsonify({'success': True, 'users': users})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -937,6 +978,29 @@ def admin_delete_user(uid):
         if uid == g.uid:
             return jsonify({'success': False, 'error': 'You cannot delete your own account'}), 400
         return jsonify(firebase_service.delete_user_account(uid))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/bulk-delete', methods=['POST'])
+@_require_admin
+def admin_bulk_delete_users():
+    """Admin: permanently delete several accounts at once (never admins, never yourself)."""
+    from flask import g
+    try:
+        uids = (request.get_json(silent=True) or {}).get('uids')
+        if not isinstance(uids, list) or not uids or not all(isinstance(u, str) for u in uids):
+            return jsonify({'success': False, 'error': 'A list of user ids is required'}), 400
+        deleted, skipped = [], []
+        for uid in dict.fromkeys(uids):
+            u = firebase_service.get_user(uid) or {}
+            is_admin = u.get('is_admin', False) or u.get('email', '').lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']
+            if uid == g.uid or is_admin:
+                skipped.append(uid)
+                continue
+            res = firebase_service.delete_user_account(uid)
+            (deleted if res.get('success') else skipped).append(uid)
+        return jsonify({'success': True, 'deleted': deleted, 'skipped': skipped})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
