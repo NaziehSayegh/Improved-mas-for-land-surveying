@@ -59,12 +59,21 @@ def _verify(uid):
     return authed_client(app_module, uid=uid).post('/api/auth/verify', json={})
 
 
-def test_updated_user_is_switched_back_on_and_version_recorded():
+def test_updated_user_is_let_in_without_writing_their_own_flag():
     _users(); svc.update_user_fields('old2', {'is_active': False, 'suspended_reason': 'update_required', 'suspended_below': V})
     r = _verify('old2')
     assert r.status_code == 200 and r.get_json()['valid'] is True
     u = svc._load_users_from_json()['old2']
-    assert u['is_active'] is True and u['app_version'] == V and u['suspended_reason'] == ''
+    assert u['is_active'] is False and u['app_version'] == V          # stored flag untouched, version recorded
+
+
+def test_admin_restore_tidies_the_stored_flag_of_updated_users_only():
+    c = _users()
+    svc.update_user_fields('old2', {'is_active': False, 'suspended_reason': 'update_required', 'suspended_below': V, 'app_version': V})
+    svc.update_user_fields('old1', {'is_active': False, 'suspended_reason': 'update_required', 'suspended_below': V})  # not seen yet
+    assert c.post('/api/admin/restore-updated').get_json() == {'success': True, 'restored': 1}
+    u = svc._load_users_from_json()
+    assert u['old2']['is_active'] is True and u['old1']['is_active'] is False
 
 
 def test_requirement_higher_than_this_version_keeps_user_blocked():

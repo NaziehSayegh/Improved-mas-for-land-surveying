@@ -12,6 +12,38 @@ import json
 db = None
 firebase_app = None
 
+def user_data_root():
+    """Folder holding the app's per-user data (the same place the backend keeps its data folder)."""
+    import sys
+    if sys.platform == 'win32':
+        return os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'ParcelTools')
+    return os.path.join(os.path.expanduser('~'), '.parceltools')
+
+
+def find_service_account_key():
+    """Path of the Firebase admin key if this PC is an admin PC, else None.
+    Order: environment variables, the user-data folder, then (development only) the backend folder."""
+    candidates = [os.environ.get('PARCEL_TOOLS_SERVICE_ACCOUNT', ''), os.environ.get('GOOGLE_APPLICATION_CREDENTIALS', ''),
+                  os.path.join(user_data_root(), 'serviceAccountKey.json'),
+                  os.path.join(os.path.dirname(os.path.abspath(__file__)), 'serviceAccountKey.json')]
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return c
+    return None
+
+
+def get_firebase_project_id():
+    """Public project id (also in the web config that ships with the app)."""
+    env = os.environ.get('FIREBASE_PROJECT_ID', '').strip()
+    if env:
+        return env
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'firebase_web_config.json'), 'r', encoding='utf-8') as f:
+            return (json.load(f).get('projectId') or '').strip() or None
+    except Exception:
+        return None
+
+
 def initialize_firebase():
     """
     Initialize Firebase Admin SDK
@@ -28,26 +60,20 @@ def initialize_firebase():
         return db
     
     try:
-        # Try to find service account key file
-        backend_dir = os.path.dirname(os.path.abspath(__file__))
-        service_account_path = os.path.join(backend_dir, 'serviceAccountKey.json')
-        
-        if os.path.exists(service_account_path):
+        # The admin key must NOT live inside the installed app (every customer would get it). It is looked for in
+        # the environment and in the admin's own user-data folder; the old in-folder location is kept for development.
+        service_account_path = find_service_account_key()
+
+        if service_account_path:
             print(f"[Firebase] Using service account key: {service_account_path}")
             cred = credentials.Certificate(service_account_path)
             firebase_app = firebase_admin.initialize_app(cred)
         else:
-            # Try environment variable
-            service_account_env = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-            if service_account_env and os.path.exists(service_account_env):
-                print(f"[Firebase] Using service account from env: {service_account_env}")
-                cred = credentials.Certificate(service_account_env)
-                firebase_app = firebase_admin.initialize_app(cred)
-            else:
-                # Try Application Default Credentials (for deployed environments)
-                print("[Firebase] Attempting to use Application Default Credentials")
-                firebase_app = firebase_admin.initialize_app()
-        
+            # No admin key: ordinary customer install. Firestore is then reached as the signed-in user over REST
+            # (see rest_firestore.py / firebase_service.py) and Firestore security rules decide what is allowed.
+            print("[Firebase] No admin key found - customer mode (signed-in user access only)")
+            return None
+
         # Initialize Firestore
         db = firestore.client()
         print("[Firebase] Firebase initialized successfully!")
@@ -110,18 +136,6 @@ def get_firebase_api_key():
             with open(web_config_path, 'r') as f:
                 cfg = json.load(f)
             key = cfg.get('apiKey', '').strip()
-            if key:
-                return key
-        except Exception:
-            pass
-
-    # 3. Fallback: try service account JSON (some projects store it there)
-    sa_path = os.path.join(backend_dir, 'serviceAccountKey.json')
-    if os.path.exists(sa_path):
-        try:
-            with open(sa_path, 'r') as f:
-                sa = json.load(f)
-            key = sa.get('api_key', '').strip()
             if key:
                 return key
         except Exception:

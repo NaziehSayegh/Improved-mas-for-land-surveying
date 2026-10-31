@@ -223,6 +223,7 @@ firebase_service = FirebaseService(DATA_DIR)
 # Version of the running app (the Electron shell passes the real one; the fallback is bumped with each release).
 APP_VERSION = os.environ.get('PARCEL_TOOLS_VERSION') or '2.0.23'
 from app_version import VersionPolicy, parse_version
+firebase_service.app_version = APP_VERSION
 version_policy = VersionPolicy(firebase_service, DATA_DIR, APP_VERSION)
 email_policy = EmailPolicy(firebase_service, DATA_DIR)
 print(f'[Backend] Firebase available: {is_firebase_available()}')
@@ -408,8 +409,10 @@ def _firebase_rest(endpoint: str, payload: dict):
 def _firebase_sign_in(email: str, password: str):
     """Sign in via Firebase REST API. Returns the full response (localId, idToken, ...)."""
     try:
-        return _firebase_rest('signInWithPassword',
-                              {'email': email, 'password': password, 'returnSecureToken': True})
+        result = _firebase_rest('signInWithPassword',
+                                {'email': email, 'password': password, 'returnSecureToken': True})
+        firebase_service.remember_login(result)     # customer mode: Firestore is reached as this user
+        return result
     except Exception as e:
         if 'API key not configured' in str(e):
             raise Exception('Firebase API key not configured — cannot verify password')
@@ -452,20 +455,6 @@ def _record_app_version(user_data, uid):
         print(f'[Version] Could not record the app version: {e}')
 
 
-def _reactivate_if_updated(user_data, uid):
-    """An account switched off by 'block outdated versions' comes back on by itself once the user runs a new
-    enough version. Old versions cannot do this - they only see "account disabled" and stay blocked."""
-    from app_version import is_older
-    try:
-        if (user_data and user_data.get('is_active') is False and user_data.get('suspended_reason') == 'update_required'
-                and not is_older(APP_VERSION, user_data.get('suspended_below', ''))):
-            firebase_service.update_user_fields(uid, {'is_active': True, 'suspended_reason': '', 'suspended_below': ''})
-            user_data.update({'is_active': True, 'suspended_reason': '', 'suspended_below': ''})
-    except Exception as e:
-        print(f'[Version] Could not re-activate {uid}: {e}')
-    return user_data
-
-
 def require_auth(f):
     """
     Decorator — validates X-Session-Token header on every protected endpoint.
@@ -482,7 +471,7 @@ def require_auth(f):
         machine_hash = license_manager.get_machine_id_hash()
         try:
             uid, _ = license_manager.verify_session_token(token, machine_hash)
-            user_data = _reactivate_if_updated(firebase_service.get_user(uid), uid)
+            user_data = firebase_service.get_user(uid)
             if user_data and user_data.get('is_active') is False:
                 return jsonify({
                     'error': 'Your account has been disabled. Please contact support.',
@@ -573,12 +562,7 @@ def auth_signup():
                 verification_required = True
             except Exception as ver_err:
                 print(f'[Auth] Could not send verification email to {email}: {ver_err}')
-                try:
-                    from firebase_config import get_firebase_auth
-                    get_firebase_auth().delete_user(uid)
-                    firebase_service.db.collection('users').document(uid).delete()
-                except Exception as cleanup_err:
-                    print(f'[Auth] Cleanup after failed verification email failed: {cleanup_err}')
+                firebase_service.rollback_new_user(uid)
                 return jsonify({'error': 'Could not send a verification email. Please check the address and try again.'}), 400
 
         # Save license for premium accounts
@@ -696,7 +680,6 @@ def auth_login():
         user_data = firebase_service.get_user(uid)
         if not user_data:
             return jsonify({'error': 'User profile not found'}), 404
-        user_data = _reactivate_if_updated(user_data, uid)
 
         # ── 2.5 Require a verified email address (accounts created before this rule are grandfathered) ──
         if id_token and str(user_data.get('created_at', '9999')) >= EMAIL_VERIFICATION_START:
@@ -864,7 +847,10 @@ def auth_verify():
                 uid, _ = license_manager.verify_session_token(session_token, machine_hash)
                 if _account_deleted(uid):
                     return jsonify({'valid': False, 'error': 'This account no longer exists.', 'code': 'ACCOUNT_DELETED'}), 401
-                user_data = _reactivate_if_updated(firebase_service.get_user(uid), uid)
+                if firebase_service.needs_new_sign_in():
+                    return jsonify({'valid': False, 'error': 'Please sign in again to finish the update.',
+                                    'code': 'REAUTH_REQUIRED'}), 401
+                user_data = firebase_service.get_user(uid)
                 if user_data and user_data.get('is_active') is False:
                     return jsonify({'valid': False, 'error': 'Account disabled'}), 403
                 _record_app_version(user_data, uid)
@@ -908,6 +894,7 @@ def auth_logout():
             return jsonify({'error': 'Authentication required', 'code': 'INVALID_TOKEN'}), 401
         print(f'[Auth] Logout request for user: {user_id}')
         firebase_service.remove_device(user_id, machine_id_hash)
+        firebase_service.forget_login()
         return jsonify({'success': True, 'message': 'Logged out successfully'})
     except Exception as e:
         print(f'[Auth ERROR] Logout failed: {e}')
@@ -1099,6 +1086,21 @@ def _outdated_candidates(min_version, my_uid):
             out.append({'uid': uid, 'email': u.get('email', ''), 'appVersion': seen or None,
                         'accountType': u.get('account_type', '')})
     return out
+
+
+@app.route('/api/admin/restore-updated', methods=['POST'])
+@_require_admin
+def admin_restore_updated():
+    """Admin: switch back on the accounts that were blocked as 'update required' and have since been seen on a
+    new enough version (the app already lets them in; this only tidies the stored flag)."""
+    from app_version import is_older
+    restored = 0
+    for u in firebase_service.get_all_users():
+        if (u.get('is_active') is False and u.get('suspended_reason') == 'update_required' and u.get('app_version')
+                and not is_older(u['app_version'], u.get('suspended_below', ''))):
+            res = firebase_service.update_user_fields(u['uid'], {'is_active': True, 'suspended_reason': '', 'suspended_below': ''})
+            restored += 1 if res.get('success') else 0
+    return jsonify({'success': True, 'restored': restored})
 
 
 @app.route('/api/admin/outdated-users', methods=['GET'])

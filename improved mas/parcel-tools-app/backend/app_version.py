@@ -59,7 +59,7 @@ class VersionPolicy:
             return self._cache
         policy = None
         try:
-            if self.fs._is_online():
+            if self.fs.config_readable():
                 doc = self.fs.db.collection('app_config').document('release').get()
                 policy = doc.to_dict() if doc.exists else {}
                 self._write_disk(policy)

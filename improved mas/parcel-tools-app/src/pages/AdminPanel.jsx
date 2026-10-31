@@ -1253,6 +1253,15 @@ function OutdatedBlock({ minVersion, onDone, onError }) {
     } catch { onError('Connection error'); }
     finally { setWorking(false); }
   };
+  const restore = async () => {
+    setWorking(true);
+    try {
+      const res = await apiFetch('/api/admin/restore-updated', { method: 'POST' });
+      const d = await res.json();
+      if (d.success) onDone(`Restored ${d.restored} account(s) that have updated`); else onError(d.error || 'Could not restore');
+    } catch { onError('Connection error'); }
+    finally { setWorking(false); }
+  };
   const apply = async () => {
     setWorking(true);
     try {
@@ -1268,7 +1277,10 @@ function OutdatedBlock({ minVersion, onDone, onError }) {
     <div className="border-t border-dark-800 pt-3 flex flex-col gap-2">
       <p className="text-xs text-dark-300"><b className="text-dark-100">Old versions that can't be forced</b> (2.0.21 and older have no update check). This switches off the accounts that haven't been seen on v{minVersion || '…'} or newer. Those apps then say "account disabled". A user who installs the new version is switched back on automatically the next time they sign in.</p>
       {!preview ? (
-        <div><button disabled={working || !minVersion} onClick={loadPreview} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 disabled:opacity-40 text-xs text-dark-200 border border-dark-700">{working ? 'Loading…' : 'Preview who would be blocked'}</button></div>
+        <div className="flex flex-wrap gap-2">
+          <button disabled={working || !minVersion} onClick={loadPreview} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 disabled:opacity-40 text-xs text-dark-200 border border-dark-700">{working ? 'Loading…' : 'Preview who would be blocked'}</button>
+          <button disabled={working} onClick={restore} title="Users who were blocked and have since updated are already let in by the app; this tidies their stored status" className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 disabled:opacity-40 text-xs text-dark-200 border border-dark-700">Restore users who have updated</button>
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
           <div className="text-xs text-amber-300">{preview.count} account(s) would be blocked. Paying customers are included, so give people time to update first.</div>

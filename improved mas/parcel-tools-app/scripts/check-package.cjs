@@ -31,11 +31,13 @@ const bad = []; let keys = [];
 })(unpacked, '');
 
 if (keys.length) {
-  console.warn('\n[check-package] WARNING: the Firebase ADMIN key is inside this build:\n  ' + keys.join('\n  ') +
-    '\n  Anyone who installs the app can read it and control your whole Firebase project.\n  See the security notes - this must be removed before the key can be revoked.\n');
+  console.error('\n[check-package] FAILED - the Firebase ADMIN key is inside this build:\n  ' + keys.join('\n  ') +
+    '\n  Anyone who installs the app could read it and control your whole Firebase project.\n' +
+    '  Keep the key on your own PC only (see firebase/README.md) - builds must not contain it.\n');
+  process.exit(1);
 }
 if (bad.length) {
   console.error('\n[check-package] FAILED - these files must not be shipped:\n  ' + bad.join('\n  ') + '\n');
   process.exit(1);
 }
-console.log('[check-package] OK - no private data or developer scripts found in the build.');
+console.log('[check-package] OK - no admin key, private data or developer scripts found in the build.');

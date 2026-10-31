@@ -1,0 +1,79 @@
+rules_version = '2';
+
+// Parcel Tools - Firestore security rules.
+// Customer installs sign in as the user and talk to Firestore with that user's token, so THESE RULES are what stop one
+// customer reading or changing another customer's data, or changing their own plan limits, block status or admin flag.
+// Deploy: Firebase console -> Firestore Database -> Rules -> paste this file -> Publish (see firebase/README.md).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Admins are identified by a VERIFIED email address on their Firebase login.
+    function isAdmin() {
+      return signedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['nsayegh2003@gmail.com', 'nsayegh2003@yahoo.com'];
+    }
+
+    // The only fields a customer may change on their own profile. Everything else - is_active, is_admin, max_devices,
+    // trial_start, suspended_*, created_at, email, license_deactivated_at ... - can only be changed by an admin.
+    function customerEditsOnlyAllowedFields() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'last_login', 'devices', 'machine_id_hash', 'app_version',
+        'license', 'license_key', 'license_updated_at', 'account_type'
+      ]);
+    }
+
+    match /users/{uid} {
+      allow get: if isOwner(uid) || isAdmin();
+
+      // Listing / querying: admins see everyone; a customer may only look up documents carrying their own email.
+      allow list: if isAdmin()
+        || (signedIn() && resource.data.email == request.auth.token.email);
+
+      // A new profile must belong to the signed-in user, be active, not be an admin, and carry no admin-only settings.
+      allow create: if isAdmin()
+        || (isOwner(uid)
+            && request.resource.data.email == request.auth.token.email
+            && request.resource.data.is_active == true
+            && request.resource.data.is_admin == false
+            && !('max_devices' in request.resource.data)
+            && !('suspended_reason' in request.resource.data)
+            && !('suspended_below' in request.resource.data));
+
+      allow update: if isAdmin() || (isOwner(uid) && customerEditsOnlyAllowedFields());
+
+      // Customers can NOT delete (and then re-create) their own profile: that would reset a block or a trial.
+      allow delete: if isAdmin();
+    }
+
+    // Cloud copies of projects: private to their owner.
+    match /projects/{projectId} {
+      allow get, list: if signedIn() && resource.data.owner == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.owner == request.auth.uid;
+      allow update: if signedIn() && resource.data.owner == request.auth.uid
+                    && request.resource.data.owner == request.auth.uid;
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+    }
+
+    // App settings (minimum version, email rules): anyone may read them (the app needs them before sign-in),
+    // only admins may change them.
+    match /app_config/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
