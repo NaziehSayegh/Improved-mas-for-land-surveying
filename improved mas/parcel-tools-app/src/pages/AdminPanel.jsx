@@ -294,6 +294,8 @@ export default function AdminPanel() {
           </div>
         </div>
 
+        <AppVersionControl onDone={(m) => showToast(m)} onError={(m) => showToast(m, 'error')} />
+
         {filterStatus === 'unverified' && (
           <BulkDeleteBar
             users={filteredUsers.filter(u => !u.is_admin && u.uid !== user?.userId)}
@@ -1101,6 +1103,75 @@ function BulkDeleteBar({ users, onDone, onError }) {
             className="px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-800/50 disabled:opacity-40 text-xs text-red-300 border border-red-800/50">
             Delete these {targets.length} account(s)…
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AppVersionControl({ onDone, onError }) {
+  const [info, setInfo] = useState(null);
+  const [minVersion, setMinVersion] = useState('');
+  const [message, setMessage] = useState('');
+  const [url, setUrl] = useState('');
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/admin/app-version');
+      const d = await res.json();
+      if (d.success) { setInfo(d); setMinVersion(d.minimumVersion || ''); setUrl(d.downloadUrl || ''); setMessage(d.message || ''); }
+    } catch { /* shown as unavailable */ }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await apiFetch('/api/admin/app-version', { method: 'POST', body: JSON.stringify({ minVersion, downloadUrl: url, message }) });
+      const d = await res.json();
+      if (d.success) { setInfo(d); setConfirm(false); onDone(minVersion ? `Minimum version set to ${minVersion}` : 'Forced update turned off'); }
+      else onError(d.error || 'Could not save');
+    } catch { onError('Connection error'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="glass border border-dark-800 rounded-2xl p-4 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm text-dark-200 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-primary" />
+          <b>Forced update</b>
+          <span className="text-dark-400 text-xs">
+            {info ? (info.minimumVersion ? `Minimum version: v${info.minimumVersion} (this copy: v${info.currentVersion})` : `Off — every version may run (this copy: v${info.currentVersion})`) : 'Loading…'}
+          </span>
+        </div>
+        <button onClick={() => setOpen(o => !o)} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-200 border border-dark-700">
+          {open ? 'Close' : 'Change'}
+        </button>
+      </div>
+      {open && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-dark-400">Copies of the app older than this version stop working and show an "Update required" screen. Leave empty to turn it off. Only works for versions that include this feature (2.0.21 and newer).</p>
+          <div className="flex flex-wrap gap-2">
+            <input value={minVersion} onChange={e => setMinVersion(e.target.value)} placeholder="e.g. 2.0.21"
+              className="w-32 px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="Download page (https://…)"
+              className="flex-1 min-w-[220px] px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+          </div>
+          <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Message shown to users (optional)"
+            className="px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+          {confirm ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-amber-300">{minVersion ? `Everyone below v${minVersion} will be blocked until they update. Publish the v${minVersion} release first!` : 'Turn the forced update off?'}</span>
+              <button disabled={saving} onClick={save} className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white">{saving ? 'Saving…' : 'Yes, apply'}</button>
+              <button onClick={() => setConfirm(false)} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-300 border border-dark-700">Cancel</button>
+            </div>
+          ) : (
+            <div><button onClick={() => setConfirm(true)} className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-xs text-white">Save…</button></div>
+          )}
         </div>
       )}
     </div>

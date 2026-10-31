@@ -83,7 +83,9 @@ PUBLIC_ENDPOINTS = {
     '/api/auth/resend-verification',
     '/api/auth/verify',          # validates the token itself
     '/api/license/status',       # read-only status; also polled by the Electron main process at startup
+    '/api/app/version-status',   # lets an outdated app show the "update required" screen
 }
+_ALWAYS_ALLOWED = {'/api/health', '/api/license/status', '/api/app/version-status'}
 _ALLOWED_HOSTS = {'127.0.0.1', 'localhost'}
 
 
@@ -95,7 +97,13 @@ def _guard_api_requests():
         return jsonify({'error': 'Invalid host'}), 421
     if request.method == 'OPTIONS' or not request.path.startswith('/api/'):
         return None
-    if request.path.rstrip('/') in PUBLIC_ENDPOINTS:
+    path = request.path.rstrip('/')
+    if path not in _ALWAYS_ALLOWED:
+        st = version_policy.status()
+        if st['updateRequired']:
+            return jsonify({'error': st['message'], 'code': 'UPDATE_REQUIRED', 'minimumVersion': st['minimumVersion'],
+                            'currentVersion': st['currentVersion'], 'downloadUrl': st['downloadUrl']}), 426
+    if path in PUBLIC_ENDPOINTS:
         return None
     token = request.headers.get('X-Session-Token', '')
     if not token:
@@ -211,6 +219,11 @@ license_manager = LicenseManager(DATA_DIR)
 
 # Initialize Firebase Service
 firebase_service = FirebaseService(DATA_DIR)
+
+# Version of the running app (the Electron shell passes the real one; the fallback is bumped with each release).
+APP_VERSION = os.environ.get('PARCEL_TOOLS_VERSION') or '2.0.21'
+from app_version import VersionPolicy, parse_version
+version_policy = VersionPolicy(firebase_service, DATA_DIR, APP_VERSION)
 print(f'[Backend] Firebase available: {is_firebase_available()}')
 
 # Ensure data directories exist
@@ -980,6 +993,39 @@ def admin_delete_user(uid):
         return jsonify(firebase_service.delete_user_account(uid))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/app/version-status', methods=['GET'])
+def app_version_status():
+    """Public: is this copy of the app still allowed to run?"""
+    return jsonify(version_policy.status())
+
+
+@app.route('/api/admin/app-version', methods=['GET'])
+@_require_admin
+def admin_get_app_version():
+    return jsonify({'success': True, **version_policy.status()})
+
+
+@app.route('/api/admin/app-version', methods=['POST'])
+@_require_admin
+def admin_set_app_version():
+    """Admin: set the minimum app version. Older copies stop working and are told to update."""
+    try:
+        data = request.get_json(silent=True) or {}
+        minimum = str(data.get('minVersion', '')).strip()
+        if minimum and parse_version(minimum) is None:
+            return jsonify({'success': False, 'error': 'Version must look like 2.0.21'}), 400
+        from app_version import is_older
+        if minimum and is_older(APP_VERSION, minimum):
+            return jsonify({'success': False, 'error': f'You are running {APP_VERSION}. Update this copy first, otherwise you would lock yourself out.'}), 400
+        url = str(data.get('downloadUrl', '')).strip()
+        if url and not url.lower().startswith('https://'):
+            return jsonify({'success': False, 'error': 'The download link must start with https://'}), 400
+        version_policy.set(minimum, url, str(data.get('message', '')).strip()[:300])
+        return jsonify({'success': True, **version_policy.status()})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/admin/users/bulk-delete', methods=['POST'])
@@ -2555,7 +2601,7 @@ def export_project_archive():
             "software": "Parcel Tools Desktop 2.0",
             "parcelsCount": len(project_data.get('savedParcels', [])),
             "pointsCount": len(project_data.get('points', {})),
-            "version": "2.0.21"
+            "version": APP_VERSION
         }
         files_to_compress.append({
             'archiveName': 'manifest.json',

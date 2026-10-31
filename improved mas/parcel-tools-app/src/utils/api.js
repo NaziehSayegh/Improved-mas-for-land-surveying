@@ -109,7 +109,9 @@ export const apiFetch = async (path, options = {}) => {
     ...(token ? { 'X-Session-Token': token } : {}),
     ...(options.headers || {}),
   };
-  return fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  const res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  if (res.status === 426) window.dispatchEvent(new Event('parcel-update-required'));
+  return res;
 };
 
 export default api;
