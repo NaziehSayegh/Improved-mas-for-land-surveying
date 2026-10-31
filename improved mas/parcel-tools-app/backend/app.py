@@ -221,7 +221,7 @@ license_manager = LicenseManager(DATA_DIR)
 firebase_service = FirebaseService(DATA_DIR)
 
 # Version of the running app (the Electron shell passes the real one; the fallback is bumped with each release).
-APP_VERSION = os.environ.get('PARCEL_TOOLS_VERSION') or '2.0.21'
+APP_VERSION = os.environ.get('PARCEL_TOOLS_VERSION') or '2.0.22'
 from app_version import VersionPolicy, parse_version
 version_policy = VersionPolicy(firebase_service, DATA_DIR, APP_VERSION)
 email_policy = EmailPolicy(firebase_service, DATA_DIR)
@@ -1018,7 +1018,7 @@ def admin_set_app_version():
         data = request.get_json(silent=True) or {}
         minimum = str(data.get('minVersion', '')).strip()
         if minimum and parse_version(minimum) is None:
-            return jsonify({'success': False, 'error': 'Version must look like 2.0.21'}), 400
+            return jsonify({'success': False, 'error': 'Version must look like 2.0.22'}), 400
         from app_version import is_older
         if minimum and is_older(APP_VERSION, minimum):
             return jsonify({'success': False, 'error': f'You are running {APP_VERSION}. Update this copy first, otherwise you would lock yourself out.'}), 400
