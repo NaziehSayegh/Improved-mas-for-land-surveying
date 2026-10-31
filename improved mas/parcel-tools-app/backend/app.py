@@ -442,6 +442,30 @@ def _email_verification_enforced() -> bool:
     return firebase_service._is_online() and bool(get_firebase_api_key())
 
 
+def _record_app_version(user_data, uid):
+    """Remember which app version this user runs (so the admin can see who has not updated)."""
+    try:
+        if user_data is not None and user_data.get('app_version') != APP_VERSION:
+            firebase_service.update_user_fields(uid, {'app_version': APP_VERSION})
+            user_data['app_version'] = APP_VERSION
+    except Exception as e:
+        print(f'[Version] Could not record the app version: {e}')
+
+
+def _reactivate_if_updated(user_data, uid):
+    """An account switched off by 'block outdated versions' comes back on by itself once the user runs a new
+    enough version. Old versions cannot do this - they only see "account disabled" and stay blocked."""
+    from app_version import is_older
+    try:
+        if (user_data and user_data.get('is_active') is False and user_data.get('suspended_reason') == 'update_required'
+                and not is_older(APP_VERSION, user_data.get('suspended_below', ''))):
+            firebase_service.update_user_fields(uid, {'is_active': True, 'suspended_reason': '', 'suspended_below': ''})
+            user_data.update({'is_active': True, 'suspended_reason': '', 'suspended_below': ''})
+    except Exception as e:
+        print(f'[Version] Could not re-activate {uid}: {e}')
+    return user_data
+
+
 def require_auth(f):
     """
     Decorator — validates X-Session-Token header on every protected endpoint.
@@ -458,7 +482,7 @@ def require_auth(f):
         machine_hash = license_manager.get_machine_id_hash()
         try:
             uid, _ = license_manager.verify_session_token(token, machine_hash)
-            user_data = firebase_service.get_user(uid)
+            user_data = _reactivate_if_updated(firebase_service.get_user(uid), uid)
             if user_data and user_data.get('is_active') is False:
                 return jsonify({
                     'error': 'Your account has been disabled. Please contact support.',
@@ -672,6 +696,7 @@ def auth_login():
         user_data = firebase_service.get_user(uid)
         if not user_data:
             return jsonify({'error': 'User profile not found'}), 404
+        user_data = _reactivate_if_updated(user_data, uid)
 
         # ── 2.5 Require a verified email address (accounts created before this rule are grandfathered) ──
         if id_token and str(user_data.get('created_at', '9999')) >= EMAIL_VERIFICATION_START:
@@ -692,6 +717,8 @@ def auth_login():
                 'error': 'Your account has been disabled. Please contact support.',
                 'code': 'ACCOUNT_DISABLED'
             }), 403
+
+        _record_app_version(user_data, uid)
 
         # ── 3.5 Check trial expiration if demo ───────────────────────────────
         if user_data.get('account_type') == 'demo':
@@ -837,9 +864,10 @@ def auth_verify():
                 uid, _ = license_manager.verify_session_token(session_token, machine_hash)
                 if _account_deleted(uid):
                     return jsonify({'valid': False, 'error': 'This account no longer exists.', 'code': 'ACCOUNT_DELETED'}), 401
-                user_data = firebase_service.get_user(uid)
+                user_data = _reactivate_if_updated(firebase_service.get_user(uid), uid)
                 if user_data and user_data.get('is_active') is False:
                     return jsonify({'valid': False, 'error': 'Account disabled'}), 403
+                _record_app_version(user_data, uid)
                 
                 device_res = firebase_service.add_device(uid, machine_hash, "Windows PC")
                 if not device_res.get('success'):
@@ -1051,6 +1079,59 @@ def admin_set_email_policy():
         policy = email_policy.set(d.get('strict'), *lists)
         return jsonify({'success': True, 'strict': policy['strict'], 'blockedDomains': policy['blocked_domains'],
                         'allowedDomains': policy['allowed_domains']})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _outdated_candidates(min_version, my_uid):
+    """Users who have not been seen on `min_version` or newer: never reported a version (all old builds) or an older one."""
+    from app_version import is_older
+    out = []
+    for u in firebase_service.get_all_users():
+        uid = u.get('uid')
+        email = (u.get('email') or '').lower()
+        if not uid or uid == my_uid or u.get('is_admin') or email in ('nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com'):
+            continue
+        if u.get('is_active') is False:
+            continue                                   # already blocked for some other reason: leave as is
+        seen = u.get('app_version')
+        if not seen or is_older(seen, min_version):
+            out.append({'uid': uid, 'email': u.get('email', ''), 'appVersion': seen or None,
+                        'accountType': u.get('account_type', '')})
+    return out
+
+
+@app.route('/api/admin/outdated-users', methods=['GET'])
+@_require_admin
+def admin_outdated_users():
+    """Admin: preview who 'block outdated versions' would switch off."""
+    from flask import g
+    minimum = (request.args.get('minVersion') or '').strip()
+    if parse_version(minimum) is None:
+        return jsonify({'success': False, 'error': 'Enter a version like 2.0.22'}), 400
+    users = _outdated_candidates(minimum, g.uid)
+    return jsonify({'success': True, 'count': len(users), 'users': users[:200]})
+
+
+@app.route('/api/admin/block-outdated', methods=['POST'])
+@_require_admin
+def admin_block_outdated():
+    """Admin: switch off accounts not seen on `minVersion`+. Old app versions cannot be forced to update, but they
+    all obey the account's active flag. Accounts come back on automatically when the user runs a new enough version."""
+    from flask import g
+    from app_version import is_older
+    try:
+        minimum = str((request.get_json(silent=True) or {}).get('minVersion', '')).strip()
+        if parse_version(minimum) is None:
+            return jsonify({'success': False, 'error': 'Enter a version like 2.0.22'}), 400
+        if is_older(APP_VERSION, minimum):
+            return jsonify({'success': False, 'error': f'You are running {APP_VERSION}. Update this copy first.'}), 400
+        blocked = 0
+        for u in _outdated_candidates(minimum, g.uid):
+            res = firebase_service.update_user_fields(u['uid'], {'is_active': False, 'suspended_reason': 'update_required',
+                                                                  'suspended_below': minimum})
+            blocked += 1 if res.get('success') else 0
+        return jsonify({'success': True, 'blocked': blocked})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
