@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
+import PageLayout from '../components/PageLayout';
 
 // ── Badge Component ─────────────────────────────────────────────────────────
 const Badge = ({ children, color }) => {
@@ -329,7 +330,17 @@ export default function AdminPanel() {
   };
 
   return (
-    <div className="page-container relative flex flex-col h-screen overflow-hidden bg-dark-950">
+    <PageLayout
+      title="Admin Console"
+      showLicense={false}
+      headerRight={(
+        <button onClick={fetchUsers} disabled={loading} title="Reload the user list"
+          className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-dark-700 bg-dark-800/40 hover:bg-dark-800">
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Refresh</span>
+        </button>
+      )}
+    >
+    <div className="relative h-full flex flex-col overflow-hidden bg-dark-950">
       {/* ── Toast Notification ── */}
       <AnimatePresence>
         {toast && (
@@ -348,27 +359,9 @@ export default function AdminPanel() {
 
       <div className="flex-1 flex flex-col overflow-y-auto md:overflow-hidden max-w-[1500px] mx-auto w-full px-3 sm:px-6 pt-4 sm:pt-5 pb-4">
 
-        {/* ── Header ── */}
-        <div className="flex items-center justify-between gap-4 mb-3 flex-shrink-0">
-          <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl font-extrabold text-dark-50 flex items-center gap-2.5 whitespace-nowrap">
-              <Shield className="w-6 h-6 text-primary" />
-              Admin Console
-            </h1>
-            <p className="text-dark-400 text-xs mt-1 truncate max-w-[60vw] sm:max-w-none">
-              Signed in as <strong className="text-dark-200">{user?.email}</strong> · this copy v{__APP_VERSION__}
-            </p>
-          </div>
-          <div className="flex gap-2 flex-shrink-0">
-            <button onClick={fetchUsers} disabled={loading} title="Reload the user list"
-              className="flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl border border-dark-700 bg-dark-800/40 hover:bg-dark-800">
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Refresh</span>
-            </button>
-            <button onClick={() => navigate('/')} className="flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl border border-dark-700 bg-dark-800/40 hover:bg-dark-800">
-              <ChevronLeft className="w-4 h-4" /> <span className="hidden sm:inline">Back to app</span><span className="sm:hidden">Back</span>
-            </button>
-          </div>
-        </div>
+        <p className="text-dark-400 text-xs mb-2 flex-shrink-0 truncate">
+          Signed in as <strong className="text-dark-200">{user?.email}</strong> · this copy v{__APP_VERSION__}
+        </p>
 
         {/* ── Tabs ── */}
         <div className="flex border-b border-dark-800 mb-4 flex-shrink-0 overflow-x-auto">
@@ -679,7 +672,7 @@ export default function AdminPanel() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-              className="absolute top-0 right-0 h-full w-full max-w-md bg-dark-900 border-l border-dark-800 shadow-2xl z-50 flex flex-col text-dark-100"
+              role="dialog" className="absolute top-0 right-0 h-full w-full max-w-md bg-dark-900 border-l border-dark-800 shadow-2xl z-50 flex flex-col text-dark-100"
             >
               {/* Drawer Header */}
               <div className="p-6 border-b border-dark-800 bg-dark-950/40 flex items-center justify-between">
@@ -1170,6 +1163,7 @@ export default function AdminPanel() {
         )}
       </AnimatePresence>
     </div>
+    </PageLayout>
   );
 }
 

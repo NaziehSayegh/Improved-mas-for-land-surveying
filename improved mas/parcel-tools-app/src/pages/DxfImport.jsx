@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import BackButton from '../components/BackButton';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -2285,9 +2286,7 @@ const DxfImport = () => {
 
             {/* Top Bar */}
             <div className="flex-none p-2 border-b border-dark-700 bg-dark-800/50 backdrop-blur-md flex items-center gap-3">
-                <button onClick={handleBackToMainMenu} className="p-2 hover:bg-dark-700 rounded-lg text-dark-400">
-                    <ArrowLeft className="w-5 h-5" />
-                </button>
+                <BackButton onClick={handleBackToMainMenu} compact />
                 <div className="h-8 w-px bg-dark-700" />
                 <h1 className="text-sm font-bold text-primary whitespace-nowrap">🏗️ CAD IMPORT</h1>
 

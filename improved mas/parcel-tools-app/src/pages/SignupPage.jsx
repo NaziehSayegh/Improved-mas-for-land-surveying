@@ -376,7 +376,7 @@ const SignupPage = () => {
             </div>
 
             {/* Custom CSS for animations */}
-            <style jsx>{`
+            <style>{`
                 @keyframes blob {
                     0%, 100% { transform: translate(0, 0) scale(1); }
                     25% { transform: translate(20px, -50px) scale(1.1); }

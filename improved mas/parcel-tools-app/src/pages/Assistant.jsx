@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { askAssistant } from '../utils/api';
+import PageLayout from '../components/PageLayout';
 
 const Assistant = () => {
   const navigate = useNavigate();
@@ -16,16 +17,6 @@ const Assistant = () => {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        navigate('/');
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [navigate]);
 
   useEffect(() => {
     // Use requestAnimationFrame for smoother scrolling
@@ -60,19 +51,8 @@ const Assistant = () => {
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-dark-900 p-4 gap-3">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-shrink-0">
-        <h2 className="text-xl font-bold text-primary flex items-center gap-2">🤖 Assistant</h2>
-        <button
-          onClick={() => navigate('/')}
-          className="px-3 py-1.5 rounded-lg border border-dark-600 text-dark-200
-                     hover:text-dark-50 hover:border-primary text-sm transition-colors"
-        >
-          ← Main Menu (Esc)
-        </button>
-      </div>
-
+    <PageLayout title="🤖 Assistant" backPath="/">
+    <div className="h-full flex flex-col overflow-hidden p-4 gap-3">
       {/* Messages — scrolls internally */}
       <div className="flex-1 min-h-0 overflow-y-auto bg-dark-800 border border-dark-700
                       rounded-xl p-4 space-y-3 scroll-area">
@@ -127,6 +107,7 @@ const Assistant = () => {
         </button>
       </div>
     </div>
+    </PageLayout>
   );
 
 };

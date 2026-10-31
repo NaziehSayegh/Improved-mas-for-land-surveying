@@ -35,6 +35,23 @@ const ForgotPasswordPage = () => {
 
   return (
     <div className="page-container relative">
+      {/* ── Animated background blobs ──────────────────────── */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-[-10%] left-[-5%] w-96 h-96 bg-primary/10 rounded-full
+                        blur-3xl animate-blob" />
+        <div className="absolute top-[-5%] right-[-5%] w-80 h-80 bg-accent/10 rounded-full
+                        blur-3xl animate-blob animation-delay-2000" />
+        <div className="absolute bottom-[-10%] left-[20%] w-80 h-80 bg-success/8 rounded-full
+                        blur-3xl animate-blob animation-delay-4000" />
+        {/* Grid overlay */}
+        <div className="absolute inset-0 opacity-[0.025]"
+          style={{
+            backgroundImage: 'linear-gradient(#58a6ff 1px, transparent 1px), linear-gradient(90deg, #58a6ff 1px, transparent 1px)',
+            backgroundSize: '48px 48px'
+          }}
+        />
+      </div>
+
       <div className="flex-1 overflow-y-auto scroll-area flex flex-col items-center p-3 sm:p-6 md:p-8 z-10">
         <motion.div
           initial={{ opacity: 0, y: 24 }}
@@ -43,6 +60,10 @@ const ForgotPasswordPage = () => {
           className="w-full max-w-sm sm:max-w-md my-auto py-4 sm:py-6 px-2 sm:px-4"
         >
           <div className="text-center mb-7">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl
+                            bg-gradient-to-br from-primary to-primary-dark shadow-glow mb-4">
+              <span className="text-3xl">📐</span>
+            </div>
             <h1 className="text-3xl font-bold">
               <span className="gradient-text">Reset password</span>
             </h1>

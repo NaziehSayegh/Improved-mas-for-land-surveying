@@ -74,7 +74,8 @@ const ToastContainer = ({ toasts, onRemove }) => {
     );
 };
 
-const Toast = ({ toast, onRemove }) => {
+// forwardRef: AnimatePresence (popLayout mode) needs to measure the element it animates out
+const Toast = React.forwardRef(({ toast, onRemove }, ref) => {
     const isCompleted = toast.type === 'completed';
 
     const icons = {
@@ -103,6 +104,7 @@ const Toast = ({ toast, onRemove }) => {
 
     return (
         <motion.div
+            ref={ref}
             layout
             initial={{ opacity: 0, y: -20, scale: 0.95, filter: 'blur(4px)' }}
             animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
@@ -168,7 +170,8 @@ const Toast = ({ toast, onRemove }) => {
             )}
         </motion.div>
     );
-};
+});
+Toast.displayName = 'Toast';
 
 export default ToastProvider;
 

@@ -6,6 +6,7 @@ import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
 import { customConfirm } from '../utils/dialogs';
 import { safeHtml } from '../utils/safeHtml';
+import BackButton from '../components/BackButton';
 
 const DataFiles = () => {
   const navigate = useNavigate();
@@ -848,25 +849,22 @@ const DataFiles = () => {
         </div>
       )}
 
+      <header className="page-topbar">
+        <BackButton onClick={handleBackToMainMenu} compact />
+        <h1 className="text-base font-bold text-dark-100 flex-1 truncate">Data Files</h1>
+        <button onClick={handleCloseProject} className="btn-ghost py-1.5 px-3 text-sm text-red-400 hover:text-red-300 border border-red-600/30 flex-shrink-0">
+          Close Project
+        </button>
+      </header>
       <div className="flex-1 min-h-0 overflow-y-auto scroll-area p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-          <div className="flex gap-2 mb-6">
-            <button onClick={handleBackToMainMenu} className="btn-secondary flex items-center gap-2 group">
-              <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-              ↩ MAIN MENU
-            </button>
-            <button onClick={handleCloseProject} className="btn-secondary flex items-center gap-2 bg-red-600/20 hover:bg-red-600/30 border-red-600/50 text-red-400">
-              ❌ Close Project
-            </button>
-          </div>
-
           <div className="glass-effect rounded-xl p-6">
             <div className="flex items-center gap-4 mb-4">
               <FolderOpen className="w-10 h-10 text-primary" />
               <div>
-                <h1 className="text-4xl font-bold gradient-text">📁 Data Files Manager</h1>
+                <h2 className="text-4xl font-bold gradient-text">📁 Data Files Manager</h2>
                 <p className="text-dark-300 mt-2">Edit points files, manage projects, set file heading</p>
               </div>
             </div>

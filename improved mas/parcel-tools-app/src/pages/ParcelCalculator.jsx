@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import BackButton from '../components/BackButton';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -3052,10 +3053,7 @@ const ParcelCalculator = () => {
       {/* ── Main Toolbar ── */}
       <header className="flex-shrink-0 bg-dark-800/90 border-b border-dark-700 px-6 py-3 flex items-center justify-between backdrop-blur-sm z-20">
         <div className="flex items-center gap-3">
-          <button onClick={handleBackToMainMenu} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 group">
-            <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
-            ↩ Main Menu
-          </button>
+          <BackButton onClick={handleBackToMainMenu} />
           <button onClick={handleCloseProject} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 bg-red-600/10 hover:bg-red-600/20 border-red-600/30 text-red-400">
             Close Project
           </button>
