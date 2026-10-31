@@ -71,7 +71,10 @@
       "!backend/list_users.py",
       "!backend/make_admin.py",
       "!backend/*.sql",
-      "!backend/.gitignore"
+      "!backend/.gitignore",
+      "!backend/serviceAccountKey.json",
+      "!backend/fake_firebase.py",
+      "!backend/conftest.py"
     ],
     "asarUnpack": [
       "backend/**"
@@ -95,7 +98,10 @@
           "!list_users.py",
           "!make_admin.py",
           "!*.sql",
-          "!.gitignore"
+          "!.gitignore",
+          "!serviceAccountKey.json",
+          "!fake_firebase.py",
+          "!conftest.py"
         ]
       }
     ],

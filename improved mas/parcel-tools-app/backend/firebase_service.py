@@ -7,16 +7,22 @@ import json
 import os
 from atomic_io import atomic_write_text
 from datetime import datetime
-from firebase_config import get_firestore_client, is_firebase_available
+from firebase_config import get_firestore_client, is_firebase_available, get_firebase_api_key, get_firebase_project_id
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 
 class FirebaseService:
     """Service layer for Firebase operations with JSON fallback"""
     
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, rest_opener=None, auth_opener=None):
         self.data_dir = data_dir
-        self.db = get_firestore_client()
+        self.db = get_firestore_client() if not (rest_opener or auth_opener) else None
+        # No admin key on this PC (every customer install): talk to Firebase as the signed-in user over REST.
+        self.rest_mode = False
+        self.user_auth = None
+        self.app_version = ''          # set by the app; used to lift "update required" blocks for new-enough versions
+        if self.db is None:
+            self._init_rest_mode(data_dir, rest_opener, auth_opener)
         
         # JSON fallback file paths
         self.projects_file = os.path.join(data_dir, 'projects.json')
@@ -27,8 +33,70 @@ class FirebaseService:
         # Ensure data directory exists
         os.makedirs(data_dir, exist_ok=True)
     
+    def _init_rest_mode(self, data_dir, rest_opener=None, auth_opener=None):
+        if os.environ.get('PARCEL_TOOLS_OFFLINE') == '1' and not (rest_opener or auth_opener):
+            return                      # development / tests: JSON files only, never touch Firebase
+        api_key, project = get_firebase_api_key(), get_firebase_project_id()
+        if not (api_key and project):
+            return
+        from rest_firestore import RestFirestore
+        from user_auth import UserAuth
+        self.user_auth = UserAuth(api_key, data_dir, opener=auth_opener)
+        self.db = RestFirestore(project, self.user_auth.id_token, opener=rest_opener, api_key=api_key)
+        self.rest_mode = True
+        print('[Firebase] Customer mode: Firestore is reached as the signed-in user')
+
+    def remember_login(self, sign_in):
+        """Keep the tokens of a successful Firebase sign-in (customer mode only)."""
+        if self.rest_mode and sign_in and sign_in.get('idToken'):
+            self.user_auth.remember(sign_in['localId'], sign_in['idToken'], sign_in.get('refreshToken', ''),
+                                    sign_in.get('expiresIn', 3600))
+
+    def forget_login(self):
+        if self.rest_mode:
+            self.user_auth.forget()
+
+    def needs_new_sign_in(self):
+        """Customer mode and nobody is signed in with Firebase on this PC (e.g. right after an update)."""
+        return self.rest_mode and not self.user_auth.has_credentials()
+
+    def rollback_new_user(self, uid):
+        """Undo a half-finished signup (login + profile)."""
+        try:
+            if self.rest_mode:
+                try:        # customers may not delete profiles (that would reset a block), so an orphan can remain
+                    self.db.collection('users').document(uid).delete()
+                except Exception:
+                    pass
+                self.user_auth.delete_self()
+            else:
+                from firebase_config import get_firebase_auth
+                get_firebase_auth().delete_user(uid)
+                self.db.collection('users').document(uid).delete()
+        except Exception as e:
+            print(f'[Firebase Service] Rollback of {uid} failed: {e}')
+
+    def _effective(self, user):
+        """An 'update required' block no longer applies to a copy of the app that is new enough. Nothing is written:
+        customers may not edit their own is_active, an admin tidies the stored flag later."""
+        try:
+            if (user and user.get('is_active') is False and user.get('suspended_reason') == 'update_required'
+                    and self.app_version):
+                from app_version import is_older
+                if not is_older(self.app_version, user.get('suspended_below', '')):
+                    user = dict(user, is_active=True)
+        except Exception:
+            pass
+        return user
+
+    def config_readable(self):
+        """App settings (minimum version, email rules) can be read even before anyone has signed in."""
+        return self.rest_mode or self._is_online()
+
     def _is_online(self):
         """Check if Firebase is available"""
+        if self.rest_mode:
+            return self.user_auth.has_credentials()
         return self.db is not None and is_firebase_available()
     
     # ==================== USER OPERATIONS ====================
@@ -43,6 +111,24 @@ class FirebaseService:
         Returns: {'success': bool, 'user_id': str, 'error': str}
         """
         try:
+            if self.rest_mode:
+                from user_auth import AuthError
+                try:
+                    uid = self.user_auth.sign_up(email, password)
+                except AuthError as e:
+                    friendly = {'EMAIL_EXISTS': 'This email address is already registered. Please sign in instead.',
+                                'WEAK_PASSWORD': 'The password is too weak.', 'INVALID_EMAIL': 'Please enter a valid email address.'}
+                    return {'success': False, 'error': next((v for k, v in friendly.items() if k in str(e)), str(e))}
+                user_data = {
+                    'email': email, 'license_key': license_key or '', 'account_type': account_type,
+                    'machine_id_hash': machine_id_hash or '', 'trial_start': trial_start or datetime.now().isoformat(),
+                    'is_active': True, 'is_admin': False, 'created_at': datetime.now().isoformat(),
+                    'last_login': datetime.now().isoformat(),
+                }
+                self.db.collection('users').document(uid).set(user_data)
+                self._save_user_to_json(uid, user_data)
+                return {'success': True, 'user_id': uid, 'message': 'User created successfully'}
+
             if self._is_online():
                 from firebase_config import get_firebase_auth
                 auth = get_firebase_auth()
@@ -152,11 +238,11 @@ class FirebaseService:
             if self._is_online():
                 doc = self.db.collection('users').document(user_id).get()
                 if doc.exists:
-                    return self._normalize_user(doc.to_dict())
+                    return self._effective(self._normalize_user(doc.to_dict()))
             
             # Fallback to JSON
             users = self._load_users_from_json()
-            return self._normalize_user(users.get(user_id))
+            return self._effective(self._normalize_user(users.get(user_id)))
             
         except Exception as e:
             print(f"[Firebase Service] Error getting user: {e}")
@@ -169,13 +255,14 @@ class FirebaseService:
             return None
         try:
             return bool(self.db.collection('users').document(user_id).get().exists)
-        except Exception:
-            return None
+        except Exception as e:
+            from user_auth import AccountGone
+            return False if isinstance(e, AccountGone) else None
 
     def get_email_verified_map(self, uids):
         """{uid: bool} from Firebase Auth for the given users (empty when Firebase Auth is unreachable)."""
         out = {}
-        if not self._is_online():
+        if self.rest_mode or not self._is_online():
             return out
         try:
             from firebase_config import get_firebase_auth
@@ -807,7 +894,9 @@ class FirebaseService:
     def delete_user_account(self, uid):
         """Admin: permanently delete a user (Firebase Auth, Firestore record, local backup)."""
         try:
-            if self._is_online():
+            if self._is_online() and self.rest_mode:
+                self.db.collection('users').document(uid).delete()      # the login itself needs the admin key
+            elif self._is_online():
                 try:
                     from firebase_config import get_firebase_auth
                     get_firebase_auth().delete_user(uid)
