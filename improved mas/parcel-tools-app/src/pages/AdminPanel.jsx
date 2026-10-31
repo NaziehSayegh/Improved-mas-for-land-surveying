@@ -105,11 +105,11 @@ const StatTile = ({ label, value, icon, tone, active, onClick, hint }) => {
 
 const TabButton = ({ active, onClick, icon, label, badge, badgeTone }) => (
   <button onClick={onClick}
-    className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors
+    className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap flex-shrink-0
       ${active ? 'border-primary text-primary' : 'border-transparent text-dark-400 hover:text-dark-200'}`}>
     {icon}{label}
     {badge !== undefined && badge !== null && badge !== '' && (
-      <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-bold ${badgeTone === 'red' ? 'bg-red-500/20 text-red-300' : badgeTone === 'amber' ? 'bg-amber-500/20 text-amber-300' : 'bg-dark-700 text-dark-300'}`}>{badge}</span>
+      <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-bold ${badgeTone ? 'hidden sm:inline-block' : ''} ${badgeTone === 'red' ? 'bg-red-500/20 text-red-300' : badgeTone === 'amber' ? 'bg-amber-500/20 text-amber-300' : 'bg-dark-700 text-dark-300'}`}>{badge}</span>
     )}
   </button>
 );
@@ -346,26 +346,26 @@ export default function AdminPanel() {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 flex flex-col overflow-hidden max-w-[1500px] mx-auto w-full px-6 pt-5 pb-4">
+      <div className="flex-1 flex flex-col overflow-y-auto md:overflow-hidden max-w-[1500px] mx-auto w-full px-3 sm:px-6 pt-4 sm:pt-5 pb-4">
 
         {/* ── Header ── */}
         <div className="flex items-center justify-between gap-4 mb-3 flex-shrink-0">
           <div className="min-w-0">
-            <h1 className="text-2xl font-extrabold text-dark-50 flex items-center gap-2.5">
+            <h1 className="text-xl sm:text-2xl font-extrabold text-dark-50 flex items-center gap-2.5 whitespace-nowrap">
               <Shield className="w-6 h-6 text-primary" />
               Admin Console
             </h1>
-            <p className="text-dark-400 text-xs mt-1 truncate">
+            <p className="text-dark-400 text-xs mt-1 truncate max-w-[60vw] sm:max-w-none">
               Signed in as <strong className="text-dark-200">{user?.email}</strong> · this copy v{__APP_VERSION__}
             </p>
           </div>
           <div className="flex gap-2 flex-shrink-0">
             <button onClick={fetchUsers} disabled={loading} title="Reload the user list"
               className="flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl border border-dark-700 bg-dark-800/40 hover:bg-dark-800">
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Refresh</span>
             </button>
             <button onClick={() => navigate('/')} className="flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl border border-dark-700 bg-dark-800/40 hover:bg-dark-800">
-              <ChevronLeft className="w-4 h-4" /> Back to app
+              <ChevronLeft className="w-4 h-4" /> <span className="hidden sm:inline">Back to app</span><span className="sm:hidden">Back</span>
             </button>
           </div>
         </div>
@@ -380,9 +380,9 @@ export default function AdminPanel() {
         </div>
 
         {tab === 'users' && (
-          <div className="flex-1 flex flex-col min-h-0 gap-3">
+          <div className="md:flex-1 flex flex-col md:min-h-0 gap-3">
             {/* ── Summary tiles (click to filter) ── */}
-            <div className="grid grid-cols-3 xl:grid-cols-6 gap-2.5 flex-shrink-0">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-2.5 flex-shrink-0">
               <StatTile label="All accounts" value={stats.total} tone="primary" icon={<Users className="w-4 h-4" />}
                 active={filterType === 'all' && filterStatus === 'all'} onClick={() => openFilter('all', 'all')} hint="Show everyone" />
               <StatTile label="Premium" value={stats.premium} tone="amber" icon={<Crown className="w-4 h-4" />}
@@ -401,7 +401,7 @@ export default function AdminPanel() {
             <div className="flex flex-col lg:flex-row gap-3 lg:items-center flex-shrink-0">
               <div className="relative flex-1 min-w-[220px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
-                <input type="text" placeholder="Search email, license key or computer name…" value={search} onChange={e => setSearch(e.target.value)}
+                <input type="text" placeholder="Search email, key or PC name…" value={search} onChange={e => setSearch(e.target.value)}
                   className="w-full pl-10 pr-9 py-2.5 text-sm rounded-xl bg-dark-900/70 border border-dark-800 focus:border-primary/60 outline-none text-dark-100" />
                 {search && <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-dark-500 hover:text-dark-200"><X className="w-4 h-4" /></button>}
               </div>
@@ -466,7 +466,7 @@ export default function AdminPanel() {
             )}
 
             {/* ── Users table ── */}
-            <div className="flex-1 min-h-0 border border-dark-800 rounded-2xl overflow-hidden flex flex-col bg-dark-900/30">
+            <div className="md:flex-1 md:min-h-0 border border-dark-800 rounded-2xl overflow-hidden flex flex-col bg-dark-900/30">
               {loading ? (
                 <div className="flex-1 flex flex-col items-center justify-center gap-3 text-dark-400">
                   <RefreshCw className="w-8 h-8 animate-spin text-primary" />
@@ -479,7 +479,47 @@ export default function AdminPanel() {
                   <button onClick={resetFilters} className="text-xs px-3 py-1.5 rounded-lg border border-dark-700 text-dark-300 hover:bg-dark-800">Clear filters</button>
                 </div>
               ) : (
-                <div className="flex-1 overflow-auto scroll-area">
+                <>
+                <div className="md:hidden divide-y divide-dark-800/60">
+                  {pageUsers.map((u) => {
+                    const daysLeft = u.trial_days_left;
+                    const isExpired = u.account_type === 'demo' && typeof daysLeft === 'number' && daysLeft <= 0;
+                    const isBlocked = u.is_active === false;
+                    const pcs = u.devices ? Object.keys(u.devices).length : 0;
+                    const pcLimit = Number(u.max_devices) > 0 ? Number(u.max_devices) : 2;
+                    const isOld = latestVersion && (!u.app_version || compareVersions(u.app_version, latestVersion) < 0);
+                    const selectable = !u.is_admin && u.uid !== user?.userId;
+                    return (
+                      <div key={u.uid} onClick={() => setSelectedUser(u)} className={`p-3 flex gap-3 active:bg-dark-800/50 ${selected.has(u.uid) ? 'bg-primary/5' : ''}`}>
+                        <div className="pt-1" onClick={e => e.stopPropagation()}>
+                          {selectable ? <input type="checkbox" checked={selected.has(u.uid)} onChange={() => toggleSelected(u.uid)} /> : <span className="block w-[13px]" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-dark-100 truncate">{u.email}</span>
+                            <ChevronRight className="w-4 h-4 text-dark-600 flex-shrink-0" />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                            {u.account_type === 'premium' ? <Badge color="amber"><Crown className="w-3 h-3" /> Premium</Badge> : <Badge color="blue"><Zap className="w-3 h-3" /> Demo</Badge>}
+                            {isBlocked ? <Badge color="red"><ShieldX className="w-3 h-3" /> Suspended</Badge>
+                              : isExpired ? <Badge color="amber"><Clock className="w-3 h-3" /> Expired</Badge>
+                              : <Badge color="green"><CheckCircle className="w-3 h-3" /> Active</Badge>}
+                            {u.disposable_email && <Badge color="red"><AlertTriangle className="w-3 h-3" /> Disposable</Badge>}
+                            {!u.disposable_email && u.email_verified === false && !u.is_admin && <Badge color="amber"><Mail className="w-3 h-3" /> Unverified</Badge>}
+                            {u.is_admin && <Badge color="purple"><Shield className="w-3 h-3" /> Admin</Badge>}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-dark-500">
+                            {u.account_type === 'demo' && <span className={!isExpired && (daysLeft || 0) <= 5 ? 'text-amber-400' : ''}>{isExpired ? 'Trial expired' : `${daysLeft ?? 0} days left`}</span>}
+                            <span>{pcs}/{pcLimit} PCs</span>
+                            <span className={isOld ? 'text-amber-300' : ''}>{u.app_version ? `v${u.app_version}` : 'old build'}</span>
+                            <span>Seen {timeAgo(u.last_login)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="hidden md:block flex-1 overflow-auto scroll-area">
                   <table className="w-full text-left border-collapse min-w-[1000px]">
                     <thead className="bg-dark-900 border-b border-dark-800 sticky top-0 z-10">
                       <tr className="text-[11px] font-semibold uppercase tracking-wider text-dark-400">
@@ -562,6 +602,7 @@ export default function AdminPanel() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
               <div className="px-4 py-2.5 bg-dark-900/80 border-t border-dark-800 flex flex-wrap items-center justify-between gap-2 text-xs text-dark-500 flex-shrink-0">
                 <span>Showing {sortedUsers.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, sortedUsers.length)} of {sortedUsers.length}{sortedUsers.length !== users.length ? ` (filtered from ${users.length})` : ''}</span>
@@ -586,11 +627,11 @@ export default function AdminPanel() {
               <div className="space-y-2">
                 {Object.entries(versionCounts).sort((a, b) => compareVersions(b[0], a[0])).map(([v, n]) => (
                   <div key={v} className="flex items-center gap-3 text-xs">
-                    <span className="w-40 font-mono text-dark-300 truncate">{v}</span>
+                    <span className="w-20 sm:w-40 font-mono text-dark-300 truncate flex-shrink-0">{v}</span>
                     <div className="flex-1 h-2.5 rounded-full bg-dark-800 overflow-hidden">
                       <div className={`h-full ${v === `v${latestVersion}` ? 'bg-green-500' : v.startsWith('Unknown') ? 'bg-red-500' : 'bg-amber-500'}`} style={{ width: `${(n / Math.max(1, users.length)) * 100}%` }} />
                     </div>
-                    <span className="w-24 text-right text-dark-300">{n} user{n === 1 ? '' : 's'} · {Math.round((n / Math.max(1, users.length)) * 100)}%</span>
+                    <span className="w-14 sm:w-24 text-right text-dark-300 flex-shrink-0">{n}<span className="hidden sm:inline"> user{n === 1 ? '' : 's'}</span> · {Math.round((n / Math.max(1, users.length)) * 100)}%</span>
                   </div>
                 ))}
                 {users.length === 0 && <p className="text-xs text-dark-500">No data yet.</p>}
