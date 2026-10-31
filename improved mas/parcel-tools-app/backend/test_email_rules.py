@@ -141,3 +141,49 @@ def test_admin_email_policy_endpoints(monkeypatch):
         assert authed_client(app_module, uid='u').post('/api/admin/email-policy', json={'strict': True}).status_code == 403
     finally:
         app_module.email_policy.set(False, [], [])
+
+
+# ---- background list refresh ----
+import io  # noqa: E402
+import email_rules  # noqa: E402
+
+
+class _Resp(io.BytesIO):
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+def _list_bytes(n=6000, extra=()):
+    return ('\n'.join([f'temp{i}.example' for i in range(n)] + list(extra))).encode()
+
+
+def test_parse_online_list_ignores_junk_and_never_blocks_major_providers():
+    got = email_rules.parse_online_list('# c\nok-one.example\nGMAIL.COM\noutlook.com\n<script>\nspace here.com\n\nOK-two.org\n')
+    assert got == {'ok-one.example', 'ok-two.org'}
+
+
+def test_refresh_saves_list_and_it_is_used(tmp_path):
+    data = _list_bytes(extra=['brand-new-temp.example', 'gmail.com'])
+    n = email_rules.refresh_online_list(str(tmp_path), opener=lambda u: _Resp(data), force=True)
+    assert n >= 6000 and (tmp_path / email_rules.ONLINE_LIST_FILE).exists()
+    email_rules._DATA_DIR_FOR_LIST, email_rules._BUNDLED = str(tmp_path), None
+    try:
+        assert is_disposable_email('x@brand-new-temp.example') and not is_disposable_email('x@gmail.com')
+    finally:
+        email_rules._DATA_DIR_FOR_LIST, email_rules._BUNDLED = None, None
+
+
+def test_refresh_rejects_small_or_broken_downloads_and_keeps_old_list(tmp_path):
+    f = tmp_path / email_rules.ONLINE_LIST_FILE
+    f.write_text('keep-me.example\n')
+    assert email_rules.refresh_online_list(str(tmp_path), opener=lambda u: _Resp(b'<html>error</html>'), force=True) == 0
+    assert f.read_text() == 'keep-me.example\n'
+
+    def boom(u): raise OSError('no internet')
+    assert email_rules.refresh_online_list(str(tmp_path), opener=boom, force=True) == 0
+
+
+def test_refresh_skips_when_saved_copy_is_fresh(tmp_path):
+    (tmp_path / email_rules.ONLINE_LIST_FILE).write_text('x.example\n')
+    def boom(u): raise AssertionError('should not download')
+    assert email_rules.refresh_online_list(str(tmp_path), opener=boom) == 0

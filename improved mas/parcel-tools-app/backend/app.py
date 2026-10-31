@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from atomic_io import atomic_write_text as _atomic_write_text
 from license_manager import LicenseManager
 from firebase_service import FirebaseService
-from email_rules import is_disposable_email, EmailPolicy
+from email_rules import is_disposable_email, EmailPolicy, start_background_refresh
 from firebase_config import is_firebase_available
 
 # Some environments (like packaged Windows apps) don't have a writable console.
@@ -4827,6 +4827,7 @@ def parse_cad():
 
 
 if __name__ == '__main__':
+    start_background_refresh(DATA_DIR)   # keep the disposable-email list current without a new release
     print("==> Starting Parcel Tools Backend API...")
     print("==> API running on http://127.0.0.1:5000")
     print(f"==> Concurrent worker pool initialized ({MAX_CONCURRENT_WORKERS} workers)")

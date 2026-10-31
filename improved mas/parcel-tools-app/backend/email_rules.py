@@ -32,19 +32,83 @@ guerrillamail.info clrmail.com fexbox.org fexpost.com mailbox.in.ua getairmail.c
 
 
 _BUNDLED = None
+_DATA_DIR_FOR_LIST = None
+ONLINE_LIST_FILE = 'disposable_domains_online.txt'
+ONLINE_LIST_URL = 'https://raw.githubusercontent.com/disposable/disposable-email-domains/master/domains.txt'
+_ONLINE_MAX_BYTES = 8 * 1024 * 1024
+_ONLINE_MAX_AGE_DAYS = 7
+
+
+def _read_domain_file(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return {ln.strip().lower() for ln in f if ln.strip() and not ln.startswith('#')}
+    except OSError:
+        return set()
 
 
 def _bundled_domains():
-    """The maintained public list shipped with the app (backend/disposable_domains.txt)."""
+    """The list shipped with the app plus (when present) the copy downloaded by the background refresh."""
     global _BUNDLED
     if _BUNDLED is None:
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'disposable_domains.txt')
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                _BUNDLED = frozenset(ln.strip().lower() for ln in f if ln.strip() and not ln.startswith('#'))
-        except OSError:
-            _BUNDLED = frozenset()
+        here = os.path.dirname(os.path.abspath(__file__))
+        domains = _read_domain_file(os.path.join(here, 'disposable_domains.txt'))
+        if _DATA_DIR_FOR_LIST:
+            domains |= _read_domain_file(os.path.join(_DATA_DIR_FOR_LIST, ONLINE_LIST_FILE))
+        _BUNDLED = frozenset(domains)
     return _BUNDLED
+
+
+def parse_online_list(text):
+    """Domains from a downloaded list. Anything that is not a plain domain is ignored, and well-known providers
+    are never accepted (so a bad or tampered list cannot lock out Gmail / Outlook users)."""
+    import re
+    ok = re.compile(r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$')
+    out = set()
+    for ln in text.splitlines():
+        d = ln.strip().lower()
+        if d and not d.startswith('#') and len(d) <= 253 and ok.match(d) and d not in MAJOR_PROVIDERS:
+            out.add(d)
+    return out
+
+
+def refresh_online_list(data_dir, url=ONLINE_LIST_URL, force=False, opener=None):
+    """Download the community list into the data folder when the saved copy is older than a week.
+    Never raises: any failure just leaves the shipped list in use. Returns the number of domains saved, or 0."""
+    import time
+    global _BUNDLED
+    path = os.path.join(data_dir, ONLINE_LIST_FILE)
+    try:
+        if not force and os.path.exists(path) and time.time() - os.path.getmtime(path) < _ONLINE_MAX_AGE_DAYS * 86400:
+            return 0
+        if opener is None:
+            import urllib.request
+            opener = lambda u: urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': 'ParcelTools'}), timeout=30)  # noqa: E731
+        with opener(url) as resp:
+            raw = resp.read(_ONLINE_MAX_BYTES + 1)
+        if len(raw) > _ONLINE_MAX_BYTES:
+            return 0
+        domains = parse_online_list(raw.decode('utf-8', errors='ignore'))
+        if len(domains) < 5000:          # an error page or a truncated download must never replace a good list
+            return 0
+        os.makedirs(data_dir, exist_ok=True)
+        tmp = path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(sorted(domains)))
+        os.replace(tmp, path)
+        _BUNDLED = None                  # reload on next use
+        return len(domains)
+    except Exception as e:
+        print(f'[EmailRules] List refresh skipped: {e}')
+        return 0
+
+
+def start_background_refresh(data_dir):
+    """Load the saved list and refresh it in the background (called once when the backend starts)."""
+    import threading
+    global _DATA_DIR_FOR_LIST, _BUNDLED
+    _DATA_DIR_FOR_LIST, _BUNDLED = data_dir, None
+    threading.Thread(target=refresh_online_list, args=(data_dir,), daemon=True, name='email-list-refresh').start()
 
 
 def _extra_domains(data_dir):
