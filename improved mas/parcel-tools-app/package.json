@@ -1,6 +1,6 @@
 {
   "name": "parcel-tools-app",
-  "version": "2.0.22",
+  "version": "2.0.23",
   "description": "Professional Surveying & Mapping Desktop Application",
   "main": "electron/main.js",
   "type": "module",
@@ -9,8 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on -t 30000 http-get://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
-    "build:premium": "npm run build && electron-builder",
+    "electron:build": "npm run build && electron-builder && node scripts/check-package.cjs",
+    "build:premium": "npm run build && electron-builder && node scripts/check-package.cjs",
     "start:python": "python backend/app.py",
     "start": "npm run electron:dev"
   },
@@ -60,7 +60,18 @@
       "backend/**/*",
       "!backend/**/__pycache__",
       "!backend/**/venv",
-      "!backend/**/.pytest_cache"
+      "!backend/**/.pytest_cache",
+      "!backend/data",
+      "!backend/data/**",
+      "!backend/test_data",
+      "!backend/test_data/**",
+      "!backend/test_*.py",
+      "!backend/run_stress_test.py",
+      "!backend/debug_*.py",
+      "!backend/list_users.py",
+      "!backend/make_admin.py",
+      "!backend/*.sql",
+      "!backend/.gitignore"
     ],
     "asarUnpack": [
       "backend/**"
@@ -73,7 +84,18 @@
           "**/*",
           "!__pycache__",
           "!venv",
-          "!.pytest_cache"
+          "!.pytest_cache",
+          "!data",
+          "!data/**",
+          "!test_data",
+          "!test_data/**",
+          "!test_*.py",
+          "!run_stress_test.py",
+          "!debug_*.py",
+          "!list_users.py",
+          "!make_admin.py",
+          "!*.sql",
+          "!.gitignore"
         ]
       }
     ],

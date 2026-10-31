@@ -364,6 +364,7 @@ export default function AdminPanel() {
                             </div>
                             <div className="flex flex-col truncate">
                               <span className="truncate group-hover:text-primary transition-colors">{u.email}</span>
+                              <span className="text-[10px] text-dark-500 mt-0.5">{u.app_version ? `App v${u.app_version}` : 'App version unknown (old build)'}</span>
                               {u.disposable_email ? (
                                 <span className="text-[10px] text-red-400 flex items-center gap-1 font-bold mt-0.5">
                                   <AlertTriangle className="w-2.5 h-2.5" /> {u.email_rule_code === 'EMAIL_DOMAIN_NOT_APPROVED' ? 'Domain not approved' : 'Disposable email'}
@@ -1156,15 +1157,16 @@ function AppVersionControl({ onDone, onError }) {
       </div>
       {open && (
         <div className="flex flex-col gap-2">
-          <p className="text-xs text-dark-400">Copies of the app older than this version stop working and show an "Update required" screen. Leave empty to turn it off. Only works for versions that include this feature (2.0.22 and newer).</p>
+          <p className="text-xs text-dark-400">Copies of the app older than this version stop working and show an "Update required" screen. Leave empty to turn it off. Only works for versions that include this feature (2.0.23 and newer).</p>
           <div className="flex flex-wrap gap-2">
-            <input value={minVersion} onChange={e => setMinVersion(e.target.value)} placeholder="e.g. 2.0.22"
+            <input value={minVersion} onChange={e => setMinVersion(e.target.value)} placeholder="e.g. 2.0.23"
               className="w-32 px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
             <input value={url} onChange={e => setUrl(e.target.value)} placeholder="Download page (https://…)"
               className="flex-1 min-w-[220px] px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
           </div>
           <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Message shown to users (optional)"
             className="px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+          <OutdatedBlock minVersion={minVersion || info?.minimumVersion || ''} onDone={onDone} onError={onError} />
           {confirm ? (
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-amber-300">{minVersion ? `Everyone below v${minVersion} will be blocked until they update. Publish the v${minVersion} release first!` : 'Turn the forced update off?'}</span>
@@ -1231,6 +1233,53 @@ function EmailRulesControl({ onDone, onError }) {
                 className="w-full px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" /></div>
           </div>
           <div><button disabled={saving} onClick={save} className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-40 text-xs text-white">{saving ? 'Saving…' : 'Save email rules'}</button></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OutdatedBlock({ minVersion, onDone, onError }) {
+  const [preview, setPreview] = useState(null);
+  const [typed, setTyped] = useState('');
+  const [working, setWorking] = useState(false);
+
+  const loadPreview = async () => {
+    setWorking(true);
+    try {
+      const res = await apiFetch(`/api/admin/outdated-users?minVersion=${encodeURIComponent(minVersion)}`);
+      const d = await res.json();
+      if (d.success) setPreview(d); else onError(d.error || 'Could not load the list');
+    } catch { onError('Connection error'); }
+    finally { setWorking(false); }
+  };
+  const apply = async () => {
+    setWorking(true);
+    try {
+      const res = await apiFetch('/api/admin/block-outdated', { method: 'POST', body: JSON.stringify({ minVersion }) });
+      const d = await res.json();
+      if (d.success) { setPreview(null); setTyped(''); onDone(`Blocked ${d.blocked} account(s) on old versions`); }
+      else onError(d.error || 'Could not block');
+    } catch { onError('Connection error'); }
+    finally { setWorking(false); }
+  };
+
+  return (
+    <div className="border-t border-dark-800 pt-3 flex flex-col gap-2">
+      <p className="text-xs text-dark-300"><b className="text-dark-100">Old versions that can't be forced</b> (2.0.21 and older have no update check). This switches off the accounts that haven't been seen on v{minVersion || '…'} or newer. Those apps then say "account disabled". A user who installs the new version is switched back on automatically the next time they sign in.</p>
+      {!preview ? (
+        <div><button disabled={working || !minVersion} onClick={loadPreview} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 disabled:opacity-40 text-xs text-dark-200 border border-dark-700">{working ? 'Loading…' : 'Preview who would be blocked'}</button></div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <div className="text-xs text-amber-300">{preview.count} account(s) would be blocked. Paying customers are included, so give people time to update first.</div>
+          <div className="max-h-32 overflow-y-auto text-[11px] text-dark-400 bg-dark-950/40 rounded-lg p-2">
+            {preview.users.map(u => <div key={u.uid}>{u.email} <span className="text-dark-600">— {u.appVersion ? `v${u.appVersion}` : 'unknown/old'}{u.accountType === 'premium' ? ' · premium' : ''}</span></div>)}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type BLOCK to confirm" className="px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+            <button disabled={working || typed !== 'BLOCK' || preview.count === 0} onClick={apply} className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white">Block {preview.count} account(s)</button>
+            <button onClick={() => { setPreview(null); setTyped(''); }} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-300 border border-dark-700">Cancel</button>
+          </div>
         </div>
       )}
     </div>

@@ -729,6 +729,19 @@ class FirebaseService:
             print(f'[Firebase Admin] get_all_users error: {e}')
             return []
 
+    def update_user_fields(self, uid, fields: dict):
+        """Merge a few fields into a user record (Firestore + local backup)."""
+        try:
+            if self._is_online():
+                self.db.collection('users').document(uid).set(fields, merge=True)
+            users = self._load_users_from_json()
+            if uid in users:
+                users[uid].update(fields)
+                self._save_users_to_json(users)
+            return {'success': True}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
     def set_user_active(self, uid, is_active: bool):
         """Admin: enable or disable a user account."""
         try:

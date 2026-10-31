@@ -12,7 +12,7 @@ _CACHE_SECONDS = 300
 
 
 def parse_version(text):
-    """'2.0.22' -> (2, 0, 22); anything unparseable -> None (never blocks)."""
+    """'2.0.23' -> (2, 0, 23); anything unparseable -> None (never blocks)."""
     try:
         parts = str(text).strip().lstrip('vV').split('-')[0].split('.')
         out = tuple(int(p) for p in parts)

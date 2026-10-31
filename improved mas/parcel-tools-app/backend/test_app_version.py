@@ -24,16 +24,16 @@ def offline_and_reset(monkeypatch):
 
 
 @pytest.mark.parametrize('cur,minv,older', [
-    ('2.0.20', '2.0.22', True), ('2.0.22', '2.0.22', False), ('2.1.0', '2.0.22', False), ('2.0.9', '2.0.22', True),
-    ('1.9.99', '2.0.0', True), ('2.0', '2.0.1', True), ('2.0.22', '', False), ('garbage', '2.0.22', False),
-    ('2.0.22', 'garbage', False), ('v2.0.20', '2.0.22', True), ('2.0.22-beta', '2.0.22', False),
+    ('2.0.20', '2.0.23', True), ('2.0.23', '2.0.23', False), ('2.1.0', '2.0.23', False), ('2.0.9', '2.0.23', True),
+    ('1.9.99', '2.0.0', True), ('2.0', '2.0.1', True), ('2.0.23', '', False), ('garbage', '2.0.23', False),
+    ('2.0.23', 'garbage', False), ('v2.0.20', '2.0.23', True), ('2.0.23-beta', '2.0.23', False),
 ])
 def test_version_comparison(cur, minv, older):
     assert is_older(cur, minv) is older
 
 
 def test_parse_version():
-    assert parse_version('2.0.22') == (2, 0, 22) and parse_version('x') is None and parse_version('') is None
+    assert parse_version('2.0.23') == (2, 0, 23) and parse_version('x') is None and parse_version('') is None
 
 
 def test_no_minimum_means_everything_works():
@@ -55,10 +55,10 @@ def test_old_version_is_blocked_everywhere_except_status_pages():
 
 
 def test_minimum_survives_restart_when_offline(tmp_path):
-    p1 = VersionPolicy(svc, str(tmp_path), '2.0.20'); p1.set('2.0.22')
+    p1 = VersionPolicy(svc, str(tmp_path), '2.0.20'); p1.set('2.0.23')
     p2 = VersionPolicy(svc, str(tmp_path), '2.0.20')     # new process, nothing cached in memory
     assert p2.status()['updateRequired'] is True
-    assert VersionPolicy(svc, str(tmp_path), '2.0.22').status()['updateRequired'] is False
+    assert VersionPolicy(svc, str(tmp_path), '2.0.23').status()['updateRequired'] is False
 
 
 def _admin():
