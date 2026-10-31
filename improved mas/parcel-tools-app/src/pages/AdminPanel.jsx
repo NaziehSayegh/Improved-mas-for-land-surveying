@@ -1156,9 +1156,9 @@ function AppVersionControl({ onDone, onError }) {
       </div>
       {open && (
         <div className="flex flex-col gap-2">
-          <p className="text-xs text-dark-400">Copies of the app older than this version stop working and show an "Update required" screen. Leave empty to turn it off. Only works for versions that include this feature (2.0.21 and newer).</p>
+          <p className="text-xs text-dark-400">Copies of the app older than this version stop working and show an "Update required" screen. Leave empty to turn it off. Only works for versions that include this feature (2.0.22 and newer).</p>
           <div className="flex flex-wrap gap-2">
-            <input value={minVersion} onChange={e => setMinVersion(e.target.value)} placeholder="e.g. 2.0.21"
+            <input value={minVersion} onChange={e => setMinVersion(e.target.value)} placeholder="e.g. 2.0.22"
               className="w-32 px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
             <input value={url} onChange={e => setUrl(e.target.value)} placeholder="Download page (https://…)"
               className="flex-1 min-w-[220px] px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
