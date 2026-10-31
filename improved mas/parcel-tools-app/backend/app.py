@@ -221,7 +221,7 @@ license_manager = LicenseManager(DATA_DIR)
 firebase_service = FirebaseService(DATA_DIR)
 
 # Version of the running app (the Electron shell passes the real one; the fallback is bumped with each release).
-APP_VERSION = os.environ.get('PARCEL_TOOLS_VERSION') or '2.0.22'
+APP_VERSION = os.environ.get('PARCEL_TOOLS_VERSION') or '2.0.23'
 from app_version import VersionPolicy, parse_version
 version_policy = VersionPolicy(firebase_service, DATA_DIR, APP_VERSION)
 email_policy = EmailPolicy(firebase_service, DATA_DIR)
@@ -1046,7 +1046,7 @@ def admin_set_app_version():
         data = request.get_json(silent=True) or {}
         minimum = str(data.get('minVersion', '')).strip()
         if minimum and parse_version(minimum) is None:
-            return jsonify({'success': False, 'error': 'Version must look like 2.0.22'}), 400
+            return jsonify({'success': False, 'error': 'Version must look like 2.0.23'}), 400
         from app_version import is_older
         if minimum and is_older(APP_VERSION, minimum):
             return jsonify({'success': False, 'error': f'You are running {APP_VERSION}. Update this copy first, otherwise you would lock yourself out.'}), 400
@@ -1108,7 +1108,7 @@ def admin_outdated_users():
     from flask import g
     minimum = (request.args.get('minVersion') or '').strip()
     if parse_version(minimum) is None:
-        return jsonify({'success': False, 'error': 'Enter a version like 2.0.22'}), 400
+        return jsonify({'success': False, 'error': 'Enter a version like 2.0.23'}), 400
     users = _outdated_candidates(minimum, g.uid)
     return jsonify({'success': True, 'count': len(users), 'users': users[:200]})
 
@@ -1123,7 +1123,7 @@ def admin_block_outdated():
     try:
         minimum = str((request.get_json(silent=True) or {}).get('minVersion', '')).strip()
         if parse_version(minimum) is None:
-            return jsonify({'success': False, 'error': 'Enter a version like 2.0.22'}), 400
+            return jsonify({'success': False, 'error': 'Enter a version like 2.0.23'}), 400
         if is_older(APP_VERSION, minimum):
             return jsonify({'success': False, 'error': f'You are running {APP_VERSION}. Update this copy first.'}), 400
         blocked = 0
