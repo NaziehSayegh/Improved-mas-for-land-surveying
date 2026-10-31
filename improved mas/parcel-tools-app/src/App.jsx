@@ -19,6 +19,7 @@ import LicenseGuard from './components/LicenseGuard';
 import TitleBar from './components/TitleBar';
 import AdminPanel from './pages/AdminPanel';
 import UpdateManagerModal from './components/UpdateManagerModal';
+import UpdateGate from './components/UpdateGate';
 
 // ── Inner component with routing + file-open handling ────────────────────────
 function AppContent() {
@@ -102,6 +103,7 @@ function AppContent() {
 
         {/* Global End-to-End Update Manager UI */}
         {isElectron && <UpdateManagerModal />}
+        <UpdateGate />
 
         <Routes>
           {/* Public routes */}

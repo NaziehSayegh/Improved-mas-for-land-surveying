@@ -162,6 +162,33 @@ class FirebaseService:
             print(f"[Firebase Service] Error getting user: {e}")
             return None
 
+    def user_exists_online(self, user_id):
+        """True/False when Firestore answers whether the account exists, None when it cannot be reached
+        (offline or a temporary error) - callers must only act on False."""
+        if not self._is_online():
+            return None
+        try:
+            return bool(self.db.collection('users').document(user_id).get().exists)
+        except Exception:
+            return None
+
+    def get_email_verified_map(self, uids):
+        """{uid: bool} from Firebase Auth for the given users (empty when Firebase Auth is unreachable)."""
+        out = {}
+        if not self._is_online():
+            return out
+        try:
+            from firebase_config import get_firebase_auth
+            fb = get_firebase_auth()
+            uids = list(uids)
+            for i in range(0, len(uids), 100):
+                res = fb.get_users([fb.UidIdentifier(u) for u in uids[i:i + 100]])
+                for rec in res.users:
+                    out[rec.uid] = bool(rec.email_verified)
+        except Exception as e:
+            print(f'[Firebase Service] Could not read email verification status: {e}')
+        return out
+
     def get_user_by_email(self, email):
         """Get a user by email address from Firestore or local storage."""
         if not email:

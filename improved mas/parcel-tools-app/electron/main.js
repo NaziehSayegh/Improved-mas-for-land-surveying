@@ -85,6 +85,9 @@ function startPythonBackend() {
   const pythonScript = path.join(backendRoot, 'app.py');
   const { command, env } = getPythonExecutionConfig();
 
+  // Tell the backend which version of the app it belongs to (used for the minimum-version / forced-update check)
+  env.PARCEL_TOOLS_VERSION = app.getVersion();
+
   // Set environment variable to tell backend it's running in packaged mode
   if (app.isPackaged) {
     env.PORTABLE_EXECUTABLE_DIR = '1';

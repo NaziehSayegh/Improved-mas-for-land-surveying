@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from atomic_io import atomic_write_text as _atomic_write_text
 from license_manager import LicenseManager
 from firebase_service import FirebaseService
+from email_rules import is_disposable_email, EmailPolicy, start_background_refresh
 from firebase_config import is_firebase_available
 
 # Some environments (like packaged Windows apps) don't have a writable console.
@@ -82,7 +83,9 @@ PUBLIC_ENDPOINTS = {
     '/api/auth/resend-verification',
     '/api/auth/verify',          # validates the token itself
     '/api/license/status',       # read-only status; also polled by the Electron main process at startup
+    '/api/app/version-status',   # lets an outdated app show the "update required" screen
 }
+_ALWAYS_ALLOWED = {'/api/health', '/api/license/status', '/api/app/version-status'}
 _ALLOWED_HOSTS = {'127.0.0.1', 'localhost'}
 
 
@@ -94,16 +97,48 @@ def _guard_api_requests():
         return jsonify({'error': 'Invalid host'}), 421
     if request.method == 'OPTIONS' or not request.path.startswith('/api/'):
         return None
-    if request.path.rstrip('/') in PUBLIC_ENDPOINTS:
+    path = request.path.rstrip('/')
+    if path not in _ALWAYS_ALLOWED:
+        st = version_policy.status()
+        if st['updateRequired']:
+            return jsonify({'error': st['message'], 'code': 'UPDATE_REQUIRED', 'minimumVersion': st['minimumVersion'],
+                            'currentVersion': st['currentVersion'], 'downloadUrl': st['downloadUrl']}), 426
+    if path in PUBLIC_ENDPOINTS:
         return None
     token = request.headers.get('X-Session-Token', '')
     if not token:
         return jsonify({'error': 'Authentication required', 'code': 'NO_TOKEN'}), 401
     try:
-        license_manager.verify_session_token(token, license_manager.get_machine_id_hash())
+        uid, _ = license_manager.verify_session_token(token, license_manager.get_machine_id_hash())
     except ValueError as e:
         return jsonify({'error': str(e), 'code': 'INVALID_TOKEN'}), 401
+    if _account_deleted(uid):
+        return jsonify({'error': 'This account no longer exists.', 'code': 'ACCOUNT_DELETED'}), 401
     return None
+
+
+_ACCOUNT_CHECK_TTL = 60  # seconds; keeps the Firestore lookups to about one per minute per user
+_account_check_cache = {}
+
+
+def _account_deleted(uid):
+    """True only when Firestore confirms the account is gone (a deleted account must not keep working on a
+    session token that was issued earlier, or on a stale local copy of the user list)."""
+    import time
+    now = time.time()
+    hit = _account_check_cache.get(uid)
+    if hit and now - hit[0] < _ACCOUNT_CHECK_TTL:
+        return hit[1]
+    gone = firebase_service.user_exists_online(uid) is False
+    _account_check_cache[uid] = (now, gone)
+    if gone:
+        try:  # drop the stale local copy so it cannot be used as a fallback
+            users = firebase_service._load_users_from_json()
+            if users.pop(uid, None) is not None:
+                firebase_service._save_users_to_json(users)
+        except Exception:
+            pass
+    return gone
 
 
 # ----------------------------------------------------------------------------
@@ -184,6 +219,12 @@ license_manager = LicenseManager(DATA_DIR)
 
 # Initialize Firebase Service
 firebase_service = FirebaseService(DATA_DIR)
+
+# Version of the running app (the Electron shell passes the real one; the fallback is bumped with each release).
+APP_VERSION = os.environ.get('PARCEL_TOOLS_VERSION') or '2.0.21'
+from app_version import VersionPolicy, parse_version
+version_policy = VersionPolicy(firebase_service, DATA_DIR, APP_VERSION)
+email_policy = EmailPolicy(firebase_service, DATA_DIR)
 print(f'[Backend] Firebase available: {is_firebase_available()}')
 
 # Ensure data directories exist
@@ -459,6 +500,10 @@ def auth_signup():
         if email and not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
             return jsonify({'error': 'Please enter a valid email address'}), 400
 
+        blocked = email_policy.check(email)
+        if blocked:
+            return jsonify({'error': blocked[1], 'code': blocked[0]}), 400
+
         print(f'[Auth] Signup attempt: {email}, type={account_type}')
 
         if not email or not password:
@@ -606,6 +651,10 @@ def auth_login():
 
         if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
+
+        blocked = email_policy.check(email)
+        if blocked:
+            return jsonify({'error': blocked[1] + ' Contact support if this is your real email.', 'code': blocked[0]}), 403
 
         # ── 1. Verify password via Firebase REST API ──────────────────────────
         id_token = None
@@ -786,6 +835,8 @@ def auth_verify():
         if session_token:
             try:
                 uid, _ = license_manager.verify_session_token(session_token, machine_hash)
+                if _account_deleted(uid):
+                    return jsonify({'valid': False, 'error': 'This account no longer exists.', 'code': 'ACCOUNT_DELETED'}), 401
                 user_data = firebase_service.get_user(uid)
                 if user_data and user_data.get('is_active') is False:
                     return jsonify({'valid': False, 'error': 'Account disabled'}), 403
@@ -876,6 +927,12 @@ def admin_list_users():
                 except Exception:
                     u['trial_days_left'] = None
                     u['trial_expires_at'] = None
+        verified = firebase_service.get_email_verified_map([u['uid'] for u in users if u.get('uid')])
+        for u in users:
+            u['email_verified'] = verified.get(u.get('uid'))  # None = unknown (offline)
+            rule = email_policy.check(u.get('email', ''))
+            u['disposable_email'] = bool(rule)
+            u['email_rule_code'] = rule[0] if rule else None
         return jsonify({'success': True, 'users': users})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -937,6 +994,86 @@ def admin_delete_user(uid):
         if uid == g.uid:
             return jsonify({'success': False, 'error': 'You cannot delete your own account'}), 400
         return jsonify(firebase_service.delete_user_account(uid))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/app/version-status', methods=['GET'])
+def app_version_status():
+    """Public: is this copy of the app still allowed to run?"""
+    return jsonify(version_policy.status())
+
+
+@app.route('/api/admin/app-version', methods=['GET'])
+@_require_admin
+def admin_get_app_version():
+    return jsonify({'success': True, **version_policy.status()})
+
+
+@app.route('/api/admin/app-version', methods=['POST'])
+@_require_admin
+def admin_set_app_version():
+    """Admin: set the minimum app version. Older copies stop working and are told to update."""
+    try:
+        data = request.get_json(silent=True) or {}
+        minimum = str(data.get('minVersion', '')).strip()
+        if minimum and parse_version(minimum) is None:
+            return jsonify({'success': False, 'error': 'Version must look like 2.0.21'}), 400
+        from app_version import is_older
+        if minimum and is_older(APP_VERSION, minimum):
+            return jsonify({'success': False, 'error': f'You are running {APP_VERSION}. Update this copy first, otherwise you would lock yourself out.'}), 400
+        url = str(data.get('downloadUrl', '')).strip()
+        if url and not url.lower().startswith('https://'):
+            return jsonify({'success': False, 'error': 'The download link must start with https://'}), 400
+        version_policy.set(minimum, url, str(data.get('message', '')).strip()[:300])
+        return jsonify({'success': True, **version_policy.status()})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/email-policy', methods=['GET'])
+@_require_admin
+def admin_get_email_policy():
+    p = email_policy.get()
+    return jsonify({'success': True, 'strict': bool(p.get('strict')), 'blockedDomains': p.get('blocked_domains') or [],
+                    'allowedDomains': p.get('allowed_domains') or []})
+
+
+@app.route('/api/admin/email-policy', methods=['POST'])
+@_require_admin
+def admin_set_email_policy():
+    """Admin: strict mode (only well-known providers + approved domains) and extra blocked / approved domains."""
+    try:
+        d = request.get_json(silent=True) or {}
+        lists = [d.get('blockedDomains') or [], d.get('allowedDomains') or []]
+        if not all(isinstance(x, list) and len(x) <= 2000 for x in lists):
+            return jsonify({'success': False, 'error': 'Domains must be sent as lists'}), 400
+        policy = email_policy.set(d.get('strict'), *lists)
+        return jsonify({'success': True, 'strict': policy['strict'], 'blockedDomains': policy['blocked_domains'],
+                        'allowedDomains': policy['allowed_domains']})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/users/bulk-delete', methods=['POST'])
+@_require_admin
+def admin_bulk_delete_users():
+    """Admin: permanently delete several accounts at once (never admins, never yourself)."""
+    from flask import g
+    try:
+        uids = (request.get_json(silent=True) or {}).get('uids')
+        if not isinstance(uids, list) or not uids or not all(isinstance(u, str) for u in uids):
+            return jsonify({'success': False, 'error': 'A list of user ids is required'}), 400
+        deleted, skipped = [], []
+        for uid in dict.fromkeys(uids):
+            u = firebase_service.get_user(uid) or {}
+            is_admin = u.get('is_admin', False) or u.get('email', '').lower() in ['nsayegh2003@yahoo.com', 'nsayegh2003@gmail.com']
+            if uid == g.uid or is_admin:
+                skipped.append(uid)
+                continue
+            res = firebase_service.delete_user_account(uid)
+            (deleted if res.get('success') else skipped).append(uid)
+        return jsonify({'success': True, 'deleted': deleted, 'skipped': skipped})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -2491,7 +2628,7 @@ def export_project_archive():
             "software": "Parcel Tools Desktop 2.0",
             "parcelsCount": len(project_data.get('savedParcels', [])),
             "pointsCount": len(project_data.get('points', {})),
-            "version": "2.0.21"
+            "version": APP_VERSION
         }
         files_to_compress.append({
             'archiveName': 'manifest.json',
@@ -4690,6 +4827,7 @@ def parse_cad():
 
 
 if __name__ == '__main__':
+    start_background_refresh(DATA_DIR)   # keep the disposable-email list current without a new release
     print("==> Starting Parcel Tools Backend API...")
     print("==> API running on http://127.0.0.1:5000")
     print(f"==> Concurrent worker pool initialized ({MAX_CONCURRENT_WORKERS} workers)")

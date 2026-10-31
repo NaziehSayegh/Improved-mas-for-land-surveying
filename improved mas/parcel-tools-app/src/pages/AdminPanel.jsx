@@ -124,6 +124,7 @@ export default function AdminPanel() {
     const daysLeft = u.trial_days_left;
     const isExpired = u.account_type === 'demo' && typeof daysLeft === 'number' && daysLeft <= 0;
 
+    if (filterStatus === 'unverified' && !(u.email_verified === false || u.disposable_email)) return false;
     if (filterStatus === 'blocked' && !isBlocked) return false;
     if (filterStatus === 'expired' && (!isExpired || isBlocked)) return false;
     if (filterStatus === 'active' && (isBlocked || isExpired)) return false;
@@ -279,7 +280,7 @@ export default function AdminPanel() {
 
             {/* Account Status Filter */}
             <div className="flex items-center gap-1.5 bg-dark-950/60 border border-dark-800 rounded-xl p-1">
-              {['all', 'active', 'expired', 'blocked'].map(f => (
+              {['all', 'active', 'expired', 'blocked', 'unverified'].map(f => (
                 <button
                   key={f}
                   onClick={() => setFilterStatus(f)}
@@ -292,6 +293,18 @@ export default function AdminPanel() {
             </div>
           </div>
         </div>
+
+        <EmailRulesControl onDone={(m) => showToast(m)} onError={(m) => showToast(m, 'error')} />
+
+        <AppVersionControl onDone={(m) => showToast(m)} onError={(m) => showToast(m, 'error')} />
+
+        {filterStatus === 'unverified' && (
+          <BulkDeleteBar
+            users={filteredUsers.filter(u => !u.is_admin && u.uid !== user?.userId)}
+            onDone={async (msg) => { showToast(msg); await fetchUsers(); }}
+            onError={(msg) => showToast(msg, 'error')}
+          />
+        )}
 
         {/* ── Users Table ── */}
         <div className="flex-1 glass border border-dark-800 rounded-2xl overflow-hidden flex flex-col shadow-inner">
@@ -351,6 +364,15 @@ export default function AdminPanel() {
                             </div>
                             <div className="flex flex-col truncate">
                               <span className="truncate group-hover:text-primary transition-colors">{u.email}</span>
+                              {u.disposable_email ? (
+                                <span className="text-[10px] text-red-400 flex items-center gap-1 font-bold mt-0.5">
+                                  <AlertTriangle className="w-2.5 h-2.5" /> {u.email_rule_code === 'EMAIL_DOMAIN_NOT_APPROVED' ? 'Domain not approved' : 'Disposable email'}
+                                </span>
+                              ) : u.email_verified === false && !u.is_admin ? (
+                                <span className="text-[10px] text-amber-400 flex items-center gap-1 font-bold mt-0.5">
+                                  <AlertTriangle className="w-2.5 h-2.5" /> Email not verified
+                                </span>
+                              ) : null}
                               {u.is_admin && (
                                 <span className="text-[10px] text-purple-400 flex items-center gap-1 font-bold mt-0.5">
                                   <Shield className="w-2.5 h-2.5" /> Staff Admin
@@ -1040,6 +1062,177 @@ function DeleteAccountControl({ user, disabled, onDelete }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function BulkDeleteBar({ users, onDone, onError }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [working, setWorking] = useState(false);
+  // paying customers are never part of a bulk clean-up
+  const targets = users.filter(u => u.account_type !== 'premium');
+  const run = async () => {
+    setWorking(true);
+    try {
+      const res = await apiFetch('/api/admin/users/bulk-delete', { method: 'POST', body: JSON.stringify({ uids: targets.map(u => u.uid) }) });
+      const data = await res.json();
+      if (data.success) { setOpen(false); setTyped(''); await onDone(`Deleted ${data.deleted.length} account(s)${data.skipped.length ? `, skipped ${data.skipped.length}` : ''}`); }
+      else onError(data.error || 'Bulk delete failed');
+    } catch { onError('Connection error'); }
+    finally { setWorking(false); }
+  };
+  return (
+    <div className="bg-red-950/20 border border-red-900/60 rounded-2xl p-4 flex flex-col gap-3">
+      <p className="text-xs text-red-300 flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-red-400" />
+        <span>{targets.length} unverified or disposable-email account(s) match this filter. Premium (paid) accounts and admins are never included. Review the list below before deleting.</span>
+      </p>
+      {open ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type DELETE to confirm"
+            className="px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+          <button disabled={working || typed !== 'DELETE' || targets.length === 0} onClick={run}
+            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white">
+            {working ? 'Deleting…' : `Delete ${targets.length} account(s) permanently`}
+          </button>
+          <button onClick={() => { setOpen(false); setTyped(''); }}
+            className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-300 border border-dark-700">Cancel</button>
+        </div>
+      ) : (
+        <div>
+          <button disabled={targets.length === 0} onClick={() => setOpen(true)}
+            className="px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-800/50 disabled:opacity-40 text-xs text-red-300 border border-red-800/50">
+            Delete these {targets.length} account(s)…
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AppVersionControl({ onDone, onError }) {
+  const [info, setInfo] = useState(null);
+  const [minVersion, setMinVersion] = useState('');
+  const [message, setMessage] = useState('');
+  const [url, setUrl] = useState('');
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/admin/app-version');
+      const d = await res.json();
+      if (d.success) { setInfo(d); setMinVersion(d.minimumVersion || ''); setUrl(d.downloadUrl || ''); setMessage(d.message || ''); }
+    } catch { /* shown as unavailable */ }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await apiFetch('/api/admin/app-version', { method: 'POST', body: JSON.stringify({ minVersion, downloadUrl: url, message }) });
+      const d = await res.json();
+      if (d.success) { setInfo(d); setConfirm(false); onDone(minVersion ? `Minimum version set to ${minVersion}` : 'Forced update turned off'); }
+      else onError(d.error || 'Could not save');
+    } catch { onError('Connection error'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="glass border border-dark-800 rounded-2xl p-4 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm text-dark-200 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-primary" />
+          <b>Forced update</b>
+          <span className="text-dark-400 text-xs">
+            {info ? (info.minimumVersion ? `Minimum version: v${info.minimumVersion} (this copy: v${info.currentVersion})` : `Off — every version may run (this copy: v${info.currentVersion})`) : 'Loading…'}
+          </span>
+        </div>
+        <button onClick={() => setOpen(o => !o)} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-200 border border-dark-700">
+          {open ? 'Close' : 'Change'}
+        </button>
+      </div>
+      {open && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-dark-400">Copies of the app older than this version stop working and show an "Update required" screen. Leave empty to turn it off. Only works for versions that include this feature (2.0.21 and newer).</p>
+          <div className="flex flex-wrap gap-2">
+            <input value={minVersion} onChange={e => setMinVersion(e.target.value)} placeholder="e.g. 2.0.21"
+              className="w-32 px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="Download page (https://…)"
+              className="flex-1 min-w-[220px] px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+          </div>
+          <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Message shown to users (optional)"
+            className="px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+          {confirm ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-amber-300">{minVersion ? `Everyone below v${minVersion} will be blocked until they update. Publish the v${minVersion} release first!` : 'Turn the forced update off?'}</span>
+              <button disabled={saving} onClick={save} className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white">{saving ? 'Saving…' : 'Yes, apply'}</button>
+              <button onClick={() => setConfirm(false)} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-300 border border-dark-700">Cancel</button>
+            </div>
+          ) : (
+            <div><button onClick={() => setConfirm(true)} className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-xs text-white">Save…</button></div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmailRulesControl({ onDone, onError }) {
+  const [open, setOpen] = useState(false);
+  const [strict, setStrict] = useState(false);
+  const [blocked, setBlocked] = useState('');
+  const [allowed, setAllowed] = useState('');
+  const [saving, setSaving] = useState(false);
+  const lines = (t) => t.split(/[\n,;\s]+/).map(x => x.trim()).filter(Boolean);
+
+  const load = useCallback(async () => {
+    try {
+      const d = await (await apiFetch('/api/admin/email-policy')).json();
+      if (d.success) { setStrict(!!d.strict); setBlocked((d.blockedDomains || []).join('\n')); setAllowed((d.allowedDomains || []).join('\n')); }
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await apiFetch('/api/admin/email-policy', { method: 'POST', body: JSON.stringify({ strict, blockedDomains: lines(blocked), allowedDomains: lines(allowed) }) });
+      const d = await res.json();
+      if (d.success) onDone(strict ? 'Strict email mode is ON' : 'Email rules saved'); else onError(d.error || 'Could not save');
+    } catch { onError('Connection error'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="glass border border-dark-800 rounded-2xl p-4 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm text-dark-200 flex items-center gap-2">
+          <ShieldAlert className="w-4 h-4 text-primary" />
+          <b>Email rules</b>
+          <span className="text-dark-400 text-xs">{strict ? 'Strict: only well-known providers + approved domains' : 'Temp-mail domains are blocked'}</span>
+        </div>
+        <button onClick={() => setOpen(o => !o)} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-200 border border-dark-700">{open ? 'Close' : 'Change'}</button>
+      </div>
+      {open && (
+        <div className="flex flex-col gap-3">
+          <label className="flex items-start gap-2 text-xs text-dark-300 cursor-pointer">
+            <input type="checkbox" checked={strict} onChange={e => setStrict(e.target.checked)} className="mt-0.5" />
+            <span><b className="text-dark-100">Strict mode</b> — new sign-ups and logins must use Gmail, Outlook, Yahoo, iCloud, Proton and similar providers, or a domain listed under "Approved domains". This is the only setting that stops brand-new temp-mail domains. A company address needs its domain approved first.</span>
+          </label>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div><div className="text-[11px] text-dark-400 mb-1">Extra blocked domains (one per line)</div>
+              <textarea value={blocked} onChange={e => setBlocked(e.target.value)} rows={4} placeholder="fakemail.example"
+                className="w-full px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" /></div>
+            <div><div className="text-[11px] text-dark-400 mb-1">Approved domains for strict mode (one per line)</div>
+              <textarea value={allowed} onChange={e => setAllowed(e.target.value)} rows={4} placeholder="mycompany.com"
+                className="w-full px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" /></div>
+          </div>
+          <div><button disabled={saving} onClick={save} className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-40 text-xs text-white">{saving ? 'Saving…' : 'Save email rules'}</button></div>
+        </div>
+      )}
     </div>
   );
 }
