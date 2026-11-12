@@ -15,7 +15,7 @@ const ForgotPasswordPage = () => {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:5000/api/auth/forgot-password', {
+      const res = await fetch(`http://127.0.0.1:5000/api/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })

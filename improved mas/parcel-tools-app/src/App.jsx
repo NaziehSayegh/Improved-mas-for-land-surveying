@@ -1,26 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider, useToast } from './context/ToastContext';
 import MainMenu from './pages/MainMenu';
-import ParcelCalculator from './pages/ParcelCalculator';
-import DataFiles from './pages/DataFiles';
-import WorkMode from './pages/WorkMode';
-import Plotting from './pages/Plotting';
 import BackgroundEffects from './components/BackgroundEffects';
-import Assistant from './pages/Assistant';
 import LicensePage from './pages/LicensePage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
-import DxfImport from './pages/DxfImport';
 import LicenseGuard from './components/LicenseGuard';
 import TitleBar from './components/TitleBar';
-import AdminPanel from './pages/AdminPanel';
 import UpdateManagerModal from './components/UpdateManagerModal';
 import UpdateGate from './components/UpdateGate';
 import ErrorBoundary from './components/ErrorBoundary';
+
+// The big screens load when first opened, so the app starts without waiting for all of them
+const ParcelCalculator = lazy(() => import('./pages/ParcelCalculator'));
+const DataFiles = lazy(() => import('./pages/DataFiles'));
+const WorkMode = lazy(() => import('./pages/WorkMode'));
+const Plotting = lazy(() => import('./pages/Plotting'));
+const Assistant = lazy(() => import('./pages/Assistant'));
+const DxfImport = lazy(() => import('./pages/DxfImport'));
+const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 
 // ── Inner component with routing + file-open handling ────────────────────────
 function AppContent() {
@@ -59,7 +61,7 @@ function AppContent() {
 
     const handleLoadFile = async (filePath) => {
       try {
-        const res = await fetch('http://localhost:5000/api/project/load', {
+        const res = await fetch(`http://localhost:5000/api/project/load`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filePath }),
@@ -108,6 +110,7 @@ function AppContent() {
 
         {/* A crash on one screen shows a message instead of a black window; moving to another screen clears it */}
         <ErrorBoundary key={location.pathname}>
+        <Suspense fallback={<div className="h-full w-full flex items-center justify-center text-dark-300 text-sm">Loading…</div>}>
         <Routes>
           {/* Public routes */}
           <Route path="/login"  element={<LoginPage />} />
@@ -145,6 +148,7 @@ function AppContent() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
         </ErrorBoundary>
       </div>
     </div>

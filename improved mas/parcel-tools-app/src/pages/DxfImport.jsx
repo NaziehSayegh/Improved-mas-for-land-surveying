@@ -1325,7 +1325,7 @@ const DxfImport = () => {
             setTimeout(fitView, 100);
         } else if (cadFilePath && (!cadEntities || cadEntities.length === 0)) {
             setLoading(true);
-            fetch('http://localhost:5000/api/parse-cad', {
+            fetch(`http://localhost:5000/api/parse-cad`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filePath: cadFilePath }),
@@ -1484,7 +1484,7 @@ const DxfImport = () => {
         if (!filePath) return;
         setLoading(true);
         try {
-            const res = await fetch('http://localhost:5000/api/parse-cad', {
+            const res = await fetch(`http://localhost:5000/api/parse-cad`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filePath }),
@@ -1524,7 +1524,7 @@ const DxfImport = () => {
         if (loading || !cadFilePath) return;
         setLoading(true);
         try {
-            const res = await fetch('http://localhost:5000/api/parse-cad', {
+            const res = await fetch(`http://localhost:5000/api/parse-cad`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filePath: cadFilePath }),
@@ -2172,7 +2172,7 @@ const DxfImport = () => {
                     return null;
                 }).filter(Boolean);
 
-                const res = await fetch('http://localhost:5000/api/calculate-area', {
+                const res = await fetch(`http://localhost:5000/api/calculate-area`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

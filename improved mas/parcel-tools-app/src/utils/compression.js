@@ -3,7 +3,7 @@
  * Communicates with high-concurrency streaming compression backend.
  */
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = `http://localhost:5000/api`;
 
 /**
  * Compresses multiple files into an optimized ZIP archive.

@@ -112,7 +112,7 @@ export async function handleQuickSaveAs() {
     };
 
     // Save via backend
-    const response = await fetch('http://localhost:5000/api/project/save', {
+    const response = await fetch(`http://localhost:5000/api/project/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

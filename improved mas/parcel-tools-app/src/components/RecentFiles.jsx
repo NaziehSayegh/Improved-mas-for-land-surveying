@@ -55,7 +55,7 @@ const RecentFiles = () => {
   const handleOpenProject = async (file) => {
     try {
       // Load the project file
-      const response = await fetch('http://localhost:5000/api/project/load', {
+      const response = await fetch(`http://localhost:5000/api/project/load`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filePath: file.path }),
@@ -92,7 +92,7 @@ const RecentFiles = () => {
   const handleOpenPoints = async (file) => {
     try {
       // Reload points from file
-      const response = await fetch('http://localhost:5000/api/reload-points-file', {
+      const response = await fetch(`http://localhost:5000/api/reload-points-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filePath: file.path }),

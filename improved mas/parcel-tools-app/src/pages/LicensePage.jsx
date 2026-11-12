@@ -36,7 +36,7 @@ export default function LicensePage() {
     try {
       const token = sessionStorage.getItem('sessionToken') || localStorage.getItem('sessionToken');
       const headers = token ? { 'X-Session-Token': token } : {};
-      const res = await fetch('http://127.0.0.1:5000/api/license/status', { cache: 'no-store', headers });
+      const res = await fetch(`http://127.0.0.1:5000/api/license/status`, { cache: 'no-store', headers });
       const data = await res.json();
       setLicenseStatus(data);
       setBackendOnline(true);
@@ -68,7 +68,7 @@ export default function LicensePage() {
     if (!email || !licenseKey) { setError('Please enter both email and license key.'); return; }
     setActivating(true); setError(''); setSuccess('');
     try {
-      const res = await fetch('http://127.0.0.1:5000/api/license/activate', {
+      const res = await fetch(`http://127.0.0.1:5000/api/license/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), license_key: licenseKey.trim() })
@@ -95,7 +95,7 @@ export default function LicensePage() {
     setActivating(true); setError('');
     try {
       const token = sessionStorage.getItem('sessionToken') || '';
-      const res = await fetch('http://127.0.0.1:5000/api/license/deactivate', { 
+      const res = await fetch(`http://127.0.0.1:5000/api/license/deactivate`, { 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

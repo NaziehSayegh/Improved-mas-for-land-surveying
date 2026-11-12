@@ -29,7 +29,7 @@ const LoginPage = () => {
     setNeedsVerification(false);
     setLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:5000/api/auth/login', {
+      const res = await fetch(`http://127.0.0.1:5000/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -84,7 +84,7 @@ const LoginPage = () => {
     setInfo('');
     setLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:5000/api/auth/resend-verification', {
+      const res = await fetch(`http://127.0.0.1:5000/api/auth/resend-verification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })

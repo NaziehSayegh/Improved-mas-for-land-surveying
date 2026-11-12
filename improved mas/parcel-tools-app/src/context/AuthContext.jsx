@@ -25,7 +25,7 @@ export const AuthProvider = ({ children }) => {
                 // Retry up to 8 times (4 seconds total) while Python engine initializes on app startup
                 for (let attempt = 0; attempt < 8; attempt++) {
                     try {
-                        const res = await fetch('http://127.0.0.1:5000/api/auth/verify', {
+                        const res = await fetch(`http://127.0.0.1:5000/api/auth/verify`, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
@@ -107,7 +107,7 @@ export const AuthProvider = ({ children }) => {
         try {
             const userId = localStorage.getItem('userId');
             if (userId) {
-                await fetch('http://127.0.0.1:5000/api/auth/logout', {
+                await fetch(`http://127.0.0.1:5000/api/auth/logout`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

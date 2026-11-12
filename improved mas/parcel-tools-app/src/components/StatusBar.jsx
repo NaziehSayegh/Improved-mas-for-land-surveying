@@ -17,7 +17,7 @@ const StatusBar = ({ projectName }) => {
         if (token) {
           headers['X-Session-Token'] = token;
         }
-        const res = await fetch('http://127.0.0.1:5000/api/license/status', { 
+        const res = await fetch(`http://127.0.0.1:5000/api/license/status`, { 
           cache: 'no-store',
           headers
         });

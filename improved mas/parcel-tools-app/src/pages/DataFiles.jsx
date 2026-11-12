@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, FolderOpen, File, Plus, Trash2, Edit2, Save, FileText, RefreshCw } from 'lucide-react';
@@ -28,6 +28,9 @@ const parseCoordinate = (text) => {
   const value = parseFloat(text);
   return Number.isFinite(value) ? value : null;
 };
+
+// Rows drawn at once in the points list; search narrows a longer file
+const MAX_POINT_ROWS = 300;
 
 const DataFiles = () => {
   const navigate = useNavigate();
@@ -62,6 +65,14 @@ const DataFiles = () => {
   const [newPointX, setNewPointX] = useState('');
   const [newPointY, setNewPointY] = useState('');
   const [editingPointId, setEditingPointId] = useState(null);
+  const [pointSearch, setPointSearch] = useState('');
+
+  // Sorted point IDs matching the search box (sorted once per change, not on every keystroke elsewhere)
+  const visiblePointIds = useMemo(() => {
+    const query = pointSearch.trim().toLowerCase();
+    const ids = sortPointIds(editingPoints);
+    return query ? ids.filter(id => id.toLowerCase().includes(query)) : ids;
+  }, [editingPoints, pointSearch]);
 
   // File heading
   const [showHeadingDialog, setShowHeadingDialog] = useState(false);
@@ -249,7 +260,7 @@ const DataFiles = () => {
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
-        const loadResponse = await fetch('http://localhost:5000/api/project/load', {
+        const loadResponse = await fetch(`http://localhost:5000/api/project/load`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileContent: e.target.result, filePath: file.path, fileName: file.name }),
@@ -279,7 +290,7 @@ const DataFiles = () => {
   const handleOpenProjectFromList = async (projectItem) => {
     try {
       // Use filePath if available (for custom Save As paths), otherwise use fileName
-      const loadResponse = await fetch('http://localhost:5000/api/project/load', {
+      const loadResponse = await fetch(`http://localhost:5000/api/project/load`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -342,7 +353,7 @@ const DataFiles = () => {
     try {
       const textData = buildPointsFileText(editingPoints, 'Auto-saved');
 
-      const response = await fetch('http://localhost:5000/api/save-points-file', {
+      const response = await fetch(`http://localhost:5000/api/save-points-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -379,7 +390,7 @@ const DataFiles = () => {
       try {
         const textData = e.target.result;
 
-        const response = await fetch('http://localhost:5000/api/import-points', {
+        const response = await fetch(`http://localhost:5000/api/import-points`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ data: textData }),
@@ -608,7 +619,7 @@ const DataFiles = () => {
         }
       }
 
-      const response = await fetch('http://localhost:5000/api/save-points-file', {
+      const response = await fetch(`http://localhost:5000/api/save-points-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -970,9 +981,20 @@ const DataFiles = () => {
               </button>
             </div>
 
+            <input
+              type="text"
+              value={pointSearch}
+              onChange={(e) => setPointSearch(e.target.value)}
+              placeholder="Search by point ID..."
+              className="w-full mb-3 bg-dark-700 border border-dark-600 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-primary"
+            />
+
             <div className="bg-dark-700 rounded-lg p-4 max-h-96 overflow-y-auto">
               <div className="grid grid-cols-1 gap-2">
-                {sortPointIds(editingPoints).map((id) => (
+                {visiblePointIds.length === 0 && (
+                  <p className="text-dark-400 text-sm text-center py-4">No points match "{pointSearch}".</p>
+                )}
+                {visiblePointIds.slice(0, MAX_POINT_ROWS).map((id) => (
                     <div
                       key={id}
                       className="bg-dark-800 border border-dark-600 rounded-lg px-4 py-3 flex items-center justify-between hover:border-primary/50 transition-all group"
@@ -1003,6 +1025,11 @@ const DataFiles = () => {
                       </div>
                     </div>
                   ))}
+                {visiblePointIds.length > MAX_POINT_ROWS && (
+                  <p className="text-dark-400 text-xs text-center py-2">
+                    Showing the first {MAX_POINT_ROWS} of {visiblePointIds.length} points. Use the search box to find a point.
+                  </p>
+                )}
               </div>
             </div>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -6,15 +6,11 @@ import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw, ZoomI
 import { useProject } from '../context/ProjectContext';
 import { customConfirm, customPrompt } from '../utils/dialogs';
 import { safeHtml, escapeHtml } from '../utils/safeHtml';
+import { parcelKey, formatArea, latestVersions, nearestEdgeIndex, pruneCurves } from '../utils/parcelHelpers';
+import { UniqueParcelsList, AllParcelsList } from '../components/ParcelLists';
 
 // Last area warning shown, so the same warning isn't repeated on every recalculation
 let lastAreaWarning = '';
-
-// Parcel number as a comparison key. Tolerates numbers stored as numbers or missing
-// (older project files, CAD imports) so a list can never crash on one odd parcel.
-const parcelKey = (p) => String(p?.number ?? '').trim().toLowerCase();
-// Area text that never throws when the area is missing or not a number
-const formatArea = (value) => (typeof value === 'number' && isFinite(value)) ? value.toFixed(4) : '—';
 
 // Show a short message at the top of the window. `message` may contain simple HTML (it is sanitised).
 const showPageToast = (message, background, duration = 3000) => {
@@ -43,33 +39,6 @@ const showPageToast = (message, background, duration = 3000) => {
     setTimeout(() => toast.remove(), 300);
   }, duration);
 };
-
-// ── Parcel editing helpers ──
-// Distance from point p to the segment a→b (world units)
-const distToSegment = (p, a, b) => {
-  const dx = b.x - a.x, dy = b.y - a.y;
-  const len2 = dx * dx + dy * dy;
-  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
-  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
-};
-
-// Index i of the boundary edge ids[i] → ids[i+1] (closed loop) that lies nearest to pt
-const nearestEdgeIndex = (ids, points, pt) => {
-  let best = ids.length - 1, bestD = Infinity;
-  for (let i = 0; i < ids.length; i++) {
-    const a = points[ids[i]], b = points[ids[(i + 1) % ids.length]];
-    if (!a || !b) continue;
-    const d = distToSegment(pt, a, b);
-    if (d < bestD) { bestD = d; best = i; }
-  }
-  return best;
-};
-
-// Keep only the curves whose two ends are still neighbours on the boundary
-const pruneCurves = (ids, curveList) => (curveList || []).filter(c => {
-  const i = ids.indexOf(c.from), j = ids.indexOf(c.to), n = ids.length;
-  return i >= 0 && j >= 0 && ((i + 1) % n === j || (j + 1) % n === i);
-});
 
 const ParcelCalculator = () => {
   const navigate = useNavigate();
@@ -177,6 +146,8 @@ const ParcelCalculator = () => {
   const enteredIdsRef = useRef(enteredIds);
   const loadedPointsRef = useRef(loadedPoints);
   const savedParcelsRef = useRef(savedParcels);
+  // Latest version of each parcel number, newest first (the order used for selecting and exporting)
+  const uniqueParcels = useMemo(() => latestVersions(savedParcels).reverse(), [savedParcels]);
   const areaRef = useRef(area);
   const parcelNumberRef = useRef(parcelNumber);
   const isClosedRef = useRef(isClosed);
@@ -266,7 +237,7 @@ const ParcelCalculator = () => {
         };
       });
 
-      const response = await fetch('http://localhost:5000/api/calculate-area', {
+      const response = await fetch(`http://localhost:5000/api/calculate-area`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -403,29 +374,36 @@ const ParcelCalculator = () => {
     return pts;
   }, []);
 
+  // Extent of the loaded points. Worked out once per points file, not on every redraw.
+  const boundsCacheRef = useRef({ source: null, bounds: null });
   const getBounds = useCallback(() => {
     const points = loadedPointsRef.current;
-    if (!points || Object.keys(points).length === 0) return null;
-    
-    const pts = Object.entries(points).map(([id, pt]) => ({
-      id,
-      x: pt.x,
-      y: pt.y
-    }));
-    
-    const xs = pts.map(p => p.x);
-    const ys = pts.map(p => p.y);
-    const minX = Math.min(...xs), maxX = Math.max(...xs);
-    const minY = Math.min(...ys), maxY = Math.max(...ys);
-    
-    return {
-      minX, maxX, minY, maxY,
-      width: maxX - minX,
-      height: maxY - minY,
-      centerX: (minX + maxX) / 2,
-      centerY: (minY + maxY) / 2,
-      points: pts
-    };
+    const cache = boundsCacheRef.current;
+    if (cache.source === points) return cache.bounds;
+
+    let bounds = null;
+    const ids = points ? Object.keys(points) : [];
+    if (ids.length > 0) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      const pts = ids.map(id => {
+        const { x, y } = points[id];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        return { id, x, y };
+      });
+      bounds = {
+        minX, maxX, minY, maxY,
+        width: maxX - minX,
+        height: maxY - minY,
+        centerX: (minX + maxX) / 2,
+        centerY: (minY + maxY) / 2,
+        points: pts
+      };
+    }
+    boundsCacheRef.current = { source: points, bounds };
+    return bounds;
   }, []);
 
   const drawGrid = useCallback((ctx, w, h) => {
@@ -710,9 +688,15 @@ const ParcelCalculator = () => {
     drawActiveParcelLines(ctx);
     drawEditOverlays(ctx);
     
-    // Draw all points
+    // Draw the points that are inside the visible part of the map
+    const margin = 40;
+    const zoom = zoomRef.current, pan = panRef.current;
+    const w = canvas.width, h = canvas.height;
     bounds.points.forEach(p => {
-      drawPoint(ctx, p.id, loadedPointsRef.current[p.id]);
+      const sx = p.x * zoom + pan.x;
+      const sy = -p.y * zoom + pan.y;
+      if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) return;
+      drawPoint(ctx, p.id, p);
     });
   }, [getBounds, drawGrid, drawParcel, drawActiveParcelLines, drawEditOverlays, drawPoint]);
 
@@ -898,7 +882,7 @@ const ParcelCalculator = () => {
       try {
         const textData = e.target.result;
 
-        const response = await fetch('http://localhost:5000/api/import-points', {
+        const response = await fetch(`http://localhost:5000/api/import-points`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ data: textData }),
@@ -1703,7 +1687,7 @@ const ParcelCalculator = () => {
           };
         });
 
-        const response = await fetch('http://localhost:5000/api/calculate-area', {
+        const response = await fetch(`http://localhost:5000/api/calculate-area`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2174,7 +2158,7 @@ const ParcelCalculator = () => {
 
       const projectData = buildProjectDataPayload(projectName);
 
-      const response = await fetch('http://localhost:5000/api/project/save', {
+      const response = await fetch(`http://localhost:5000/api/project/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2322,7 +2306,7 @@ const ParcelCalculator = () => {
       try {
         const fileContent = e.target.result;
 
-        const response = await fetch('http://localhost:5000/api/project/load', {
+        const response = await fetch(`http://localhost:5000/api/project/load`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileContent, filePath: filePath, fileName: file.name }),
@@ -2446,7 +2430,7 @@ const ParcelCalculator = () => {
     if (currentProjectPath && globalProjectName) {
       try {
         const projectData = buildProjectDataPayload(globalProjectName);
-        await fetch('http://localhost:5000/api/project/save', {
+        await fetch(`http://localhost:5000/api/project/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2539,7 +2523,7 @@ const ParcelCalculator = () => {
     try {
       const projectData = buildProjectDataPayload(globalProjectName);
 
-      const response = await fetch('http://localhost:5000/api/project/save', {
+      const response = await fetch(`http://localhost:5000/api/project/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2791,7 +2775,7 @@ const ParcelCalculator = () => {
       if (!userChoice.confirmed) return;
 
       // Export the parcel
-      const response = await fetch('http://localhost:5000/api/export-pdf', {
+      const response = await fetch(`http://localhost:5000/api/export-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2976,7 +2960,7 @@ const ParcelCalculator = () => {
     if (!userChoice.confirmed) return;
 
     try {
-      const response = await fetch('http://localhost:5000/api/export-pdf', {
+      const response = await fetch(`http://localhost:5000/api/export-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3708,10 +3692,7 @@ const ParcelCalculator = () => {
                   activeTab === 'saved' ? 'border-primary text-primary bg-dark-950/30' : 'border-transparent text-dark-400 hover:text-dark-200'
                 }`}
               >
-                📁 Saved Parcels ({(() => {
-                  const unique = new Set(savedParcels.map(p => parcelKey(p)));
-                  return unique.size;
-                })()})
+                📁 Saved Parcels ({uniqueParcels.length})
               </button>
               <button
                 onClick={() => setActiveTab('all')}
@@ -3910,40 +3891,18 @@ const ParcelCalculator = () => {
                     </div>
                     {savedParcels.length > 0 && (
                       <div className="flex flex-wrap items-center gap-2">
-                        {(() => {
-                          const unique = [];
-                          const seen = new Set();
-                          for (let i = savedParcels.length - 1; i >= 0; i--) {
-                            const p = savedParcels[i];
-                            const k = parcelKey(p);
-                            if (!seen.has(k)) { seen.add(k); unique.push(p); }
-                          }
-                          const allSelected = unique.length > 0 && unique.every(p => selectedIds.includes(p.id));
-                          return (
-                            <button
-                              onClick={() => handleToggleSelectAll(unique)}
-                              className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 font-medium"
-                              title="Select / Deselect all visible parcels"
-                            >
-                              <CheckSquare className="w-3.5 h-3.5 text-primary" />
-                              {allSelected ? 'Deselect All' : `Select All (${unique.length})`}
-                            </button>
-                          );
-                        })()}
+                        <button
+                          onClick={() => handleToggleSelectAll(uniqueParcels)}
+                          className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-1.5 font-medium"
+                          title="Select / Deselect all visible parcels"
+                        >
+                          <CheckSquare className="w-3.5 h-3.5 text-primary" />
+                          {uniqueParcels.every(p => selectedIds.includes(p.id)) ? 'Deselect All' : `Select All (${uniqueParcels.length})`}
+                        </button>
 
                         {selectedIds.length > 0 ? (
                           <button
-                            onClick={() => {
-                              const unique = [];
-                              const seen = new Set();
-                              for (let i = savedParcels.length - 1; i >= 0; i--) {
-                                const p = savedParcels[i];
-                                const k = parcelKey(p);
-                                if (!seen.has(k)) { seen.add(k); unique.push(p); }
-                              }
-                              const selectedUnique = unique.filter(p => selectedIds.includes(p.id));
-                              handleExportMulti(selectedUnique);
-                            }}
+                            onClick={() => handleExportMulti(uniqueParcels.filter(p => selectedIds.includes(p.id)))}
                             className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5 font-bold bg-success hover:bg-success/90 border-success text-white shadow-lg shadow-success/20 animate-pulse"
                             title="Export all selected items in one single file"
                           >
@@ -3951,27 +3910,11 @@ const ParcelCalculator = () => {
                           </button>
                         ) : (
                           <button
-                            onClick={() => {
-                              const unique = [];
-                              const seen = new Set();
-                              for (let i = savedParcels.length - 1; i >= 0; i--) {
-                                const p = savedParcels[i];
-                                const k = parcelKey(p);
-                                if (!seen.has(k)) { seen.add(k); unique.push(p); }
-                              }
-                              handleExportMulti(unique);
-                            }}
+                            onClick={() => handleExportMulti(uniqueParcels)}
                             className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1.5 font-bold"
                             title="Export all unique parcels to a single PDF document"
                           >
-                            <FileDown className="w-3.5 h-3.5" /> Export All ({(() => {
-                              const seen = new Set();
-                              return savedParcels.filter(p => {
-                                const k = parcelKey(p);
-                                if (!seen.has(k)) { seen.add(k); return true; }
-                                return false;
-                              }).length;
-                            })()}) to 1 File
+                            <FileDown className="w-3.5 h-3.5" /> Export All ({uniqueParcels.length}) to 1 File
                           </button>
                         )}
                       </div>
@@ -4260,273 +4203,4 @@ const ParcelCalculator = () => {
     </div>
   );
 };
-// Memoized list for unique parcels to prevent re-renders when typing
-const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, selectedIds = [], onToggleSelect }) => {
-  if (savedParcels.length === 0) {
-    return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
-  }
-
-  // Get unique parcels (LATEST occurrence of each parcel number)
-  const uniqueParcels = [];
-  const seen = new Set();
-  // Loop from the end to get the latest first
-  for (let i = savedParcels.length - 1; i >= 0; i--) {
-    const parcel = savedParcels[i];
-    const key = parcelKey(parcel);
-    if (!seen.has(key)) {
-      seen.add(key);
-      uniqueParcels.unshift(parcel); // Keep original chronological order
-    }
-  }
-
-  if (uniqueParcels.length === 0) {
-    return <p className="text-dark-400 text-center py-12">No unique parcels found.</p>;
-  }
-
-  const versionCounts = new Map();
-  savedParcels.forEach(p => {
-    const k = parcelKey(p);
-    versionCounts.set(k, (versionCounts.get(k) || 0) + 1);
-  });
-
-  return (
-    <div className="space-y-3">
-      {uniqueParcels.map((parcel) => {
-        // Count how many duplicates exist for this parcel number
-        const duplicateCount = versionCounts.get(parcelKey(parcel)) || 1;
-
-        return (
-          <div
-            key={parcel.id}
-            className="glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-start gap-3 flex-1">
-                {onToggleSelect && (
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(parcel.id)}
-                    onChange={() => onToggleSelect(parcel.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-5 h-5 mt-1 rounded border-dark-600 text-primary focus:ring-primary bg-dark-800 cursor-pointer accent-primary flex-shrink-0"
-                    title="Select item for multi-parcel export"
-                  />
-                )}
-                <div className="flex-1">
-                  <h3 className="text-lg font-bold text-primary mb-2">
-                    Parcel #{parcel.number}
-                    {duplicateCount > 1 && (
-                      <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
-                        📋 {duplicateCount} version(s)
-                      </span>
-                    )}
-                    {parcel.curves && parcel.curves.length > 0 && (
-                      <span className="ml-2 text-xs px-2 py-1 bg-warning/20 border border-warning rounded text-warning">
-                        📐 {parcel.curves.length} Curve(s)
-                      </span>
-                    )}
-                  </h3>
-                  <div className="flex gap-6 text-sm text-dark-300">
-                    <span>📐 Area: <strong className="text-success">{formatArea(parcel.area)} m²</strong></span>
-                    <span>📍 Points: {parcel.pointCount}</span>
-                  </div>
-                  {parcel.curves && parcel.curves.length > 0 && (
-                    <div className="mt-2 text-xs text-warning">
-                      {parcel.curves.map((c, i) => (
-                        <span key={i} className="mr-3">
-                          {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onEdit(parcel)}
-                  className="p-2 hover:bg-primary/20 rounded-lg text-primary"
-                  title="Load into editor"
-                >
-                  <Edit className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onExport(parcel);
-                  }}
-                  className="p-2 hover:bg-success/20 rounded-lg text-success"
-                  title="Export this single parcel as PDF"
-                >
-                  <FileDown className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(parcel.id);
-                  }}
-                  className="p-2 hover:bg-danger/20 rounded-lg text-danger"
-                  title="Delete parcel"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Points list - read only view */}
-            <div className="mt-3 pt-3 border-t border-dark-600">
-              <div className="flex flex-wrap gap-2 items-center">
-                {(parcel.ids || []).map((id, idx) => (
-                  <div key={idx} className="bg-dark-800 border border-primary/30 rounded-lg px-3 py-2 text-primary font-semibold text-sm">
-                    {id}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-});
-
-// Memoized list for ALL parcels (including duplicates)
-const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, selectedIds = [], onToggleSelect }) => {
-  const [searchQuery, setSearchQuery] = React.useState('');
-
-  if (savedParcels.length === 0) {
-    return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
-  }
-
-  // Count the versions of each parcel number once, instead of rescanning the whole list for every row
-  const versionTotals = new Map();
-  const versionNumberById = new Map();
-  savedParcels.forEach(p => {
-    const k = parcelKey(p);
-    const n = (versionTotals.get(k) || 0) + 1;
-    versionTotals.set(k, n);
-    versionNumberById.set(p.id, n);
-  });
-
-  const query = searchQuery.trim().toLowerCase();
-  const filteredParcels = query
-    ? savedParcels.filter(parcel => parcelKey(parcel).includes(query))
-    : savedParcels;
-
-  return (
-    <div className="space-y-4">
-      <div className="relative">
-        <input
-          type="text"
-          placeholder="Search parcels by number..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full bg-dark-800 border border-dark-600 rounded-md px-4 py-2.5 text-sm text-white focus:border-primary/50 focus:outline-none transition-colors"
-        />
-        {searchQuery && (
-          <button 
-            onClick={() => setSearchQuery('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white"
-          >
-            &times;
-          </button>
-        )}
-      </div>
-      
-      {filteredParcels.length === 0 ? (
-        <p className="text-dark-400 text-center py-8">No parcels match your search.</p>
-      ) : (
-        <div className="space-y-3">
-          {filteredParcels.map((parcel, rowIndex) => {
-            // Check if this parcel number has duplicates
-            const duplicateCount = versionTotals.get(parcelKey(parcel)) || 1;
-            const versionNumber = versionNumberById.get(parcel.id) || 1;
-            const isDuplicate = duplicateCount > 1 && versionNumber > 1;
-
-            return (
-              <div
-                key={`${parcel.id}-${rowIndex}`}
-                className={`glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group ${isDuplicate ? 'border-l-4 border-blue-500' : ''
-                  }`}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-start gap-3 flex-1">
-                {onToggleSelect && (
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(parcel.id)}
-                    onChange={() => onToggleSelect(parcel.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="w-5 h-5 mt-1 rounded border-dark-600 text-primary focus:ring-primary bg-dark-800 cursor-pointer accent-primary flex-shrink-0"
-                    title="Select item for multi-parcel export"
-                  />
-                )}
-                <div className="flex-1">
-                  <h3 className="text-lg font-bold text-primary mb-2">
-                    Parcel #{parcel.number}
-                    {isDuplicate && (
-                      <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
-                        🔄 Version {versionNumber} of {duplicateCount}
-                      </span>
-                    )}
-                    {parcel.curves && parcel.curves.length > 0 && (
-                      <span className="ml-2 text-xs px-2 py-1 bg-warning/20 border border-warning rounded text-warning">
-                        📐 {parcel.curves.length} Curve(s)
-                      </span>
-                    )}
-                  </h3>
-                  <div className="flex gap-6 text-sm text-dark-300">
-                    <span>📐 Area: <strong className="text-success">{formatArea(parcel.area)} m²</strong></span>
-                    <span>📍 Points: {parcel.pointCount}</span>
-                  </div>
-                  {parcel.curves && parcel.curves.length > 0 && (
-                    <div className="mt-2 text-xs text-warning">
-                      {parcel.curves.map((c, i) => (
-                        <span key={i} className="mr-3">
-                          {c.from}→{c.to}: M={c.M}{c.sign === 1 ? '(+)' : '(−)'}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onEdit(parcel)}
-                  className="p-2 hover:bg-primary/20 rounded-lg text-primary"
-                  title="Load into editor"
-                >
-                  <Edit className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onExport(parcel);
-                  }}
-                  className="p-2 hover:bg-success/20 rounded-lg text-success"
-                  title="Export this single parcel as PDF"
-                >
-                  <FileDown className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(parcel.id);
-                  }}
-                  className="p-2 hover:bg-danger/20 rounded-lg text-danger"
-                  title="Delete parcel"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-        </div>
-      )}
-    </div>
-  );
-});
-
-// Main Component Function End
 export default ParcelCalculator;
