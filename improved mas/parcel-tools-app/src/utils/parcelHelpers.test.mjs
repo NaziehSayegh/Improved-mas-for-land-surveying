@@ -1,7 +1,7 @@
 // Run with: node --test src/utils/parcelHelpers.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parcelKey, formatArea, latestVersions, countVersions, distToSegment, nearestEdgeIndex, pruneCurves } from './parcelHelpers.js';
+import { parcelKey, formatArea, latestVersions, countVersions, distToSegment, nearestEdgeIndex, pruneCurves, sortParcels, PARCEL_SORTS } from './parcelHelpers.js';
 
 test('parcelKey ignores case and spaces and never throws', () => {
     assert.equal(parcelKey({ number: ' 12/B ' }), '12/b');
@@ -50,4 +50,23 @@ test('pruneCurves drops curves whose edge is gone', () => {
     const curves = [{ from: '1', to: '2', M: 1 }, { from: '4', to: '1', M: 1 }, { from: '2', to: '3', M: 1 }];
     assert.deepEqual(pruneCurves(['1', '2', '4'], curves).map(c => c.from + c.to), ['12', '41']);
     assert.deepEqual(pruneCurves(['1', '2'], null), []);
+});
+
+test('sortParcels orders by number, area and save order without changing the original list', () => {
+    const parcels = [
+        { id: 1, number: '10', area: 50 },
+        { id: 2, number: '2', area: null },
+        { id: 3, number: '12/B', area: 300 },
+        { id: 4, number: '12/a', area: 20 },
+    ];
+    const ids = (sortId) => sortParcels(parcels, sortId).map(p => p.id);
+    assert.deepEqual(ids('saved'), [1, 2, 3, 4]);
+    assert.deepEqual(ids('newest'), [4, 3, 2, 1]);
+    assert.deepEqual(ids('number'), [2, 1, 4, 3]);
+    assert.deepEqual(ids('number-desc'), [3, 4, 1, 2]);
+    assert.deepEqual(ids('area'), [4, 1, 3, 2]);          // no area goes last
+    assert.deepEqual(ids('area-desc'), [3, 1, 4, 2]);     // ...in both directions
+    assert.deepEqual(ids('unknown'), [1, 2, 3, 4]);
+    assert.deepEqual(parcels.map(p => p.id), [1, 2, 3, 4]);
+    assert.ok(PARCEL_SORTS.every(o => o.id && o.label));
 });

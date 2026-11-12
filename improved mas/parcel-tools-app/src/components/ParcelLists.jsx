@@ -1,6 +1,6 @@
 import React from 'react';
-import { Edit, FileDown, Trash2 } from 'lucide-react';
-import { parcelKey, formatArea, latestVersions, countVersions } from '../utils/parcelHelpers';
+import { Edit, FileDown, Trash2, ArrowUpDown } from 'lucide-react';
+import { parcelKey, formatArea, latestVersions, countVersions, sortParcels, PARCEL_SORTS } from '../utils/parcelHelpers';
 
 // One saved parcel: number, badges, area, curves and the edit / export / delete buttons.
 // `badge` is the blue label next to the number; `showCorners` lists the corner point IDs underneath.
@@ -89,8 +89,42 @@ const ParcelCard = ({ parcel, badge, highlighted = false, showCorners = false, o
   );
 };
 
+// Remembers the chosen order for a list while the app is open and after a restart
+const useParcelSort = (storageKey) => {
+  const [sortId, setSortId] = React.useState(() => {
+    try {
+      const stored = localStorage.getItem(storageKey);
+      return PARCEL_SORTS.some(o => o.id === stored) ? stored : 'saved';
+    } catch {
+      return 'saved';
+    }
+  });
+  const choose = (next) => {
+    setSortId(next);
+    try { localStorage.setItem(storageKey, next); } catch { /* storage unavailable: the choice just isn't remembered */ }
+  };
+  return [sortId, choose];
+};
+
+// The "Sort" drop-down shown above a parcel list
+const SortControl = ({ sortId, onChange }) => (
+  <label className="flex items-center gap-2 bg-dark-800 border border-dark-600 rounded-md pl-3 pr-1 py-1 text-sm text-dark-200 flex-shrink-0" title="Change the order of the list">
+    <ArrowUpDown className="w-4 h-4 text-primary flex-shrink-0" />
+    <span className="font-semibold">Sort</span>
+    <select
+      value={sortId}
+      onChange={(e) => onChange(e.target.value)}
+      className="bg-dark-800 text-white text-sm py-1 pr-1 focus:outline-none cursor-pointer"
+    >
+      {PARCEL_SORTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+    </select>
+  </label>
+);
+
 // "Saved Parcels" tab: the latest version of each parcel number
 export const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, selectedIds = [], onToggleSelect }) => {
+  const [sortId, setSortId] = useParcelSort('parcelTools.sort.savedParcels');
+
   if (savedParcels.length === 0) {
     return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
   }
@@ -99,7 +133,10 @@ export const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, o
 
   return (
     <div className="space-y-3">
-      {latestVersions(savedParcels).map((parcel) => {
+      <div className="flex justify-end">
+        <SortControl sortId={sortId} onChange={setSortId} />
+      </div>
+      {sortParcels(latestVersions(savedParcels), sortId).map((parcel) => {
         const versions = totals.get(parcelKey(parcel)) || 1;
         return (
           <ParcelCard
@@ -122,6 +159,7 @@ export const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, o
 // "All Versions" tab: every save, including repeated parcel numbers, with a search box
 export const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, selectedIds = [], onToggleSelect }) => {
   const [searchQuery, setSearchQuery] = React.useState('');
+  const [sortId, setSortId] = useParcelSort('parcelTools.sort.allVersions');
 
   if (savedParcels.length === 0) {
     return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
@@ -129,13 +167,15 @@ export const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onEx
 
   const { totals, versionOf } = countVersions(savedParcels);
   const query = searchQuery.trim().toLowerCase();
-  const filteredParcels = query
-    ? savedParcels.filter(parcel => parcelKey(parcel).includes(query))
-    : savedParcels;
+  const filteredParcels = sortParcels(
+    query ? savedParcels.filter(parcel => parcelKey(parcel).includes(query)) : savedParcels,
+    sortId
+  );
 
   return (
     <div className="space-y-4">
-      <div className="relative">
+      <div className="flex items-center gap-3">
+      <div className="relative flex-1">
         <input
           type="text"
           placeholder="Search parcels by number..."
@@ -151,6 +191,8 @@ export const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onEx
             &times;
           </button>
         )}
+      </div>
+      <SortControl sortId={sortId} onChange={setSortId} />
       </div>
 
       {filteredParcels.length === 0 ? (

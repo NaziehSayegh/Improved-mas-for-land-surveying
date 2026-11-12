@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Shield, Lock, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { API_LOOPBACK_URL } from '../config';
+import PageLoader from './PageLoader';
 
 /**
  * LicenseGuard — wraps protected routes.
@@ -12,12 +13,23 @@ import { API_LOOPBACK_URL } from '../config';
  *   - backend unreachable                     → soft warning toast, allow access
  *   - is_valid: true                          → render children normally
  */
+// The last good answer from the license check, kept while the app is open.
+// Every screen has its own guard, so without this each move between screens would
+// show "Verifying license…" again while it waits for the backend.
+let rememberedState = null; // 'valid' | 'offline' | null
+
 const LicenseGuard = ({ children }) => {
   const navigate = useNavigate();
-  const [state, setState] = useState('checking'); // 'checking' | 'valid' | 'no_license' | 'expired' | 'blocked' | 'offline'
+  // 'checking' | 'valid' | 'no_license' | 'expired' | 'blocked' | 'offline'
+  const [state, setStateRaw] = useState(rememberedState || 'checking');
 
   useEffect(() => {
-    let isInitial = true;
+    const setState = (next) => {
+      rememberedState = (next === 'valid' || next === 'offline') ? next : null;
+      setStateRaw(next);
+    };
+    // Already verified on another screen: show this one at once and re-check quietly (one attempt).
+    let isInitial = !rememberedState;
     const check = async () => {
       const maxAttempts = isInitial ? 8 : 1;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -68,10 +80,7 @@ const LicenseGuard = ({ children }) => {
   if (state === 'checking') {
     return (
       <div className="page-container items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Shield className="w-12 h-12 text-primary animate-pulse" />
-          <p className="text-dark-300 text-sm">Verifying license…</p>
-        </div>
+        <PageLoader label="Verifying license" />
       </div>
     );
   }

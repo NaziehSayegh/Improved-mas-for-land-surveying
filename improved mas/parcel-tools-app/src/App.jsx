@@ -14,6 +14,7 @@ import TitleBar from './components/TitleBar';
 import UpdateManagerModal from './components/UpdateManagerModal';
 import UpdateGate from './components/UpdateGate';
 import ErrorBoundary from './components/ErrorBoundary';
+import PageLoader from './components/PageLoader';
 import { API_BASE_URL } from './config';
 
 // The big screens load when first opened, so the app starts without waiting for all of them
@@ -111,7 +112,9 @@ function AppContent() {
 
         {/* A crash on one screen shows a message instead of a black window; moving to another screen clears it */}
         <ErrorBoundary key={location.pathname}>
-        <Suspense fallback={<div className="h-full w-full flex items-center justify-center text-dark-300 text-sm">Loading…</div>}>
+        {/* Each page fades in. Opacity only: a transform here would misplace full-screen dialogs. */}
+        <div className="page-fade h-full w-full">
+        <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* Public routes */}
           <Route path="/login"  element={<LoginPage />} />
@@ -150,6 +153,7 @@ function AppContent() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </Suspense>
+        </div>
         </ErrorBoundary>
       </div>
     </div>
