@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Shield, Lock, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { API_LOOPBACK_URL } from '../config';
+import PageLoader from './PageLoader';
 
 /**
  * LicenseGuard — wraps protected routes.
@@ -79,10 +80,7 @@ const LicenseGuard = ({ children }) => {
   if (state === 'checking') {
     return (
       <div className="page-container items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Shield className="w-12 h-12 text-primary animate-pulse" />
-          <p className="text-dark-300 text-sm">Verifying license…</p>
-        </div>
+        <PageLoader label="Verifying license" />
       </div>
     );
   }
