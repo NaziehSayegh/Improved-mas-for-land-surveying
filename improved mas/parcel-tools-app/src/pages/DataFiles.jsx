@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { FolderOpen, File, Plus, Trash2, Edit2, Save, FileText, RefreshCw, Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
@@ -76,6 +76,16 @@ const DataFiles = () => {
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [activeTab, setActiveTab] = useState('points'); // 'points' or 'projects'
   const [pointSearch, setPointSearch] = useState('');
+  const [projectSearch, setProjectSearch] = useState('');
+
+  // Saved projects matching the search box (project name, file name, folder or points file)
+  const visibleProjects = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase();
+    if (!query) return savedProjects;
+    return savedProjects.filter(p =>
+      [p.projectName, p.fileName, p.filePath, p.pointsFile].some(v => String(v ?? '').toLowerCase().includes(query))
+    );
+  }, [savedProjects, projectSearch]);
   const [pointSort, setPointSort] = useState('id');           // id | x | y
   const [pointPage, setPointPage] = useState(1);
   const POINTS_PER_PAGE = 100;
@@ -962,7 +972,18 @@ const DataFiles = () => {
           <div className="flex-1 min-h-0 overflow-y-auto scroll-area p-4">
             <div className="max-w-6xl mx-auto rounded-2xl border border-dark-800 bg-dark-900/40 overflow-hidden">
               <div className="flex flex-wrap items-center gap-2 p-3 border-b border-dark-800">
-                <h2 className="text-sm font-bold text-dark-100 mr-auto">Saved projects <span className="text-dark-500 font-normal">({savedProjects.length})</span></h2>
+                <h2 className="text-sm font-bold text-dark-100">Saved projects <span className="text-dark-500 font-normal">({projectSearch.trim() ? `${visibleProjects.length} of ${savedProjects.length}` : savedProjects.length})</span></h2>
+                <div className="relative flex-1 min-w-[180px] max-w-sm mr-auto">
+                  <Search className="w-3.5 h-3.5 text-dark-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={projectSearch}
+                    onChange={(e) => setProjectSearch(e.target.value)}
+                    placeholder="Find a project by name, folder or points file…"
+                    className="w-full pl-9 pr-8 py-1.5 text-xs rounded-lg bg-dark-800 border border-dark-700 focus:border-primary outline-none text-dark-100"
+                  />
+                  {projectSearch && <button onClick={() => setProjectSearch('')} title="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2 text-dark-500 hover:text-dark-200"><X className="w-3.5 h-3.5" /></button>}
+                </div>
                 <label htmlFor="open-project" className="btn-primary py-1.5 px-3 text-xs cursor-pointer flex items-center gap-2"><FolderOpen className="w-3.5 h-3.5" /> Open project file</label>
                 <button onClick={() => loadSavedProjects(false)} disabled={loadingProjects} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-2"><RefreshCw className={`w-3.5 h-3.5 ${loadingProjects ? 'animate-spin' : ''}`} /> Refresh</button>
                 <button onClick={handleScanComputer} disabled={loadingProjects} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-2" title="Search this computer for project files"><Search className="w-3.5 h-3.5" /> Scan computer</button>
@@ -977,6 +998,12 @@ const DataFiles = () => {
                   <p className="text-sm text-dark-400 mb-5">Save a project from the Area Calculator, or open a <span className="font-mono">.prcl</span> file.</p>
                   <button onClick={() => navigate('/parcel-calculator')} className="btn-primary inline-flex items-center gap-2 text-sm"><Plus className="w-4 h-4" /> Go to calculator</button>
                 </div>
+              ) : visibleProjects.length === 0 ? (
+                <div className="text-center py-14 px-4">
+                  <Search className="w-10 h-10 mx-auto mb-3 text-dark-600" />
+                  <p className="text-sm text-dark-300 mb-3">No project matches "{projectSearch}".</p>
+                  <button onClick={() => setProjectSearch('')} className="btn-secondary py-1.5 px-3 text-xs">Clear search</button>
+                </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse min-w-[720px]">
@@ -986,7 +1013,7 @@ const DataFiles = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-dark-800/50">
-                      {savedProjects.map((project, index) => {
+                      {visibleProjects.map((project, index) => {
                         const displayPath = project.filePath && !project.filePath.includes('backend/data') ? project.filePath : project.fileName;
                         const isEmpty = project.savedParcels === 0;
                         return (

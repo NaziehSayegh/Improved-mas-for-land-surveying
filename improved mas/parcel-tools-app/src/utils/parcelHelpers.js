@@ -60,3 +60,36 @@ export const pruneCurves = (ids, curveList) => (curveList || []).filter(c => {
   const i = ids.indexOf(c.from), j = ids.indexOf(c.to), n = ids.length;
   return i >= 0 && j >= 0 && ((i + 1) % n === j || (j + 1) % n === i);
 });
+
+// Ways a parcel list can be ordered. `saved` keeps the order the parcels were saved in.
+export const PARCEL_SORTS = [
+  { id: 'saved', label: 'Order saved (oldest first)' },
+  { id: 'newest', label: 'Newest first' },
+  { id: 'number', label: 'Parcel number (1 → 9, A → Z)' },
+  { id: 'number-desc', label: 'Parcel number (9 → 1, Z → A)' },
+  { id: 'area-desc', label: 'Area (largest first)' },
+  { id: 'area', label: 'Area (smallest first)' },
+];
+
+const areaOf = (p) => (typeof p?.area === 'number' && isFinite(p.area)) ? p.area : null;
+// "2" before "10", "12/A" before "12/B"
+const byNumber = (a, b) => String(a?.number ?? '').trim().localeCompare(String(b?.number ?? '').trim(), undefined, { numeric: true, sensitivity: 'base' });
+// Parcels without an area always go last
+const byArea = (a, b, direction) => {
+  const x = areaOf(a), y = areaOf(b);
+  if (x === null || y === null) return (x === null) - (y === null);
+  return (x - y) * direction;
+};
+
+// A sorted copy of the list (never changes the list it is given). Equal items keep their saved order.
+export const sortParcels = (parcels, sortId) => {
+  const list = [...parcels];
+  switch (sortId) {
+    case 'newest': return list.reverse();
+    case 'number': return list.sort(byNumber);
+    case 'number-desc': return list.sort((a, b) => byNumber(b, a));
+    case 'area': return list.sort((a, b) => byArea(a, b, 1));
+    case 'area-desc': return list.sort((a, b) => byArea(a, b, -1));
+    default: return list;
+  }
+};
