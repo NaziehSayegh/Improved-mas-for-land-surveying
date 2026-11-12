@@ -5,6 +5,7 @@ import { ArrowLeft, FolderOpen, File, Plus, Trash2, Edit2, Save, FileText, Refre
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
 import { customConfirm } from '../utils/dialogs';
+import { API_BASE_URL } from '../config';
 
 // Does this project carry a CAD drawing (so it should open on the CAD map)?
 const projectHasCad = (projectData) => Boolean(
@@ -199,7 +200,7 @@ const DataFiles = () => {
     try {
       // Force refresh by adding timestamp to avoid cache
       const scanParam = scanFull ? '&scan=full' : '';
-      const response = await fetch(`http://localhost:5000/api/projects?t=${Date.now()}${scanParam}`);
+      const response = await fetch(`${API_BASE_URL}/api/projects?t=${Date.now()}${scanParam}`);
       if (response.ok) {
         const projects = await response.json();
         // Filter out any projects that might have been deleted since the last check
@@ -260,7 +261,7 @@ const DataFiles = () => {
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
-        const loadResponse = await fetch(`http://localhost:5000/api/project/load`, {
+        const loadResponse = await fetch(`${API_BASE_URL}/api/project/load`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileContent: e.target.result, filePath: file.path, fileName: file.name }),
@@ -290,7 +291,7 @@ const DataFiles = () => {
   const handleOpenProjectFromList = async (projectItem) => {
     try {
       // Use filePath if available (for custom Save As paths), otherwise use fileName
-      const loadResponse = await fetch(`http://localhost:5000/api/project/load`, {
+      const loadResponse = await fetch(`${API_BASE_URL}/api/project/load`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -353,7 +354,7 @@ const DataFiles = () => {
     try {
       const textData = buildPointsFileText(editingPoints, 'Auto-saved');
 
-      const response = await fetch(`http://localhost:5000/api/save-points-file`, {
+      const response = await fetch(`${API_BASE_URL}/api/save-points-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -390,7 +391,7 @@ const DataFiles = () => {
       try {
         const textData = e.target.result;
 
-        const response = await fetch(`http://localhost:5000/api/import-points`, {
+        const response = await fetch(`${API_BASE_URL}/api/import-points`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ data: textData }),
@@ -619,7 +620,7 @@ const DataFiles = () => {
         }
       }
 
-      const response = await fetch(`http://localhost:5000/api/save-points-file`, {
+      const response = await fetch(`${API_BASE_URL}/api/save-points-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

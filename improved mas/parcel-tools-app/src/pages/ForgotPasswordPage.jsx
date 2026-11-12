@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, AlertCircle, Loader, CheckCircle, ArrowLeft, Send } from 'lucide-react';
+import { API_LOOPBACK_URL } from '../config';
 
 const ForgotPasswordPage = () => {
   const navigate = useNavigate();
@@ -15,7 +16,7 @@ const ForgotPasswordPage = () => {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch(`http://127.0.0.1:5000/api/auth/forgot-password`, {
+      const res = await fetch(`${API_LOOPBACK_URL}/api/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })

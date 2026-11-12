@@ -12,6 +12,7 @@ import { reconcileCorners } from '../utils/labelMatch';
 import { drawHatch } from '../utils/hatchRender';
 import { withExactMetrics } from '../utils/entityMetrics';
 import { NUMBER_LAYERS_STORAGE_KEY, resolveNumberLayers, filterCornerLabels, pickParcelNumberText } from '../utils/numberLayers';
+import { API_BASE_URL } from '../config';
 
 // ─── Colour palette for layers fallback ──────────────────────────────────────
 const LAYER_COLORS = [
@@ -1325,7 +1326,7 @@ const DxfImport = () => {
             setTimeout(fitView, 100);
         } else if (cadFilePath && (!cadEntities || cadEntities.length === 0)) {
             setLoading(true);
-            fetch(`http://localhost:5000/api/parse-cad`, {
+            fetch(`${API_BASE_URL}/api/parse-cad`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filePath: cadFilePath }),
@@ -1484,7 +1485,7 @@ const DxfImport = () => {
         if (!filePath) return;
         setLoading(true);
         try {
-            const res = await fetch(`http://localhost:5000/api/parse-cad`, {
+            const res = await fetch(`${API_BASE_URL}/api/parse-cad`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filePath }),
@@ -1524,7 +1525,7 @@ const DxfImport = () => {
         if (loading || !cadFilePath) return;
         setLoading(true);
         try {
-            const res = await fetch(`http://localhost:5000/api/parse-cad`, {
+            const res = await fetch(`${API_BASE_URL}/api/parse-cad`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filePath: cadFilePath }),
@@ -2172,7 +2173,7 @@ const DxfImport = () => {
                     return null;
                 }).filter(Boolean);
 
-                const res = await fetch(`http://localhost:5000/api/calculate-area`, {
+                const res = await fetch(`${API_BASE_URL}/api/calculate-area`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

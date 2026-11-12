@@ -8,6 +8,7 @@ import { customConfirm, customPrompt } from '../utils/dialogs';
 import { safeHtml, escapeHtml } from '../utils/safeHtml';
 import { parcelKey, formatArea, latestVersions, nearestEdgeIndex, pruneCurves } from '../utils/parcelHelpers';
 import { UniqueParcelsList, AllParcelsList } from '../components/ParcelLists';
+import { API_BASE_URL } from '../config';
 
 // Last area warning shown, so the same warning isn't repeated on every recalculation
 let lastAreaWarning = '';
@@ -237,7 +238,7 @@ const ParcelCalculator = () => {
         };
       });
 
-      const response = await fetch(`http://localhost:5000/api/calculate-area`, {
+      const response = await fetch(`${API_BASE_URL}/api/calculate-area`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -882,7 +883,7 @@ const ParcelCalculator = () => {
       try {
         const textData = e.target.result;
 
-        const response = await fetch(`http://localhost:5000/api/import-points`, {
+        const response = await fetch(`${API_BASE_URL}/api/import-points`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ data: textData }),
@@ -1687,7 +1688,7 @@ const ParcelCalculator = () => {
           };
         });
 
-        const response = await fetch(`http://localhost:5000/api/calculate-area`, {
+        const response = await fetch(`${API_BASE_URL}/api/calculate-area`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2158,7 +2159,7 @@ const ParcelCalculator = () => {
 
       const projectData = buildProjectDataPayload(projectName);
 
-      const response = await fetch(`http://localhost:5000/api/project/save`, {
+      const response = await fetch(`${API_BASE_URL}/api/project/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2306,7 +2307,7 @@ const ParcelCalculator = () => {
       try {
         const fileContent = e.target.result;
 
-        const response = await fetch(`http://localhost:5000/api/project/load`, {
+        const response = await fetch(`${API_BASE_URL}/api/project/load`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileContent, filePath: filePath, fileName: file.name }),
@@ -2430,7 +2431,7 @@ const ParcelCalculator = () => {
     if (currentProjectPath && globalProjectName) {
       try {
         const projectData = buildProjectDataPayload(globalProjectName);
-        await fetch(`http://localhost:5000/api/project/save`, {
+        await fetch(`${API_BASE_URL}/api/project/save`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2523,7 +2524,7 @@ const ParcelCalculator = () => {
     try {
       const projectData = buildProjectDataPayload(globalProjectName);
 
-      const response = await fetch(`http://localhost:5000/api/project/save`, {
+      const response = await fetch(`${API_BASE_URL}/api/project/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2775,7 +2776,7 @@ const ParcelCalculator = () => {
       if (!userChoice.confirmed) return;
 
       // Export the parcel
-      const response = await fetch(`http://localhost:5000/api/export-pdf`, {
+      const response = await fetch(`${API_BASE_URL}/api/export-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2960,7 +2961,7 @@ const ParcelCalculator = () => {
     if (!userChoice.confirmed) return;
 
     try {
-      const response = await fetch(`http://localhost:5000/api/export-pdf`, {
+      const response = await fetch(`${API_BASE_URL}/api/export-pdf`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

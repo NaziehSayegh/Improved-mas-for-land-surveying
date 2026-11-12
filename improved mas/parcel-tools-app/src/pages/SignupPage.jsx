@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UserPlus, Mail, Lock, Key, AlertCircle, Loader, Eye, EyeOff, CheckCircle, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../config';
 
 const SignupPage = () => {
     const navigate = useNavigate();
@@ -44,7 +45,7 @@ const SignupPage = () => {
         const selectedAccountType = licenseKey.trim() ? 'premium' : 'demo';
         setLoading(true);
         try {
-            const response = await fetch(`http://localhost:5000/api/auth/signup`, {
+            const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password, licenseKey, accountType: selectedAccountType })

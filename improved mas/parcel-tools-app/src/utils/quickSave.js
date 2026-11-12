@@ -1,4 +1,5 @@
 import { safeHtml } from './safeHtml';
+import { API_BASE_URL } from '../config';
 /**
  * Quick Save As utility - can be called from anywhere in the app
  */
@@ -112,7 +113,7 @@ export async function handleQuickSaveAs() {
     };
 
     // Save via backend
-    const response = await fetch(`http://localhost:5000/api/project/save`, {
+    const response = await fetch(`${API_BASE_URL}/api/project/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -1,6 +1,7 @@
+import { API_BASE_URL, API_LOOPBACK_URL } from '../config';
 // Attaches the session token to every request that targets the local Parcel Tools backend,
 // so individual pages don't each have to remember to send it.
-const BACKEND_PREFIXES = [`http://localhost:5000/`, `http://127.0.0.1:5000/`];
+const BACKEND_PREFIXES = [`${API_BASE_URL}/`, `${API_LOOPBACK_URL}/`];
 
 const getToken = () => {
   try {

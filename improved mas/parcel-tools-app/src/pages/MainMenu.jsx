@@ -12,6 +12,7 @@ import {
   HelpCircle, Save, LogOut, Key, FolderX, ChevronRight,
   Shield
 } from 'lucide-react';
+import { API_LOOPBACK_URL } from '../config';
 
 // ── Menu Options ──────────────────────────────────────────────────────────────
 const MENU_OPTIONS = [
@@ -120,7 +121,7 @@ const MainMenu = () => {
     if (token) {
       headers['X-Session-Token'] = token;
     }
-    fetch(`http://127.0.0.1:5000/api/license/status`, { headers })
+    fetch(`${API_LOOPBACK_URL}/api/license/status`, { headers })
       .then(r => r.json())
       .then(d => setLicenseStatus(d))
       .catch(() => {});

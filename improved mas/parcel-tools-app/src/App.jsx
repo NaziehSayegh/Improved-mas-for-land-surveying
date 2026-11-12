@@ -14,6 +14,7 @@ import TitleBar from './components/TitleBar';
 import UpdateManagerModal from './components/UpdateManagerModal';
 import UpdateGate from './components/UpdateGate';
 import ErrorBoundary from './components/ErrorBoundary';
+import { API_BASE_URL } from './config';
 
 // The big screens load when first opened, so the app starts without waiting for all of them
 const ParcelCalculator = lazy(() => import('./pages/ParcelCalculator'));
@@ -61,7 +62,7 @@ function AppContent() {
 
     const handleLoadFile = async (filePath) => {
       try {
-        const res = await fetch(`http://localhost:5000/api/project/load`, {
+        const res = await fetch(`${API_BASE_URL}/api/project/load`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filePath }),

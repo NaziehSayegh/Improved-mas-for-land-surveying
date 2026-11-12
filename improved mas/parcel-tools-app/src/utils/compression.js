@@ -1,9 +1,10 @@
+import { API_BASE_URL } from '../config';
 /**
  * Compression and Archive Management Utility for Parcel Tools
  * Communicates with high-concurrency streaming compression backend.
  */
 
-const API_BASE = `http://localhost:5000/api`;
+const API_BASE = `${API_BASE_URL}/api`;
 
 /**
  * Compresses multiple files into an optimized ZIP archive.

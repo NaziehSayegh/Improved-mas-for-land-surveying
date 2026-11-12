@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, CheckCircle, AlertTriangle, FolderOpen } from 'lucide-react';
+import { API_LOOPBACK_URL } from '../config';
 
 /**
  * StatusBar — fixed bottom 1-line status bar.
@@ -17,7 +18,7 @@ const StatusBar = ({ projectName }) => {
         if (token) {
           headers['X-Session-Token'] = token;
         }
-        const res = await fetch(`http://127.0.0.1:5000/api/license/status`, { 
+        const res = await fetch(`${API_LOOPBACK_URL}/api/license/status`, { 
           cache: 'no-store',
           headers
         });

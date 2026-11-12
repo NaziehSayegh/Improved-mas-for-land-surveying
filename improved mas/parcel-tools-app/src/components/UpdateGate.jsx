@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, RefreshCw, ShieldAlert } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
-const STATUS_URL = `http://localhost:5000/api/app/version-status`;
+const STATUS_URL = `${API_BASE_URL}/api/app/version-status`;
 const RECHECK_MS = 5 * 60 * 1000;
 
 /**
