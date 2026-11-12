@@ -5,11 +5,11 @@ import {
   Crown, Zap, CheckCircle, XCircle, AlertTriangle, Search,
   RotateCcw, Shield, ShieldAlert,
   Lock, Unlock, Key, Monitor, User, UserCheck,
-  UserX, ChevronRight, X, Check, Activity, Laptop
+  UserX, ChevronRight, ChevronLeft, X, Check, Activity, Laptop, ArrowUpDown, Mail, Download
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../utils/api';
+import PageLayout from '../components/PageLayout';
 
 // ── Badge Component ─────────────────────────────────────────────────────────
 const Badge = ({ children, color }) => {
@@ -52,9 +52,70 @@ const ActionButton = ({ onClick, children, color = 'default', disabled, title })
   );
 };
 
+// ── Small helpers ───────────────────────────────────────────────────────────
+const versionParts = (v) => String(v || '').replace(/^v/i, '').split('-')[0].split('.').map(n => parseInt(n, 10) || 0);
+const compareVersions = (a, b) => {
+  const x = versionParts(a), y = versionParts(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+};
+const timeAgo = (iso) => {
+  if (!iso) return 'Never';
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return '—';
+  const m = Math.floor((Date.now() - t) / 60000);
+  if (m < 1) return 'Just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d} d ago`;
+  if (d < 365) return `${Math.floor(d / 30)} mo ago`;
+  return `${Math.floor(d / 365)} y ago`;
+};
+
+// ── Clickable summary tile (also acts as a filter) ──────────────────────────
+const StatTile = ({ label, value, icon, tone, active, onClick, hint }) => {
+  const tones = {
+    primary: 'text-primary border-primary/25 bg-primary/5',
+    amber: 'text-amber-400 border-amber-500/25 bg-amber-500/5',
+    green: 'text-green-400 border-green-500/25 bg-green-500/5',
+    blue: 'text-blue-400 border-blue-500/25 bg-blue-500/5',
+    red: 'text-red-400 border-red-500/25 bg-red-500/5',
+    orange: 'text-orange-400 border-orange-500/25 bg-orange-500/5',
+    purple: 'text-purple-400 border-purple-500/25 bg-purple-500/5',
+  };
+  return (
+    <button onClick={onClick} title={hint} disabled={!onClick}
+      className={`text-left rounded-xl border px-3.5 py-2 transition-all duration-150 ${onClick ? 'hover:-translate-y-0.5 hover:bg-dark-800/50' : 'cursor-default'}
+        ${tones[tone]} ${active ? 'ring-2 ring-primary/70 bg-dark-800/60' : ''}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-xl font-black text-dark-100 leading-none">{value}</div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-dark-400 mt-1 truncate">{label}</div>
+        </div>
+        <span className="opacity-80 flex-shrink-0">{icon}</span>
+      </div>
+    </button>
+  );
+};
+
+const TabButton = ({ active, onClick, icon, label, badge, badgeTone }) => (
+  <button onClick={onClick}
+    className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap flex-shrink-0
+      ${active ? 'border-primary text-primary' : 'border-transparent text-dark-400 hover:text-dark-200'}`}>
+    {icon}{label}
+    {badge !== undefined && badge !== null && badge !== '' && (
+      <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-bold ${badgeTone ? 'hidden sm:inline-block' : ''} ${badgeTone === 'red' ? 'bg-red-500/20 text-red-300' : badgeTone === 'amber' ? 'bg-amber-500/20 text-amber-300' : 'bg-dark-700 text-dark-300'}`}>{badge}</span>
+    )}
+  </button>
+);
+
 export default function AdminPanel() {
   const { user } = useAuth();
-  const navigate = useNavigate();
 
   const [users, setUsers]               = useState([]);
   const [loading, setLoading]           = useState(true);
@@ -65,6 +126,14 @@ export default function AdminPanel() {
   const [confirmAction, setConfirmAction] = useState(null); // null | 'block' | 'unblock' | 'deactivate' | 'reset-pc' | 'upgrade' | 'extend'
   const [toast, setToast]               = useState(null);
   const [busy, setBusy]                 = useState({});             // uid → true while action in flight
+  const [tab, setTab]                 = useState('users');        // users | updates | email
+  const [sortBy, setSortBy]             = useState('newest');       // newest | seen | email | trial
+  const [page, setPage]                 = useState(1);
+  const [pageSize, setPageSize]         = useState(25);
+  const [selected, setSelected]         = useState(() => new Set()); // uids ticked for bulk actions
+  const [bulkConfirm, setBulkConfirm]   = useState(null);          // null | 'delete'
+  const [bulkTyped, setBulkTyped]       = useState('');
+  const [bulkBusy, setBulkBusy]         = useState(false);
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -114,6 +183,9 @@ export default function AdminPanel() {
   };
 
   // Filter and search logic
+  // Newest app version any user has reported: older or unknown copies count as "outdated"
+  const latestVersion = users.reduce((best, u) => (u.app_version && (!best || compareVersions(u.app_version, best) > 0) ? u.app_version : best), '');
+
   const filteredUsers = users.filter(u => {
     // 1. Account Type filter
     if (filterType === 'demo' && u.account_type !== 'demo') return false;
@@ -125,6 +197,8 @@ export default function AdminPanel() {
     const isExpired = u.account_type === 'demo' && typeof daysLeft === 'number' && daysLeft <= 0;
 
     if (filterStatus === 'unverified' && !(u.email_verified === false || u.disposable_email)) return false;
+    if (filterStatus === 'attention' && !(u.email_verified === false || u.disposable_email || u.is_active === false)) return false;
+    if (filterStatus === 'outdated' && !(latestVersion && (!u.app_version || compareVersions(u.app_version, latestVersion) < 0))) return false;
     if (filterStatus === 'blocked' && !isBlocked) return false;
     if (filterStatus === 'expired' && (!isExpired || isBlocked)) return false;
     if (filterStatus === 'active' && (isBlocked || isExpired)) return false;
@@ -162,6 +236,79 @@ export default function AdminPanel() {
       return acc;
     }, 0)
   };
+  stats.attention = users.filter(u => u.email_verified === false || u.disposable_email || u.is_active === false).length;
+  stats.unverified = users.filter(u => u.email_verified === false || u.disposable_email).length;
+  stats.outdated = users.filter(u => latestVersion && (!u.app_version || compareVersions(u.app_version, latestVersion) < 0)).length;
+
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    switch (sortBy) {
+      case 'seen':  return String(b.last_login || '').localeCompare(String(a.last_login || ''));
+      case 'email': return String(a.email || '').localeCompare(String(b.email || ''));
+      case 'trial': {
+        const t = (u) => (u.account_type === 'premium' ? 9999 : (typeof u.trial_days_left === 'number' ? u.trial_days_left : 9998));
+        return t(a) - t(b);
+      }
+      default:      return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+    }
+  });
+  const pageCount = Math.max(1, Math.ceil(sortedUsers.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageUsers = sortedUsers.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  // Start again from page 1 and an empty selection whenever the list changes
+  useEffect(() => { setPage(1); }, [search, filterType, filterStatus, sortBy, pageSize]);
+  useEffect(() => { setSelected(new Set()); setBulkConfirm(null); setBulkTyped(''); }, [search, filterType, filterStatus, tab]);
+
+  const selectableOnPage = pageUsers.filter(u => !u.is_admin && u.uid !== user?.userId);
+  const allOnPageSelected = selectableOnPage.length > 0 && selectableOnPage.every(u => selected.has(u.uid));
+  const toggleSelected = (uid) => setSelected(prev => { const n = new Set(prev); n.has(uid) ? n.delete(uid) : n.add(uid); return n; });
+  const toggleAllOnPage = () => setSelected(prev => {
+    const n = new Set(prev);
+    selectableOnPage.forEach(u => (allOnPageSelected ? n.delete(u.uid) : n.add(u.uid)));
+    return n;
+  });
+
+  const runBulk = async (kind) => {
+    const uids = [...selected];
+    if (!uids.length) return;
+    setBulkBusy(true);
+    try {
+      if (kind === 'delete') {
+        const res = await apiFetch('/api/admin/users/bulk-delete', { method: 'POST', body: JSON.stringify({ uids }) });
+        const d = await res.json();
+        if (d.success) showToast(`Deleted ${d.deleted.length} account(s)${d.skipped.length ? `, skipped ${d.skipped.length}` : ''}`);
+        else showToast(d.error || 'Bulk delete failed', 'error');
+      } else {
+        let ok = 0;
+        for (const uid of uids) {
+          const res = await apiFetch(`/api/admin/users/${uid}/toggle-active`, { method: 'POST', body: JSON.stringify({ isActive: kind === 'restore' }) });
+          const d = await res.json().catch(() => ({}));
+          if (d.success) ok += 1;
+        }
+        showToast(`${kind === 'restore' ? 'Restored' : 'Suspended'} ${ok} of ${uids.length} account(s)`);
+      }
+      setSelected(new Set()); setBulkConfirm(null); setBulkTyped('');
+      await fetchUsers();
+    } catch { showToast('Connection error', 'error'); }
+    finally { setBulkBusy(false); }
+  };
+
+  // Version distribution for the "App updates" tab
+  const versionCounts = users.reduce((acc, u) => { const k = u.app_version ? `v${u.app_version}` : 'Unknown (old build)'; acc[k] = (acc[k] || 0) + 1; return acc; }, {});
+
+  const resetFilters = () => { setSearch(''); setFilterType('all'); setFilterStatus('all'); };
+  const openFilter = (type, status) => { setTab('users'); setFilterType(type); setFilterStatus(status); setSearch(''); };
+
+  const exportCsv = () => {
+    const rows = [['email', 'plan', 'status', 'email_verified', 'app_version', 'pcs', 'created_at', 'last_login']];
+    sortedUsers.forEach(u => rows.push([u.email, u.account_type, u.is_active === false ? 'suspended' : 'active', u.email_verified === null || u.email_verified === undefined ? '' : u.email_verified,
+      u.app_version || '', u.devices ? Object.keys(u.devices).length : 0, u.created_at || '', u.last_login || '']));
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `parcel-tools-users-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
 
   const formatDate = (isoString) => {
     if (!isoString) return '—';
@@ -181,7 +328,17 @@ export default function AdminPanel() {
   };
 
   return (
-    <div className="page-container relative flex flex-col h-screen overflow-hidden bg-dark-950">
+    <PageLayout
+      title="Admin Console"
+      showLicense={false}
+      headerRight={(
+        <button onClick={fetchUsers} disabled={loading} title="Reload the user list"
+          className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-dark-700 bg-dark-800/40 hover:bg-dark-800">
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Refresh</span>
+        </button>
+      )}
+    >
+    <div className="relative h-full flex flex-col overflow-hidden bg-dark-950">
       {/* ── Toast Notification ── */}
       <AnimatePresence>
         {toast && (
@@ -198,276 +355,301 @@ export default function AdminPanel() {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 flex flex-col overflow-hidden max-w-7xl mx-auto w-full p-6">
-        
-        {/* ── Header ── */}
-        <div className="flex items-center justify-between mb-8 flex-shrink-0">
-          <div>
-            <h1 className="text-3xl font-extrabold gradient-text flex items-center gap-2.5">
-              <Shield className="w-8 h-8 text-primary shadow-glow" />
-              CRM License Dashboard
-            </h1>
-            <p className="text-dark-400 text-sm mt-1.5 flex items-center gap-2">
-              <span>Monitor users, manage licenses, and verify active hardware.</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-dark-600"></span>
-              <span>Logged in as: <strong className="text-dark-200">{user?.email}</strong></span>
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <button 
-              onClick={fetchUsers} 
-              disabled={loading}
-              className="btn-secondary flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl border border-dark-700 bg-dark-800/40 hover:bg-dark-800"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
-            </button>
-            <button 
-              onClick={() => navigate('/')} 
-              className="btn-secondary flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl border border-dark-700 bg-dark-800/40 hover:bg-dark-800"
-            >
-              ← Dashboard
-            </button>
-          </div>
+      <div className="flex-1 flex flex-col overflow-y-auto md:overflow-hidden max-w-[1500px] mx-auto w-full px-3 sm:px-6 pt-4 sm:pt-5 pb-4">
+
+        <p className="text-dark-400 text-xs mb-2 flex-shrink-0 truncate">
+          Signed in as <strong className="text-dark-200">{user?.email}</strong> · this copy v{__APP_VERSION__}
+        </p>
+
+        {/* ── Tabs ── */}
+        <div className="flex border-b border-dark-800 mb-4 flex-shrink-0 overflow-x-auto">
+          <TabButton active={tab === 'users'} onClick={() => setTab('users')} icon={<Users className="w-4 h-4" />} label="Users" badge={users.length} />
+          <TabButton active={tab === 'updates'} onClick={() => setTab('updates')} icon={<Download className="w-4 h-4" />} label="App updates"
+            badge={stats.outdated > 0 ? `${stats.outdated} outdated` : ''} badgeTone="amber" />
+          <TabButton active={tab === 'email'} onClick={() => setTab('email')} icon={<Mail className="w-4 h-4" />} label="Email rules"
+            badge={stats.unverified > 0 ? `${stats.unverified} flagged` : ''} badgeTone="red" />
         </div>
 
-        {/* ── Statistics Grid ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6 flex-shrink-0">
-          {[
-            { label: 'Total Accounts', value: stats.total, icon: <Users className="w-5 h-5" />, color: 'text-primary border-primary/20 bg-primary/5' },
-            { label: 'Premium (Paid)', value: stats.premium, icon: <Crown className="w-5 h-5" />, color: 'text-amber-400 border-amber-500/20 bg-amber-500/5' },
-            { label: 'Active Trials', value: stats.activeTrial, icon: <Zap className="w-5 h-5" />, color: 'text-green-400 border-green-500/20 bg-green-500/5' },
-            { label: 'Expired Trials', value: stats.expiredTrial, icon: <Clock className="w-5 h-5" />, color: 'text-blue-400 border-blue-500/20 bg-blue-500/5' },
-            { label: 'Blocked Accounts', value: stats.blocked, icon: <ShieldX className="w-5 h-5" />, color: 'text-red-400 border-red-500/20 bg-red-500/5' },
-            { label: 'Connected PCs', value: stats.devices, icon: <Laptop className="w-5 h-5" />, color: 'text-purple-400 border-purple-500/20 bg-purple-500/5' },
-          ].map(s => (
-            <div key={s.label} className={`glass rounded-2xl p-4 flex flex-col justify-between border ${s.color} transition-all duration-300 hover:scale-[1.02]`}>
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-dark-400">{s.label}</span>
-                <span>{s.icon}</span>
+        {tab === 'users' && (
+          <div className="md:flex-1 flex flex-col md:min-h-0 gap-3">
+            {/* ── Summary tiles (click to filter) ── */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-2.5 flex-shrink-0">
+              <StatTile label="All accounts" value={stats.total} tone="primary" icon={<Users className="w-4 h-4" />}
+                active={filterType === 'all' && filterStatus === 'all'} onClick={() => openFilter('all', 'all')} hint="Show everyone" />
+              <StatTile label="Premium" value={stats.premium} tone="amber" icon={<Crown className="w-4 h-4" />}
+                active={filterType === 'premium' && filterStatus === 'all'} onClick={() => openFilter('premium', 'all')} hint="Paying customers" />
+              <StatTile label="Active trials" value={stats.activeTrial} tone="green" icon={<Zap className="w-4 h-4" />}
+                active={filterType === 'demo' && filterStatus === 'active'} onClick={() => openFilter('demo', 'active')} hint="Demo accounts still inside their 30 days" />
+              <StatTile label="Expired trials" value={stats.expiredTrial} tone="blue" icon={<Clock className="w-4 h-4" />}
+                active={filterStatus === 'expired'} onClick={() => openFilter('all', 'expired')} hint="Good people to follow up with" />
+              <StatTile label="Needs attention" value={stats.attention} tone="orange" icon={<AlertTriangle className="w-4 h-4" />}
+                active={filterStatus === 'attention'} onClick={() => openFilter('all', 'attention')} hint="Unverified or disposable email, or suspended" />
+              <StatTile label="Connected PCs" value={stats.devices} tone="purple" icon={<Laptop className="w-4 h-4" />}
+                hint="Total computers registered across all accounts" />
+            </div>
+
+            {/* ── Toolbar ── */}
+            <div className="flex flex-col lg:flex-row gap-3 lg:items-center flex-shrink-0">
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
+                <input type="text" placeholder="Search email, key or PC name…" value={search} onChange={e => setSearch(e.target.value)}
+                  className="w-full pl-10 pr-9 py-2.5 text-sm rounded-xl bg-dark-900/70 border border-dark-800 focus:border-primary/60 outline-none text-dark-100" />
+                {search && <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-dark-500 hover:text-dark-200"><X className="w-4 h-4" /></button>}
               </div>
-              <div className="text-2xl font-black tracking-tight text-dark-100">{s.value}</div>
+              <div className="flex items-center gap-1 bg-dark-900/70 border border-dark-800 rounded-xl p-1">
+                {[['all', 'All plans'], ['demo', 'Demo'], ['premium', 'Premium']].map(([f, label]) => (
+                  <button key={f} onClick={() => setFilterType(f)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${filterType === f ? 'bg-primary text-white' : 'text-dark-400 hover:text-dark-200'}`}>{label}</button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-dark-500 flex items-center gap-1.5"><ArrowUpDown className="w-3.5 h-3.5" />
+                  <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-dark-900/70 border border-dark-800 rounded-lg px-2 py-2 text-xs text-dark-200">
+                    <option value="newest">Newest first</option>
+                    <option value="seen">Last seen</option>
+                    <option value="email">Email A–Z</option>
+                    <option value="trial">Trial ending soonest</option>
+                  </select>
+                </label>
+                <button onClick={exportCsv} title="Download the filtered list as a spreadsheet (CSV)"
+                  className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-dark-800 bg-dark-900/70 hover:bg-dark-800 text-dark-300">
+                  <Download className="w-3.5 h-3.5" /> CSV
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
 
-        {/* ── Filters & Search Panel ── */}
-        <div className="flex flex-col md:flex-row gap-4 mb-6 flex-shrink-0 items-center justify-between bg-dark-900/40 p-4 rounded-2xl border border-dark-800">
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-400" />
-            <input
-              type="text"
-              placeholder="Search email, key, PC hostname..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="input-field pl-10 text-sm w-full bg-dark-950/60 border-dark-800 focus:border-primary/60 rounded-xl py-2"
-            />
-          </div>
-          
-          <div className="flex flex-wrap gap-4 w-full md:w-auto justify-end">
-            {/* Account Type Filter */}
-            <div className="flex items-center gap-1.5 bg-dark-950/60 border border-dark-800 rounded-xl p-1">
-              {['all', 'demo', 'premium'].map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFilterType(f)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg capitalize transition-all duration-200
-                    ${filterType === f ? 'bg-primary text-white shadow-glow' : 'text-dark-400 hover:text-dark-200'}`}
-                >
-                  {f === 'all' ? 'All Plans' : f}
+            {/* ── Status chips with counts ── */}
+            <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+              {[['all', 'All', stats.total], ['active', 'Active', users.filter(u => u.is_active !== false && !(u.account_type === 'demo' && typeof u.trial_days_left === 'number' && u.trial_days_left <= 0)).length],
+                ['expired', 'Expired', stats.expiredTrial], ['blocked', 'Suspended', stats.blocked],
+                ['unverified', 'Unverified / disposable', stats.unverified], ['outdated', latestVersion ? `Older than v${latestVersion}` : 'Outdated', stats.outdated]].map(([f, label, n]) => (
+                <button key={f} onClick={() => setFilterStatus(f)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border transition-colors
+                    ${filterStatus === f ? 'bg-primary/15 border-primary/60 text-primary' : 'border-dark-800 text-dark-400 hover:text-dark-200 hover:border-dark-600'}`}>
+                  {label}<span className="text-[10px] px-1.5 rounded-full bg-dark-800 text-dark-300">{n}</span>
                 </button>
               ))}
+              {(search || filterType !== 'all' || filterStatus !== 'all') && (
+                <button onClick={resetFilters} className="text-xs text-dark-500 hover:text-dark-200 underline underline-offset-2 ml-1">Clear filters</button>
+              )}
             </div>
 
-            {/* Account Status Filter */}
-            <div className="flex items-center gap-1.5 bg-dark-950/60 border border-dark-800 rounded-xl p-1">
-              {['all', 'active', 'expired', 'blocked', 'unverified'].map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFilterStatus(f)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg capitalize transition-all duration-200
-                    ${filterStatus === f ? 'bg-primary text-white shadow-glow' : 'text-dark-400 hover:text-dark-200'}`}
-                >
-                  {f === 'all' ? 'All Status' : f}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+            {/* ── Bulk action bar ── */}
+            {selected.size > 0 && (
+              <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 rounded-xl border border-primary/40 bg-primary/10 flex-shrink-0">
+                <span className="text-sm font-semibold text-dark-100">{selected.size} selected</span>
+                {bulkConfirm === 'delete' ? (
+                  <>
+                    <span className="text-xs text-red-300">Permanently delete {selected.size} account(s)? Type DELETE:</span>
+                    <input value={bulkTyped} onChange={e => setBulkTyped(e.target.value)} className="px-2 py-1 rounded-lg bg-dark-900 border border-dark-700 text-xs w-28 text-dark-100" />
+                    <button disabled={bulkBusy || bulkTyped !== 'DELETE'} onClick={() => runBulk('delete')} className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white">{bulkBusy ? 'Deleting…' : 'Delete'}</button>
+                    <button onClick={() => { setBulkConfirm(null); setBulkTyped(''); }} className="px-3 py-1.5 rounded-lg bg-dark-800 text-xs text-dark-300 border border-dark-700">Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button disabled={bulkBusy} onClick={() => runBulk('suspend')} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-900/30 hover:bg-amber-800/40 text-xs text-amber-300 border border-amber-800/50"><Lock className="w-3.5 h-3.5" /> Suspend</button>
+                    <button disabled={bulkBusy} onClick={() => runBulk('restore')} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-900/30 hover:bg-green-800/40 text-xs text-green-300 border border-green-800/50"><Unlock className="w-3.5 h-3.5" /> Restore</button>
+                    <button disabled={bulkBusy} onClick={() => setBulkConfirm('delete')} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-900/30 hover:bg-red-800/40 text-xs text-red-300 border border-red-800/50"><UserX className="w-3.5 h-3.5" /> Delete…</button>
+                    <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-dark-400 hover:text-dark-200 underline underline-offset-2">Clear selection</button>
+                  </>
+                )}
+              </div>
+            )}
 
-        <EmailRulesControl onDone={(m) => showToast(m)} onError={(m) => showToast(m, 'error')} />
-
-        <AppVersionControl onDone={(m) => showToast(m)} onError={(m) => showToast(m, 'error')} />
-
-        {filterStatus === 'unverified' && (
-          <BulkDeleteBar
-            users={filteredUsers.filter(u => !u.is_admin && u.uid !== user?.userId)}
-            onDone={async (msg) => { showToast(msg); await fetchUsers(); }}
-            onError={(msg) => showToast(msg, 'error')}
-          />
-        )}
-
-        {/* ── Users Table ── */}
-        <div className="flex-1 glass border border-dark-800 rounded-2xl overflow-hidden flex flex-col shadow-inner">
-          {loading ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-dark-400">
-              <RefreshCw className="w-8 h-8 animate-spin text-primary" />
-              <span className="text-sm font-medium">Fetching accounts database...</span>
-            </div>
-          ) : filteredUsers.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-dark-500 py-16">
-              <Users className="w-10 h-10 text-dark-600" />
-              <span className="text-sm font-medium">No customer accounts match filters</span>
-            </div>
-          ) : (
-            <div className="flex-1 overflow-y-auto scroll-area">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-dark-900/80 border-b border-dark-800 sticky top-0 z-10 backdrop-blur-md">
-                  <tr>
-                    <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-dark-400">User Account</th>
-                    <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-dark-400">Access Plan</th>
-                    <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-dark-400">Trial Progress</th>
-                    <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-dark-400">Connected Computer</th>
-                    <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-dark-400">Account Status</th>
-                    <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-dark-400">Last Seen</th>
-                    <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-dark-400 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-dark-800/40">
-                  {filteredUsers.map((u, i) => {
+            {/* ── Users table ── */}
+            <div className="md:flex-1 md:min-h-0 border border-dark-800 rounded-2xl overflow-hidden flex flex-col bg-dark-900/30">
+              {loading ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-dark-400">
+                  <RefreshCw className="w-8 h-8 animate-spin text-primary" />
+                  <span className="text-sm font-medium">Loading accounts…</span>
+                </div>
+              ) : sortedUsers.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-dark-500 py-16">
+                  <Users className="w-10 h-10 text-dark-600" />
+                  <span className="text-sm font-medium">No accounts match these filters</span>
+                  <button onClick={resetFilters} className="text-xs px-3 py-1.5 rounded-lg border border-dark-700 text-dark-300 hover:bg-dark-800">Clear filters</button>
+                </div>
+              ) : (
+                <>
+                <div className="md:hidden divide-y divide-dark-800/60">
+                  {pageUsers.map((u) => {
                     const daysLeft = u.trial_days_left;
                     const isExpired = u.account_type === 'demo' && typeof daysLeft === 'number' && daysLeft <= 0;
                     const isBlocked = u.is_active === false;
-
-                    // Get primary device name
-                    let computerName = '—';
-                    if (u.devices && Object.keys(u.devices).length > 0) {
-                      const primaryDev = Object.values(u.devices)[0];
-                      computerName = primaryDev.computer_name || primaryDev.device_name || 'Windows PC';
-                    }
-
+                    const pcs = u.devices ? Object.keys(u.devices).length : 0;
+                    const pcLimit = Number(u.max_devices) > 0 ? Number(u.max_devices) : 2;
+                    const isOld = latestVersion && (!u.app_version || compareVersions(u.app_version, latestVersion) < 0);
+                    const selectable = !u.is_admin && u.uid !== user?.userId;
                     return (
-                      <motion.tr
-                        key={u.uid}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: Math.min(i * 0.02, 0.3) }}
-                        onClick={() => setSelectedUser(u)}
-                        className={`hover:bg-dark-800/20 transition-colors duration-150 cursor-pointer group
-                          ${selectedUser?.uid === u.uid ? 'bg-dark-800/40' : ''}`}
-                      >
-                        {/* User email */}
-                        <td className="px-6 py-4 font-semibold text-dark-100 max-w-[200px] truncate">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-xl bg-dark-800 border border-dark-700/50 flex items-center justify-center font-bold text-xs text-primary group-hover:border-primary/40 transition-colors">
-                              {u.email ? u.email.charAt(0).toUpperCase() : '?'}
-                            </div>
-                            <div className="flex flex-col truncate">
-                              <span className="truncate group-hover:text-primary transition-colors">{u.email}</span>
-                              <span className="text-[10px] text-dark-500 mt-0.5">{u.app_version ? `App v${u.app_version}` : 'App version unknown (old build)'}</span>
-                              {u.disposable_email ? (
-                                <span className="text-[10px] text-red-400 flex items-center gap-1 font-bold mt-0.5">
-                                  <AlertTriangle className="w-2.5 h-2.5" /> {u.email_rule_code === 'EMAIL_DOMAIN_NOT_APPROVED' ? 'Domain not approved' : 'Disposable email'}
-                                </span>
-                              ) : u.email_verified === false && !u.is_admin ? (
-                                <span className="text-[10px] text-amber-400 flex items-center gap-1 font-bold mt-0.5">
-                                  <AlertTriangle className="w-2.5 h-2.5" /> Email not verified
-                                </span>
-                              ) : null}
-                              {u.is_admin && (
-                                <span className="text-[10px] text-purple-400 flex items-center gap-1 font-bold mt-0.5">
-                                  <Shield className="w-2.5 h-2.5" /> Staff Admin
-                                </span>
-                              )}
-                            </div>
+                      <div key={u.uid} onClick={() => setSelectedUser(u)} className={`p-3 flex gap-3 active:bg-dark-800/50 ${selected.has(u.uid) ? 'bg-primary/5' : ''}`}>
+                        <div className="pt-1" onClick={e => e.stopPropagation()}>
+                          {selectable ? <input type="checkbox" checked={selected.has(u.uid)} onChange={() => toggleSelected(u.uid)} /> : <span className="block w-[13px]" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-dark-100 truncate">{u.email}</span>
+                            <ChevronRight className="w-4 h-4 text-dark-600 flex-shrink-0" />
                           </div>
-                        </td>
-
-                        {/* Plan */}
-                        <td className="px-6 py-4">
-                          {u.account_type === 'premium' ? (
-                            <Badge color="amber"><Crown className="w-3.5 h-3.5" /> Premium</Badge>
-                          ) : (
-                            <Badge color="blue"><Zap className="w-3.5 h-3.5" /> Demo</Badge>
-                          )}
-                        </td>
-
-                        {/* Trial status */}
-                        <td className="px-6 py-4 text-sm">
-                          {u.account_type === 'premium' ? (
-                            <span className="text-dark-500 text-xs">N/A (Paid)</span>
-                          ) : isExpired ? (
-                            <Badge color="red"><XCircle className="w-3 h-3" /> Expired</Badge>
-                          ) : (
-                            <div className="flex flex-col gap-1 w-28">
-                              <div className="flex justify-between text-[11px] font-semibold text-dark-300">
-                                <span>{daysLeft || 0}d left</span>
-                                <span>{Math.round(((daysLeft || 0) / 30) * 100)}%</span>
-                              </div>
-                              <div className="w-full bg-dark-800 rounded-full h-1.5 overflow-hidden border border-dark-700/40">
-                                <div 
-                                  className={`h-full rounded-full ${(daysLeft || 0) <= 5 ? 'bg-amber-500' : 'bg-green-500'}`}
-                                  style={{ width: `${(Math.min(30, daysLeft || 0) / 30) * 100}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Connected PC */}
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <Monitor className="w-4 h-4 text-dark-500 flex-shrink-0" />
-                            <span className="text-xs text-dark-300 font-mono max-w-[150px] truncate" title={computerName}>
-                              {computerName}
-                            </span>
-                            {u.devices && Object.keys(u.devices).length > 1 && (
-                              <span className="text-[10px] font-bold bg-dark-700 border border-dark-600 px-1.5 py-0.2 rounded text-dark-300">
-                                +{Object.keys(u.devices).length - 1}
-                              </span>
-                            )}
+                          <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                            {u.account_type === 'premium' ? <Badge color="amber"><Crown className="w-3 h-3" /> Premium</Badge> : <Badge color="blue"><Zap className="w-3 h-3" /> Demo</Badge>}
+                            {isBlocked ? <Badge color="red"><ShieldX className="w-3 h-3" /> Suspended</Badge>
+                              : isExpired ? <Badge color="amber"><Clock className="w-3 h-3" /> Expired</Badge>
+                              : <Badge color="green"><CheckCircle className="w-3 h-3" /> Active</Badge>}
+                            {u.disposable_email && <Badge color="red"><AlertTriangle className="w-3 h-3" /> Disposable</Badge>}
+                            {!u.disposable_email && u.email_verified === false && !u.is_admin && <Badge color="amber"><Mail className="w-3 h-3" /> Unverified</Badge>}
+                            {u.is_admin && <Badge color="purple"><Shield className="w-3 h-3" /> Admin</Badge>}
                           </div>
-                        </td>
-
-                        {/* Account Status */}
-                        <td className="px-6 py-4">
-                          {isBlocked ? (
-                            <Badge color="red"><ShieldX className="w-3.5 h-3.5" /> Suspended</Badge>
-                          ) : isExpired ? (
-                            <Badge color="amber"><Clock className="w-3.5 h-3.5" /> Expired Trial</Badge>
-                          ) : (
-                            <Badge color="green"><CheckCircle className="w-3.5 h-3.5" /> Active</Badge>
-                          )}
-                        </td>
-
-                        {/* Last Seen */}
-                        <td className="px-6 py-4 text-xs text-dark-400 font-medium">
-                          {u.last_login ? formatDate(u.last_login).split(',')[0] : 'Never'}
-                        </td>
-
-                        {/* Actions shortcuts */}
-                        <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => setSelectedUser(u)}
-                              className="p-1.5 bg-dark-800 hover:bg-dark-700 text-dark-300 rounded-lg hover:text-primary transition-colors border border-dark-700/50"
-                              title="Inspect Account Details"
-                            >
-                              <ChevronRight className="w-4 h-4" />
-                            </button>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-dark-500">
+                            {u.account_type === 'demo' && <span className={!isExpired && (daysLeft || 0) <= 5 ? 'text-amber-400' : ''}>{isExpired ? 'Trial expired' : `${daysLeft ?? 0} days left`}</span>}
+                            <span>{pcs}/{pcLimit} PCs</span>
+                            <span className={isOld ? 'text-amber-300' : ''}>{u.app_version ? `v${u.app_version}` : 'old build'}</span>
+                            <span>Seen {timeAgo(u.last_login)}</span>
                           </div>
-                        </td>
-                      </motion.tr>
+                        </div>
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
+                </div>
+                <div className="hidden md:block flex-1 overflow-auto scroll-area">
+                  <table className="w-full text-left border-collapse min-w-[1000px]">
+                    <thead className="bg-dark-900 border-b border-dark-800 sticky top-0 z-10">
+                      <tr className="text-[11px] font-semibold uppercase tracking-wider text-dark-400">
+                        <th className="pl-4 pr-2 py-3 w-9"><input type="checkbox" checked={allOnPageSelected} onChange={toggleAllOnPage} title="Select everyone on this page" /></th>
+                        <th className="px-3 py-3">Account</th>
+                        <th className="px-3 py-3">Plan</th>
+                        <th className="px-3 py-3">Trial</th>
+                        <th className="px-3 py-3 text-center">PCs</th>
+                        <th className="px-3 py-3">App</th>
+                        <th className="px-3 py-3">Status</th>
+                        <th className="px-3 py-3">Last seen</th>
+                        <th className="px-3 py-3 w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-dark-800/50">
+                      {pageUsers.map((u) => {
+                        const daysLeft = u.trial_days_left;
+                        const isExpired = u.account_type === 'demo' && typeof daysLeft === 'number' && daysLeft <= 0;
+                        const isBlocked = u.is_active === false;
+                        const pcs = u.devices ? Object.keys(u.devices).length : 0;
+                        const pcLimit = Number(u.max_devices) > 0 ? Number(u.max_devices) : 2;
+                        const isOld = latestVersion && (!u.app_version || compareVersions(u.app_version, latestVersion) < 0);
+                        const selectable = !u.is_admin && u.uid !== user?.userId;
+                        return (
+                          <tr key={u.uid} onClick={() => setSelectedUser(u)}
+                            className={`cursor-pointer transition-colors hover:bg-dark-800/40 ${selectedUser?.uid === u.uid ? 'bg-dark-800/60' : ''} ${selected.has(u.uid) ? 'bg-primary/5' : ''}`}>
+                            <td className="pl-4 pr-2 py-2.5" onClick={e => e.stopPropagation()}>
+                              {selectable ? <input type="checkbox" checked={selected.has(u.uid)} onChange={() => toggleSelected(u.uid)} /> : <span className="block w-[13px]" />}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-8 h-8 rounded-lg bg-dark-800 border border-dark-700/60 flex items-center justify-center font-bold text-xs text-primary flex-shrink-0">
+                                  {u.email ? u.email.charAt(0).toUpperCase() : '?'}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold text-dark-100 truncate max-w-[340px]" title={u.email}>{u.email}</div>
+                                  <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-dark-500">
+                                    <span>Joined {timeAgo(u.created_at)}</span>
+                                    {u.is_admin && <span className="text-purple-400 font-bold flex items-center gap-1"><Shield className="w-3 h-3" />Admin</span>}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              {u.account_type === 'premium'
+                                ? <Badge color="amber"><Crown className="w-3 h-3" /> Premium</Badge>
+                                : <Badge color="blue"><Zap className="w-3 h-3" /> Demo</Badge>}
+                            </td>
+                            <td className="px-3 py-2.5 text-xs">
+                              {u.account_type === 'premium' ? <span className="text-dark-600">—</span>
+                                : isExpired ? <span className="text-red-400 font-semibold">Expired</span>
+                                : <div className="w-24">
+                                    <div className={`font-semibold ${(daysLeft || 0) <= 5 ? 'text-amber-400' : 'text-dark-300'}`}>{daysLeft ?? 0} days left</div>
+                                    <div className="h-1 mt-1 rounded-full bg-dark-800 overflow-hidden"><div className={`h-full ${(daysLeft || 0) <= 5 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${Math.min(30, daysLeft || 0) / 30 * 100}%` }} /></div>
+                                  </div>}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <span className={`text-xs font-mono font-semibold ${pcs >= pcLimit ? 'text-amber-400' : 'text-dark-300'}`} title={`${pcs} of ${pcLimit} allowed PCs`}>{pcs}/{pcLimit}</span>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${isOld ? 'text-amber-300 border-amber-700/50 bg-amber-950/30' : 'text-dark-300 border-dark-700/60 bg-dark-800/50'}`}
+                                title={u.app_version ? `Last seen on v${u.app_version}` : 'No version recorded: an old build'}>
+                                {u.app_version ? `v${u.app_version}` : 'old'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="flex flex-wrap items-center gap-1">
+                                {isBlocked ? <Badge color="red"><ShieldX className="w-3 h-3" /> Suspended</Badge>
+                                  : isExpired ? <Badge color="amber"><Clock className="w-3 h-3" /> Expired</Badge>
+                                  : <Badge color="green"><CheckCircle className="w-3 h-3" /> Active</Badge>}
+                                {u.disposable_email && <Badge color="red"><AlertTriangle className="w-3 h-3" /> {u.email_rule_code === 'EMAIL_DOMAIN_NOT_APPROVED' ? 'Domain' : 'Disposable'}</Badge>}
+                                {!u.disposable_email && u.email_verified === false && !u.is_admin && <Badge color="amber"><Mail className="w-3 h-3" /> Unverified</Badge>}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-dark-400 whitespace-nowrap" title={u.last_login ? formatDate(u.last_login) : ''}>{timeAgo(u.last_login)}</td>
+                            <td className="px-3 py-2.5"><ChevronRight className="w-4 h-4 text-dark-600" /></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                </>
+              )}
+              <div className="px-4 py-2.5 bg-dark-900/80 border-t border-dark-800 flex flex-wrap items-center justify-between gap-2 text-xs text-dark-500 flex-shrink-0">
+                <span>Showing {sortedUsers.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, sortedUsers.length)} of {sortedUsers.length}{sortedUsers.length !== users.length ? ` (filtered from ${users.length})` : ''}</span>
+                <div className="flex items-center gap-2">
+                  <select value={pageSize} onChange={e => setPageSize(Number(e.target.value))} className="bg-dark-900 border border-dark-800 rounded-md px-1.5 py-1 text-xs text-dark-300">
+                    {[25, 50, 100].map(n => <option key={n} value={n}>{n} per page</option>)}
+                  </select>
+                  <button disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)} className="p-1.5 rounded-md border border-dark-800 disabled:opacity-30 hover:bg-dark-800"><ChevronLeft className="w-3.5 h-3.5" /></button>
+                  <span className="text-dark-300">Page {currentPage} / {pageCount}</span>
+                  <button disabled={currentPage >= pageCount} onClick={() => setPage(currentPage + 1)} className="p-1.5 rounded-md border border-dark-800 disabled:opacity-30 hover:bg-dark-800"><ChevronRight className="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
             </div>
-          )}
-          <div className="px-6 py-3 bg-dark-900/60 border-t border-dark-800 flex items-center justify-between text-xs text-dark-500 flex-shrink-0">
-            <span>Showing {filteredUsers.length} of {users.length} registered accounts</span>
-            <span>Parcel Tools CRM v2.0</span>
           </div>
-        </div>
+        )}
+
+        {tab === 'updates' && (
+          <div className="flex-1 overflow-y-auto scroll-area space-y-4 pb-4 max-w-4xl">
+            <div className="glass border border-dark-800 rounded-2xl p-5">
+              <h2 className="text-sm font-bold text-dark-100 mb-1">Which version are your users on?</h2>
+              <p className="text-xs text-dark-400 mb-4">Based on the version each account last signed in with. Accounts that never reported a version run an old build that cannot be forced to update.</p>
+              <div className="space-y-2">
+                {Object.entries(versionCounts).sort((a, b) => compareVersions(b[0], a[0])).map(([v, n]) => (
+                  <div key={v} className="flex items-center gap-3 text-xs">
+                    <span className="w-20 sm:w-40 font-mono text-dark-300 truncate flex-shrink-0">{v}</span>
+                    <div className="flex-1 h-2.5 rounded-full bg-dark-800 overflow-hidden">
+                      <div className={`h-full ${v === `v${latestVersion}` ? 'bg-green-500' : v.startsWith('Unknown') ? 'bg-red-500' : 'bg-amber-500'}`} style={{ width: `${(n / Math.max(1, users.length)) * 100}%` }} />
+                    </div>
+                    <span className="w-14 sm:w-24 text-right text-dark-300 flex-shrink-0">{n}<span className="hidden sm:inline"> user{n === 1 ? '' : 's'}</span> · {Math.round((n / Math.max(1, users.length)) * 100)}%</span>
+                  </div>
+                ))}
+                {users.length === 0 && <p className="text-xs text-dark-500">No data yet.</p>}
+              </div>
+              {stats.outdated > 0 && (
+                <button onClick={() => openFilter('all', 'outdated')} className="mt-4 text-xs px-3 py-1.5 rounded-lg border border-dark-700 text-dark-200 hover:bg-dark-800">
+                  Show the {stats.outdated} account(s) on older versions →
+                </button>
+              )}
+            </div>
+            <AppVersionControl onDone={(m) => showToast(m)} onError={(m) => showToast(m, 'error')} />
+            <OutdatedBlock defaultVersion={latestVersion} onDone={async (m) => { showToast(m); await fetchUsers(); }} onError={(m) => showToast(m, 'error')} />
+          </div>
+        )}
+
+        {tab === 'email' && (
+          <div className="flex-1 overflow-y-auto scroll-area space-y-4 pb-4 max-w-4xl">
+            <div className="glass border border-dark-800 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-dark-100">Accounts that break your email rules</h2>
+                <p className="text-xs text-dark-400 mt-1">{stats.unverified} account(s) use a disposable address or have not verified their email.</p>
+              </div>
+              <button onClick={() => openFilter('all', 'unverified')} className="text-xs px-3.5 py-2 rounded-lg bg-primary text-white hover:bg-primary/90">Review &amp; clean up →</button>
+            </div>
+            <EmailRulesControl onDone={(m) => showToast(m)} onError={(m) => showToast(m, 'error')} />
+          </div>
+        )}
       </div>
 
       {/* ── Detailed Inspector Side Drawer ── */}
@@ -488,7 +670,7 @@ export default function AdminPanel() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-              className="absolute top-0 right-0 h-full w-full max-w-md bg-dark-900 border-l border-dark-800 shadow-2xl z-50 flex flex-col text-dark-100"
+              role="dialog" className="absolute top-0 right-0 h-full w-full max-w-md bg-dark-900 border-l border-dark-800 shadow-2xl z-50 flex flex-col text-dark-100"
             >
               {/* Drawer Header */}
               <div className="p-6 border-b border-dark-800 bg-dark-950/40 flex items-center justify-between">
@@ -979,6 +1161,7 @@ export default function AdminPanel() {
         )}
       </AnimatePresence>
     </div>
+    </PageLayout>
   );
 }
 
@@ -1066,57 +1249,20 @@ function DeleteAccountControl({ user, disabled, onDelete }) {
   );
 }
 
-function BulkDeleteBar({ users, onDone, onError }) {
-  const [open, setOpen] = useState(false);
-  const [typed, setTyped] = useState('');
-  const [working, setWorking] = useState(false);
-  // paying customers are never part of a bulk clean-up
-  const targets = users.filter(u => u.account_type !== 'premium');
-  const run = async () => {
-    setWorking(true);
-    try {
-      const res = await apiFetch('/api/admin/users/bulk-delete', { method: 'POST', body: JSON.stringify({ uids: targets.map(u => u.uid) }) });
-      const data = await res.json();
-      if (data.success) { setOpen(false); setTyped(''); await onDone(`Deleted ${data.deleted.length} account(s)${data.skipped.length ? `, skipped ${data.skipped.length}` : ''}`); }
-      else onError(data.error || 'Bulk delete failed');
-    } catch { onError('Connection error'); }
-    finally { setWorking(false); }
-  };
-  return (
-    <div className="bg-red-950/20 border border-red-900/60 rounded-2xl p-4 flex flex-col gap-3">
-      <p className="text-xs text-red-300 flex items-start gap-2">
-        <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-red-400" />
-        <span>{targets.length} unverified or disposable-email account(s) match this filter. Premium (paid) accounts and admins are never included. Review the list below before deleting.</span>
-      </p>
-      {open ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type DELETE to confirm"
-            className="px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
-          <button disabled={working || typed !== 'DELETE' || targets.length === 0} onClick={run}
-            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white">
-            {working ? 'Deleting…' : `Delete ${targets.length} account(s) permanently`}
-          </button>
-          <button onClick={() => { setOpen(false); setTyped(''); }}
-            className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-300 border border-dark-700">Cancel</button>
-        </div>
-      ) : (
-        <div>
-          <button disabled={targets.length === 0} onClick={() => setOpen(true)}
-            className="px-3 py-1.5 rounded-lg bg-red-900/40 hover:bg-red-800/50 disabled:opacity-40 text-xs text-red-300 border border-red-800/50">
-            Delete these {targets.length} account(s)…
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+const Field = ({ label, hint, children }) => (
+  <label className="flex flex-col gap-1">
+    <span className="text-[11px] font-semibold uppercase tracking-wider text-dark-400">{label}</span>
+    {children}
+    {hint && <span className="text-[11px] text-dark-500">{hint}</span>}
+  </label>
+);
+const inputCls = 'px-3 py-2 rounded-lg bg-dark-900 border border-dark-700 focus:border-primary/60 outline-none text-sm text-dark-100';
 
 function AppVersionControl({ onDone, onError }) {
   const [info, setInfo] = useState(null);
   const [minVersion, setMinVersion] = useState('');
   const [message, setMessage] = useState('');
   const [url, setUrl] = useState('');
-  const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -1128,6 +1274,8 @@ function AppVersionControl({ onDone, onError }) {
     } catch { /* shown as unavailable */ }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const dirty = info && (minVersion !== (info.minimumVersion || '') || url !== (info.downloadUrl || '') || message !== (info.message || ''));
 
   const save = async () => {
     setSaving(true);
@@ -1141,107 +1289,113 @@ function AppVersionControl({ onDone, onError }) {
   };
 
   return (
-    <div className="glass border border-dark-800 rounded-2xl p-4 flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm text-dark-200 flex items-center gap-2">
-          <Activity className="w-4 h-4 text-primary" />
-          <b>Forced update</b>
-          <span className="text-dark-400 text-xs">
-            {info ? (info.minimumVersion ? `Minimum version: v${info.minimumVersion} (this copy: v${info.currentVersion})` : `Off — every version may run (this copy: v${info.currentVersion})`) : 'Loading…'}
-          </span>
+    <div className="glass border border-dark-800 rounded-2xl p-5 flex flex-col gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-bold text-dark-100 flex items-center gap-2"><Activity className="w-4 h-4 text-primary" /> Forced update</h2>
+          <p className="text-xs text-dark-400 mt-1 max-w-xl">Copies of the app older than the minimum version stop working and show an "Update required" screen with a download button. Works for v2.0.22 and newer; older builds do not contain this check.</p>
         </div>
-        <button onClick={() => setOpen(o => !o)} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-200 border border-dark-700">
-          {open ? 'Close' : 'Change'}
-        </button>
+        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${info?.minimumVersion ? 'text-amber-300 border-amber-700/50 bg-amber-950/30' : 'text-green-300 border-green-800/50 bg-green-950/30'}`}>
+          {info ? (info.minimumVersion ? `Required: v${info.minimumVersion}+` : 'Off: every version may run') : 'Loading…'}
+        </span>
       </div>
-      {open && (
-        <div className="flex flex-col gap-2">
-          <p className="text-xs text-dark-400">Copies of the app older than this version stop working and show an "Update required" screen. Leave empty to turn it off. Only works for versions that include this feature (2.0.23 and newer).</p>
-          <div className="flex flex-wrap gap-2">
-            <input value={minVersion} onChange={e => setMinVersion(e.target.value)} placeholder="e.g. 2.0.23"
-              className="w-32 px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
-            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="Download page (https://…)"
-              className="flex-1 min-w-[220px] px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
-          </div>
-          <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Message shown to users (optional)"
-            className="px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
-          <OutdatedBlock minVersion={minVersion || info?.minimumVersion || ''} onDone={onDone} onError={onError} />
-          {confirm ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-amber-300">{minVersion ? `Everyone below v${minVersion} will be blocked until they update. Publish the v${minVersion} release first!` : 'Turn the forced update off?'}</span>
-              <button disabled={saving} onClick={save} className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white">{saving ? 'Saving…' : 'Yes, apply'}</button>
-              <button onClick={() => setConfirm(false)} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-300 border border-dark-700">Cancel</button>
-            </div>
-          ) : (
-            <div><button onClick={() => setConfirm(true)} className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-xs text-white">Save…</button></div>
-          )}
+      <div className="grid sm:grid-cols-[160px_1fr] gap-3">
+        <Field label="Minimum version" hint={info ? `This copy is v${info.currentVersion}` : ''}>
+          <input value={minVersion} onChange={e => setMinVersion(e.target.value)} placeholder="e.g. 2.0.23" className={inputCls} />
+        </Field>
+        <Field label="Download page" hint="Opened by the “Open the download page” button">
+          <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…" className={inputCls} />
+        </Field>
+      </div>
+      <Field label="Message shown to users (optional)">
+        <input value={message} onChange={e => setMessage(e.target.value)} className={inputCls} />
+      </Field>
+      {confirm ? (
+        <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl bg-amber-950/20 border border-amber-800/40">
+          <span className="text-xs text-amber-200 flex-1 min-w-[220px]">{minVersion ? `Everyone below v${minVersion} will be blocked until they update. Publish the v${minVersion} release first!` : 'Turn the forced update off?'}</span>
+          <button disabled={saving} onClick={save} className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white">{saving ? 'Saving…' : 'Yes, apply'}</button>
+          <button onClick={() => setConfirm(false)} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-300 border border-dark-700">Cancel</button>
         </div>
+      ) : (
+        <div><button disabled={!dirty} onClick={() => setConfirm(true)} className="px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-40 text-xs font-semibold text-white">Save changes…</button></div>
       )}
     </div>
   );
 }
 
 function EmailRulesControl({ onDone, onError }) {
-  const [open, setOpen] = useState(false);
   const [strict, setStrict] = useState(false);
   const [blocked, setBlocked] = useState('');
   const [allowed, setAllowed] = useState('');
+  const [saved, setSaved] = useState(null);
   const [saving, setSaving] = useState(false);
   const lines = (t) => t.split(/[\n,;\s]+/).map(x => x.trim()).filter(Boolean);
 
   const load = useCallback(async () => {
     try {
       const d = await (await apiFetch('/api/admin/email-policy')).json();
-      if (d.success) { setStrict(!!d.strict); setBlocked((d.blockedDomains || []).join('\n')); setAllowed((d.allowedDomains || []).join('\n')); }
+      if (d.success) {
+        setStrict(!!d.strict); setBlocked((d.blockedDomains || []).join('\n')); setAllowed((d.allowedDomains || []).join('\n'));
+        setSaved({ strict: !!d.strict, blocked: (d.blockedDomains || []).join('\n'), allowed: (d.allowedDomains || []).join('\n') });
+      }
     } catch { /* ignore */ }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const dirty = saved && (strict !== saved.strict || blocked !== saved.blocked || allowed !== saved.allowed);
 
   const save = async () => {
     setSaving(true);
     try {
       const res = await apiFetch('/api/admin/email-policy', { method: 'POST', body: JSON.stringify({ strict, blockedDomains: lines(blocked), allowedDomains: lines(allowed) }) });
       const d = await res.json();
-      if (d.success) onDone(strict ? 'Strict email mode is ON' : 'Email rules saved'); else onError(d.error || 'Could not save');
+      if (d.success) { onDone(strict ? 'Strict email mode is ON' : 'Email rules saved'); await load(); } else onError(d.error || 'Could not save');
     } catch { onError('Connection error'); }
     finally { setSaving(false); }
   };
 
   return (
-    <div className="glass border border-dark-800 rounded-2xl p-4 flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm text-dark-200 flex items-center gap-2">
-          <ShieldAlert className="w-4 h-4 text-primary" />
-          <b>Email rules</b>
-          <span className="text-dark-400 text-xs">{strict ? 'Strict: only well-known providers + approved domains' : 'Temp-mail domains are blocked'}</span>
+    <div className="glass border border-dark-800 rounded-2xl p-5 flex flex-col gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-bold text-dark-100 flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-primary" /> Email rules</h2>
+          <p className="text-xs text-dark-400 mt-1 max-w-xl">Temp-mail domains (about 98,000 of them, refreshed weekly) are always refused at sign-up and sign-in. You can add more below.</p>
         </div>
-        <button onClick={() => setOpen(o => !o)} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-200 border border-dark-700">{open ? 'Close' : 'Change'}</button>
+        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${strict ? 'text-amber-300 border-amber-700/50 bg-amber-950/30' : 'text-green-300 border-green-800/50 bg-green-950/30'}`}>
+          {strict ? 'Strict mode ON' : 'Standard'}
+        </span>
       </div>
-      {open && (
-        <div className="flex flex-col gap-3">
-          <label className="flex items-start gap-2 text-xs text-dark-300 cursor-pointer">
-            <input type="checkbox" checked={strict} onChange={e => setStrict(e.target.checked)} className="mt-0.5" />
-            <span><b className="text-dark-100">Strict mode</b> — new sign-ups and logins must use Gmail, Outlook, Yahoo, iCloud, Proton and similar providers, or a domain listed under "Approved domains". This is the only setting that stops brand-new temp-mail domains. A company address needs its domain approved first.</span>
-          </label>
-          <div className="grid md:grid-cols-2 gap-3">
-            <div><div className="text-[11px] text-dark-400 mb-1">Extra blocked domains (one per line)</div>
-              <textarea value={blocked} onChange={e => setBlocked(e.target.value)} rows={4} placeholder="fakemail.example"
-                className="w-full px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" /></div>
-            <div><div className="text-[11px] text-dark-400 mb-1">Approved domains for strict mode (one per line)</div>
-              <textarea value={allowed} onChange={e => setAllowed(e.target.value)} rows={4} placeholder="mycompany.com"
-                className="w-full px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" /></div>
-          </div>
-          <div><button disabled={saving} onClick={save} className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-40 text-xs text-white">{saving ? 'Saving…' : 'Save email rules'}</button></div>
-        </div>
-      )}
+
+      <button type="button" onClick={() => setStrict(v => !v)}
+        className={`flex items-start gap-3 text-left p-3 rounded-xl border transition-colors ${strict ? 'border-amber-700/50 bg-amber-950/20' : 'border-dark-800 hover:border-dark-600'}`}>
+        <span className={`mt-0.5 w-9 h-5 rounded-full flex-shrink-0 relative transition-colors ${strict ? 'bg-primary' : 'bg-dark-700'}`}>
+          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${strict ? 'left-[18px]' : 'left-0.5'}`} />
+        </span>
+        <span>
+          <span className="block text-sm font-semibold text-dark-100">Strict mode</span>
+          <span className="block text-xs text-dark-400 mt-0.5">Only Gmail, Outlook, Yahoo, iCloud, Proton and similar providers, plus the approved domains below, may sign up or sign in. This is the only setting that stops brand-new temp-mail domains. A company address needs its domain approved first.</span>
+        </span>
+      </button>
+
+      <div className="grid md:grid-cols-2 gap-3">
+        <Field label="Extra blocked domains" hint="One per line">
+          <textarea value={blocked} onChange={e => setBlocked(e.target.value)} rows={5} placeholder="fakemail.example" className={`${inputCls} font-mono text-xs`} />
+        </Field>
+        <Field label="Approved domains (strict mode)" hint="One per line, e.g. a customer's company domain">
+          <textarea value={allowed} onChange={e => setAllowed(e.target.value)} rows={5} placeholder="mycompany.com" className={`${inputCls} font-mono text-xs`} />
+        </Field>
+      </div>
+      <div><button disabled={saving || !dirty} onClick={save} className="px-4 py-2 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-40 text-xs font-semibold text-white">{saving ? 'Saving…' : 'Save email rules'}</button></div>
     </div>
   );
 }
 
-function OutdatedBlock({ minVersion, onDone, onError }) {
+function OutdatedBlock({ defaultVersion, onDone, onError }) {
+  const [minVersion, setMinVersion] = useState(defaultVersion || '');
   const [preview, setPreview] = useState(null);
   const [typed, setTyped] = useState('');
   const [working, setWorking] = useState(false);
+  useEffect(() => { if (!minVersion && defaultVersion) setMinVersion(defaultVersion); }, [defaultVersion]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadPreview = async () => {
     setWorking(true);
@@ -1273,21 +1427,27 @@ function OutdatedBlock({ minVersion, onDone, onError }) {
   };
 
   return (
-    <div className="border-t border-dark-800 pt-3 flex flex-col gap-2">
-      <p className="text-xs text-dark-300"><b className="text-dark-100">Old versions that can't be forced</b> (2.0.21 and older have no update check). This switches off the accounts that haven't been seen on v{minVersion || '…'} or newer. Those apps then say "account disabled". A user who installs the new version is switched back on automatically the next time they sign in.</p>
-      {!preview ? (
-        <div className="flex flex-wrap gap-2">
-          <button disabled={working || !minVersion} onClick={loadPreview} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 disabled:opacity-40 text-xs text-dark-200 border border-dark-700">{working ? 'Loading…' : 'Preview who would be blocked'}</button>
-          <button disabled={working} onClick={restore} title="Users who were blocked and have since updated are already let in by the app; this tidies their stored status" className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 disabled:opacity-40 text-xs text-dark-200 border border-dark-700">Restore users who have updated</button>
-        </div>
-      ) : (
+    <div className="glass border border-dark-800 rounded-2xl p-5 flex flex-col gap-4">
+      <div>
+        <h2 className="text-sm font-bold text-dark-100 flex items-center gap-2"><Lock className="w-4 h-4 text-amber-400" /> Block old versions that can't be forced</h2>
+        <p className="text-xs text-dark-400 mt-1 max-w-xl">v2.0.21 and older have no update check, but they all obey the account's on/off switch. This switches off every account that has not been seen on the version below. Those apps then say "account disabled". When the user installs the new version and signs in, they are let in again.</p>
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Block accounts not seen on">
+          <input value={minVersion} onChange={e => { setMinVersion(e.target.value); setPreview(null); }} placeholder="e.g. 2.0.23" className={`${inputCls} w-36`} />
+        </Field>
+        <button disabled={working || !minVersion} onClick={loadPreview} className="px-3.5 py-2 rounded-lg bg-dark-800 hover:bg-dark-700 disabled:opacity-40 text-xs text-dark-200 border border-dark-700">{working ? 'Loading…' : 'Preview who would be blocked'}</button>
+        <button disabled={working} onClick={restore} title="Users who were blocked and have since updated are already let in by the app; this tidies their stored status"
+          className="px-3.5 py-2 rounded-lg bg-dark-800 hover:bg-dark-700 disabled:opacity-40 text-xs text-dark-200 border border-dark-700">Restore users who have updated</button>
+      </div>
+      {preview && (
         <div className="flex flex-col gap-2">
-          <div className="text-xs text-amber-300">{preview.count} account(s) would be blocked. Paying customers are included, so give people time to update first.</div>
-          <div className="max-h-32 overflow-y-auto text-[11px] text-dark-400 bg-dark-950/40 rounded-lg p-2">
+          <div className="text-xs text-amber-300">{preview.count} account(s) would be blocked. Paying customers are included, so give people time to update first and tell them beforehand.</div>
+          <div className="max-h-44 overflow-y-auto text-[11px] text-dark-400 bg-dark-950/50 rounded-lg p-2 border border-dark-800">
             {preview.users.map(u => <div key={u.uid}>{u.email} <span className="text-dark-600">— {u.appVersion ? `v${u.appVersion}` : 'unknown/old'}{u.accountType === 'premium' ? ' · premium' : ''}</span></div>)}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type BLOCK to confirm" className="px-2 py-1.5 rounded-lg bg-dark-900 border border-dark-700 text-xs text-dark-100" />
+            <input value={typed} onChange={e => setTyped(e.target.value)} placeholder="Type BLOCK to confirm" className={`${inputCls} py-1.5 text-xs`} />
             <button disabled={working || typed !== 'BLOCK' || preview.count === 0} onClick={apply} className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-xs text-white">Block {preview.count} account(s)</button>
             <button onClick={() => { setPreview(null); setTyped(''); }} className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs text-dark-300 border border-dark-700">Cancel</button>
           </div>

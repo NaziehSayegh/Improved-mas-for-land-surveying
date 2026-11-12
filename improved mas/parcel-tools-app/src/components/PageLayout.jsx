@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
 import LicenseBadge from './LicenseBadge';
+import BackButton from './BackButton';
 
 /**
  * PageLayout — universal zero-scroll page wrapper.
@@ -61,15 +61,7 @@ const PageLayout = ({
     <div className="page-container">
       {/* ── Top Bar ───────────────────────────────────────────── */}
       <header className="page-topbar">
-        <button
-          onClick={handleBack}
-          className="btn-ghost py-1.5 px-3 text-sm flex-shrink-0"
-          title="Esc"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          ← {backLabel}
-          <span className="ml-1 text-dark-500 text-xs hidden sm:inline">(Esc)</span>
-        </button>
+        <BackButton onClick={handleBack} label={backLabel} compact />
 
         {title && (
           <h1 className="text-base font-bold text-dark-100 flex-1 truncate">{title}</h1>
