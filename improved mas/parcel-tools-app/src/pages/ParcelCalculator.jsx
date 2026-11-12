@@ -10,6 +10,12 @@ import { safeHtml, escapeHtml } from '../utils/safeHtml';
 // Last area warning shown, so the same warning isn't repeated on every recalculation
 let lastAreaWarning = '';
 
+// Parcel number as a comparison key. Tolerates numbers stored as numbers or missing
+// (older project files, CAD imports) so a list can never crash on one odd parcel.
+const parcelKey = (p) => String(p?.number ?? '').trim().toLowerCase();
+// Area text that never throws when the area is missing or not a number
+const formatArea = (value) => (typeof value === 'number' && isFinite(value)) ? value.toFixed(4) : '—';
+
 // ── Parcel editing helpers ──
 // Distance from point p to the segment a→b (world units)
 const distToSegment = (p, a, b) => {
@@ -867,7 +873,7 @@ const ParcelCalculator = () => {
     if (parcelNumber.trim() && !editingParcelId && savedParcels.length > 0) {
       // Check if this parcel number already exists (and it's not the one we're currently editing)
       const existingParcels = savedParcels.filter(p =>
-        p.number.trim().toLowerCase() === parcelNumber.trim().toLowerCase() &&
+        parcelKey(p) === parcelNumber.trim().toLowerCase() &&
         p.id !== editingParcelId
       );
 
@@ -876,10 +882,10 @@ const ParcelCalculator = () => {
         const checkTimer = setTimeout(() => {
           // Double-check the parcel number still matches
           const currentParcels = savedParcels.filter(p =>
-            p.number.trim().toLowerCase() === parcelNumber.trim().toLowerCase() &&
+            parcelKey(p) === parcelNumber.trim().toLowerCase() &&
             p.id !== editingParcelId
           );
-          if (currentParcels.length > 0 && parcelNumber.trim().toLowerCase() === currentParcels[0].number.trim().toLowerCase() && !editingParcelId) {
+          if (currentParcels.length > 0 && parcelNumber.trim().toLowerCase() === parcelKey(currentParcels[0]) && !editingParcelId) {
             // Only show dialog if it's not already showing for this parcel number
             if (!showDuplicateDialog || pendingParcelNumber.trim().toLowerCase() !== parcelNumber.trim().toLowerCase()) {
               setDuplicateParcel(currentParcels[0]); // Show first duplicate as example
@@ -3909,7 +3915,7 @@ const ParcelCalculator = () => {
                 }`}
               >
                 📁 Saved Parcels ({(() => {
-                  const unique = new Set(savedParcels.map(p => p.number.trim().toLowerCase()));
+                  const unique = new Set(savedParcels.map(p => parcelKey(p)));
                   return unique.size;
                 })()})
               </button>
@@ -4115,7 +4121,7 @@ const ParcelCalculator = () => {
                           const seen = new Set();
                           for (let i = savedParcels.length - 1; i >= 0; i--) {
                             const p = savedParcels[i];
-                            const k = p.number.trim().toLowerCase();
+                            const k = parcelKey(p);
                             if (!seen.has(k)) { seen.add(k); unique.push(p); }
                           }
                           const allSelected = unique.length > 0 && unique.every(p => selectedIds.includes(p.id));
@@ -4138,7 +4144,7 @@ const ParcelCalculator = () => {
                               const seen = new Set();
                               for (let i = savedParcels.length - 1; i >= 0; i--) {
                                 const p = savedParcels[i];
-                                const k = p.number.trim().toLowerCase();
+                                const k = parcelKey(p);
                                 if (!seen.has(k)) { seen.add(k); unique.push(p); }
                               }
                               const selectedUnique = unique.filter(p => selectedIds.includes(p.id));
@@ -4156,7 +4162,7 @@ const ParcelCalculator = () => {
                               const seen = new Set();
                               for (let i = savedParcels.length - 1; i >= 0; i--) {
                                 const p = savedParcels[i];
-                                const k = p.number.trim().toLowerCase();
+                                const k = parcelKey(p);
                                 if (!seen.has(k)) { seen.add(k); unique.push(p); }
                               }
                               handleExportMulti(unique);
@@ -4167,7 +4173,7 @@ const ParcelCalculator = () => {
                             <FileDown className="w-3.5 h-3.5" /> Export All ({(() => {
                               const seen = new Set();
                               return savedParcels.filter(p => {
-                                const k = p.number.trim().toLowerCase();
+                                const k = parcelKey(p);
                                 if (!seen.has(k)) { seen.add(k); return true; }
                                 return false;
                               }).length;
@@ -4329,7 +4335,7 @@ const ParcelCalculator = () => {
                             >
                               <div>
                                 <h4 className="font-bold text-sm text-primary">Parcel #{parcel.number}</h4>
-                                <p className="text-[10px] text-dark-400">Area: {parcel.area.toFixed(4)} m² | Points: {parcel.pointCount}</p>
+                                <p className="text-[10px] text-dark-400">Area: {formatArea(parcel.area)} m² | Points: {parcel.pointCount}</p>
                               </div>
                               <input type="checkbox" checked={isSelected} readOnly className="pointer-events-none rounded border-dark-600 bg-dark-800" />
                             </div>
@@ -4472,7 +4478,7 @@ const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport
   // Loop from the end to get the latest first
   for (let i = savedParcels.length - 1; i >= 0; i--) {
     const parcel = savedParcels[i];
-    const key = parcel.number.trim().toLowerCase();
+    const key = parcelKey(parcel);
     if (!seen.has(key)) {
       seen.add(key);
       uniqueParcels.unshift(parcel); // Keep original chronological order
@@ -4483,13 +4489,17 @@ const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport
     return <p className="text-dark-400 text-center py-12">No unique parcels found.</p>;
   }
 
+  const versionCounts = new Map();
+  savedParcels.forEach(p => {
+    const k = parcelKey(p);
+    versionCounts.set(k, (versionCounts.get(k) || 0) + 1);
+  });
+
   return (
     <div className="space-y-3">
       {uniqueParcels.map((parcel) => {
         // Count how many duplicates exist for this parcel number
-        const duplicateCount = savedParcels.filter(p =>
-          p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
-        ).length;
+        const duplicateCount = versionCounts.get(parcelKey(parcel)) || 1;
 
         return (
           <div
@@ -4523,7 +4533,7 @@ const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport
                     )}
                   </h3>
                   <div className="flex gap-6 text-sm text-dark-300">
-                    <span>📐 Area: <strong className="text-success">{parcel.area != null ? parcel.area.toFixed(4) : 'Calculating...'} m²</strong></span>
+                    <span>📐 Area: <strong className="text-success">{formatArea(parcel.area)} m²</strong></span>
                     <span>📍 Points: {parcel.pointCount}</span>
                   </div>
                   {parcel.curves && parcel.curves.length > 0 && (
@@ -4571,7 +4581,7 @@ const UniqueParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport
             {/* Points list - read only view */}
             <div className="mt-3 pt-3 border-t border-dark-600">
               <div className="flex flex-wrap gap-2 items-center">
-                {parcel.ids.map((id, idx) => (
+                {(parcel.ids || []).map((id, idx) => (
                   <div key={idx} className="bg-dark-800 border border-primary/30 rounded-lg px-3 py-2 text-primary font-semibold text-sm">
                     {id}
                   </div>
@@ -4593,9 +4603,20 @@ const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, s
     return <p className="text-dark-400 text-center py-12">No saved parcels yet.</p>;
   }
 
-  const filteredParcels = savedParcels.filter(parcel => 
-    parcel.number && parcel.number.toString().toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Count the versions of each parcel number once, instead of rescanning the whole list for every row
+  const versionTotals = new Map();
+  const versionNumberById = new Map();
+  savedParcels.forEach(p => {
+    const k = parcelKey(p);
+    const n = (versionTotals.get(k) || 0) + 1;
+    versionTotals.set(k, n);
+    versionNumberById.set(p.id, n);
+  });
+
+  const query = searchQuery.trim().toLowerCase();
+  const filteredParcels = query
+    ? savedParcels.filter(parcel => parcelKey(parcel).includes(query))
+    : savedParcels;
 
   return (
     <div className="space-y-4">
@@ -4621,19 +4642,15 @@ const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, s
         <p className="text-dark-400 text-center py-8">No parcels match your search.</p>
       ) : (
         <div className="space-y-3">
-          {filteredParcels.map((parcel) => {
+          {filteredParcels.map((parcel, rowIndex) => {
             // Check if this parcel number has duplicates
-            const duplicateCount = savedParcels.filter(p =>
-              p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
-            ).length;
-            const firstOccurrenceId = savedParcels.find(p => 
-              p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase()
-            )?.id;
-            const isDuplicate = duplicateCount > 1 && parcel.id !== firstOccurrenceId;
+            const duplicateCount = versionTotals.get(parcelKey(parcel)) || 1;
+            const versionNumber = versionNumberById.get(parcel.id) || 1;
+            const isDuplicate = duplicateCount > 1 && versionNumber > 1;
 
             return (
               <div
-                key={parcel.id}
+                key={`${parcel.id}-${rowIndex}`}
                 className={`glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group ${isDuplicate ? 'border-l-4 border-blue-500' : ''
                   }`}
           >
@@ -4654,10 +4671,7 @@ const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, s
                     Parcel #{parcel.number}
                     {isDuplicate && (
                       <span className="ml-2 text-xs px-2 py-1 bg-blue-600/20 border border-blue-500 rounded text-blue-400">
-                        🔄 Duplicate #{savedParcels.filter(p =>
-                          p.number.trim().toLowerCase() === parcel.number.trim().toLowerCase() &&
-                          savedParcels.indexOf(p) <= index
-                        ).length} of {duplicateCount}
+                        🔄 Version {versionNumber} of {duplicateCount}
                       </span>
                     )}
                     {parcel.curves && parcel.curves.length > 0 && (
@@ -4667,7 +4681,7 @@ const AllParcelsList = React.memo(({ savedParcels, onEdit, onDelete, onExport, s
                     )}
                   </h3>
                   <div className="flex gap-6 text-sm text-dark-300">
-                    <span>📐 Area: <strong className="text-success">{parcel.area.toFixed(4)} m²</strong></span>
+                    <span>📐 Area: <strong className="text-success">{formatArea(parcel.area)} m²</strong></span>
                     <span>📍 Points: {parcel.pointCount}</span>
                   </div>
                   {parcel.curves && parcel.curves.length > 0 && (

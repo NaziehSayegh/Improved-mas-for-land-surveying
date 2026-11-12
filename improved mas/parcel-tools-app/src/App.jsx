@@ -20,6 +20,7 @@ import TitleBar from './components/TitleBar';
 import AdminPanel from './pages/AdminPanel';
 import UpdateManagerModal from './components/UpdateManagerModal';
 import UpdateGate from './components/UpdateGate';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // ── Inner component with routing + file-open handling ────────────────────────
 function AppContent() {
@@ -105,6 +106,8 @@ function AppContent() {
         {isElectron && <UpdateManagerModal />}
         <UpdateGate />
 
+        {/* A crash on one screen shows a message instead of a black window; moving to another screen clears it */}
+        <ErrorBoundary key={location.pathname}>
         <Routes>
           {/* Public routes */}
           <Route path="/login"  element={<LoginPage />} />
@@ -142,6 +145,7 @@ function AppContent() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </ErrorBoundary>
       </div>
     </div>
   );
