@@ -29,7 +29,7 @@ function AppContent() {
   const { user, loading } = useAuth();
   const toast = useToast();
   const {
-    loadProjectData, setProjectPath
+    loadProjectData
   } = useProject();
 
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI;

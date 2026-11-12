@@ -9,7 +9,7 @@ import LicenseBadge from '../components/LicenseBadge';
 import StatusBar from '../components/StatusBar';
 import {
   Settings, FolderOpen, BarChart3, Calculator, Map,
-  HelpCircle, Save, LogOut, X, Key, FolderX, ChevronRight,
+  HelpCircle, Save, LogOut, Key, FolderX, ChevronRight,
   Shield
 } from 'lucide-react';
 

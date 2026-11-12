@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ZoomIn, ZoomOut, RotateCcw, MousePointer, Eye, EyeOff } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, MousePointer } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import PageLayout from '../components/PageLayout';
 
@@ -9,7 +9,7 @@ const Plotting = () => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
 
-  const { loadedPoints, savedParcels, projectName, pointsFileName } = useProject();
+  const { loadedPoints, savedParcels } = useProject();
 
   // View state in refs (no re-render needed for drawing)
   const zoomRef = useRef(1);

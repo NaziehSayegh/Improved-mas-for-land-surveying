@@ -1,11 +1,33 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, FolderOpen, File, Plus, Trash2, Edit2, Upload, Save, FileText, RefreshCw } from 'lucide-react';
+import { ArrowLeft, FolderOpen, File, Plus, Trash2, Edit2, Save, FileText, RefreshCw } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
 import { customConfirm } from '../utils/dialogs';
-import { safeHtml } from '../utils/safeHtml';
+
+// Does this project carry a CAD drawing (so it should open on the CAD map)?
+const projectHasCad = (projectData) => Boolean(
+  projectData.cadFilePath || (projectData.cadEntities && projectData.cadEntities.length > 0) || projectData.cadFileName
+);
+
+// Point IDs in file order: numeric IDs ascending
+const sortPointIds = (points) => Object.keys(points).sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+
+// Text of a points file ("ID, X, Y" per line) for the given points
+const buildPointsFileText = (points, stampLabel) => [
+  '# Points File',
+  `# ${stampLabel}: ${new Date().toLocaleString()}`,
+  '# Format: ID, X, Y',
+  '',
+  ...sortPointIds(points).map(id => `${id}, ${points[id].x}, ${points[id].y}`)
+].join('\n');
+
+// A coordinate typed by the user, or null when it is not a usable number
+const parseCoordinate = (text) => {
+  const value = parseFloat(text);
+  return Number.isFinite(value) ? value : null;
+};
 
 const DataFiles = () => {
   const navigate = useNavigate();
@@ -21,17 +43,14 @@ const DataFiles = () => {
     savedParcels,
     setSavedParcels,
     projectPath,
-    setProjectPath,
     hasUnsavedChanges,
     setHasUnsavedChanges,
-    setProjectName,
     fileHeading: globalFileHeading,
     setFileHeading: setGlobalFileHeading,
     recalculateAllParcels,
     saveActiveProject,
     closeProject,
     removePointsFile,
-    setCurrentParcel,
     loadProjectData
   } = useProject();
   const toast = useToast();
@@ -64,6 +83,16 @@ const DataFiles = () => {
   const hasUnsavedPoints = editMode && Object.keys(editingPoints).length > 0;
 
 
+  // Empty the points editor (used whenever the open project or points file changes)
+  const resetPointEditor = () => {
+    setEditMode(false);
+    setEditingPoints({});
+    setNewPointId('');
+    setNewPointX('');
+    setNewPointY('');
+    setEditingPointId(null);
+  };
+
   // Close project - auto-saves and resets state
   const handleCloseProject = async () => {
     // Auto-save project if path is set
@@ -88,12 +117,7 @@ const DataFiles = () => {
     closeProject();
 
     // Also clear local DataFiles editing state
-    setEditMode(false);
-    setEditingPoints({});
-    setNewPointId('');
-    setNewPointX('');
-    setNewPointY('');
-    setEditingPointId(null);
+    resetPointEditor();
 
     toast.success('✅ Project closed.');
     navigate('/');
@@ -168,7 +192,9 @@ const DataFiles = () => {
       if (response.ok) {
         const projects = await response.json();
         // Filter out any projects that might have been deleted since the last check
-        setSavedProjects(projects.filter(p => p.filePath && p.fileName)); // Basic validation
+        const valid = projects.filter(p => p.filePath && p.fileName); // Basic validation
+        setSavedProjects(valid);
+        return valid;
       } else {
         console.error('Failed to load projects:', response.statusText);
       }
@@ -178,6 +204,7 @@ const DataFiles = () => {
     } finally {
       setLoadingProjects(false);
     }
+    return [];
   };
 
   // Scan computer for all .prcl files
@@ -185,56 +212,26 @@ const DataFiles = () => {
     const confirmed = await customConfirm('🔍 Scan your computer for .prcl files?\n\nThis will search in:\n• Documents\n• Desktop\n• Downloads\n• Home folder\n\nThis may take a minute...');
     if (!confirmed) return;
 
-    await loadSavedProjects(true);
-
-    // Show success toast
-    const domToast = document.createElement('div');
-    domToast.innerHTML = safeHtml(`✅ Scan complete! Found ${savedProjects.length} projects.`);
-    domToast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: linear-gradient(135deg, #22c55e, #16a34a);
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      font-weight: bold;
-      z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    `;
-    document.body.appendChild(domToast);
-    setTimeout(() => domToast.remove(), 3000);
+    const found = await loadSavedProjects(true);
+    toast.success(`✅ Scan complete! Found ${found.length} project${found.length === 1 ? '' : 's'}.`);
   };
 
   // Load projects on mount and when switching to projects tab
   useEffect(() => {
     if (activeTab === 'projects') {
-      console.log('[DataFiles] Switching to projects tab, loading projects...');
       loadSavedProjects();
     }
   }, [activeTab]);
 
-  // Also load projects on mount and whenever we navigate back to this page
+  // Load projects on mount
   useEffect(() => {
-    console.log('[DataFiles] Component mounted/refreshed, loading projects...');
     loadSavedProjects();
-
-    // Set up interval to refresh every 3 seconds when on projects tab
-    const refreshInterval = setInterval(() => {
-      if (activeTab === 'projects') {
-        console.log('[DataFiles] Auto-refreshing projects list...');
-        loadSavedProjects();
-      }
-    }, 3000);
-
-    return () => clearInterval(refreshInterval);
   }, []);
 
   // Refresh projects when window gains focus
   useEffect(() => {
     const handleFocus = () => {
       if (activeTab === 'projects') {
-        console.log('[DataFiles] Window gained focus, refreshing projects...');
         loadSavedProjects();
       }
     };
@@ -243,64 +240,39 @@ const DataFiles = () => {
     return () => window.removeEventListener('focus', handleFocus);
   }, [activeTab]);
 
-  // Open and load a project file
-  const handleOpenProject = async (projectFile) => {
-    try {
-      // Read the project file
-      const response = await fetch(`http://localhost:5000/api/projects`);
-      if (!response.ok) throw new Error('Failed to fetch projects');
+  // Open and load the project file chosen in the "Open Project File" picker
+  const handleOpenProject = (event) => {
+    const file = event.target.files[0];
+    event.target.value = ''; // allow picking the same file again
+    if (!file) return;
 
-      // Use file input to load the project
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.prcl,.parproj,.json';
-      input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const loadResponse = await fetch('http://localhost:5000/api/project/load', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileContent: e.target.result, filePath: file.path, fileName: file.name }),
+        });
 
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          try {
-            const fileContent = event.target.result;
+        if (!loadResponse.ok) {
+          const errData = await loadResponse.json().catch(() => ({}));
+          throw new Error(errData.error || 'Load failed');
+        }
 
-            const loadResponse = await fetch('http://localhost:5000/api/project/load', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ fileContent, filePath: file.path, fileName: file.name }),
-            });
+        const result = await loadResponse.json();
+        const projectData = result.projectData;
 
-            if (!loadResponse.ok) {
-              const errData = await loadResponse.json().catch(() => ({}));
-              throw new Error(errData.error || 'Load failed');
-            }
-
-            const result = await loadResponse.json();
-            const projectData = result.projectData;
-
-            // Clear local editing state
-            setEditMode(false);
-            setEditingPoints({});
-            setNewPointId('');
-            setNewPointX('');
-            setNewPointY('');
-            setEditingPointId(null);
-
-            loadProjectData(projectData, result.filePath || file.path || '');
-
-            const hasCad = Boolean(projectData.cadFilePath || (projectData.cadEntities && projectData.cadEntities.length > 0) || projectData.cadFileName);
-            navigate(hasCad ? '/dxf-import' : '/parcel-calculator');
-          } catch (error) {
-            console.error('Error loading project:', error);
-            toast.error('Error loading project: ' + error.message);
-          }
-        };
-        reader.readAsText(file);
-      };
-      input.click();
-    } catch (error) {
-      console.error('Error opening project:', error);
-      toast.error('Error opening project: ' + error.message);
-    }
+        resetPointEditor();
+        loadProjectData(projectData, result.filePath || file.path || '');
+        navigate(projectHasCad(projectData) ? '/dxf-import' : '/parcel-calculator');
+      } catch (error) {
+        console.error('Error loading project:', error);
+        toast.error('Error loading project: ' + error.message);
+      }
+    };
+    reader.onerror = () => toast.error('Error reading the project file.');
+    reader.readAsText(file);
   };
 
   // Load project from backend/data directory or custom path
@@ -330,14 +302,7 @@ const DataFiles = () => {
       const result = await loadResponse.json();
       const projectData = result.projectData;
 
-      // Clear local editing state
-      setEditMode(false);
-      setEditingPoints({});
-      setNewPointId('');
-      setNewPointX('');
-      setNewPointY('');
-      setEditingPointId(null);
-
+      resetPointEditor();
       loadProjectData(projectData, result.filePath || projectItem.filePath || '');
 
       // Refresh projects list after loading to clean up any deleted files
@@ -345,48 +310,12 @@ const DataFiles = () => {
         loadSavedProjects();
       }, 500);
 
-      const hasCad = Boolean(projectData.cadFilePath || (projectData.cadEntities && projectData.cadEntities.length > 0) || projectData.cadFileName);
-      const targetPage = hasCad ? '/dxf-import' : '/parcel-calculator';
-      const targetName = hasCad ? 'CAD map...' : 'calculator...';
-
-      // Show success toast
-      const domToast = document.createElement('div');
-      domToast.innerHTML = safeHtml(`✅ Project "${projectData.projectName}" loaded!<br/>Redirecting to ${targetName}`);
-      domToast.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #238636;
-        color: white;
-        padding: 16px 24px;
-        border-radius: 12px;
-        font-weight: bold;
-        z-index: 10000;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-      `;
-      document.body.appendChild(domToast);
-      setTimeout(() => {
-        domToast.remove();
-        navigate(targetPage);
-      }, 1500);
+      const hasCad = projectHasCad(projectData);
+      toast.success(`✅ Project "${projectData.projectName}" loaded! Opening ${hasCad ? 'CAD map' : 'calculator'}…`);
+      navigate(hasCad ? '/dxf-import' : '/parcel-calculator');
     } catch (error) {
       console.error('Error loading project:', error);
-      const errorToast = document.createElement('div');
-      errorToast.innerHTML = safeHtml(`❌ Error loading project: ${error.message}`);
-      errorToast.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #da3633;
-        color: white;
-        padding: 16px 24px;
-        border-radius: 12px;
-        font-weight: bold;
-        z-index: 10000;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-      `;
-      document.body.appendChild(errorToast);
-      setTimeout(() => errorToast.remove(), 4000);
+      toast.error(`❌ Error loading project: ${error.message}`);
     }
   };
 
@@ -411,25 +340,7 @@ const DataFiles = () => {
     if (!pointsFileName) return;
 
     try {
-      // Convert points to text format
-      const lines = [];
-      lines.push('# Points File');
-      lines.push(`# Auto-saved: ${new Date().toLocaleString()}`);
-      lines.push('# Format: ID, X, Y');
-      lines.push('');
-
-      const sortedIds = Object.keys(editingPoints).sort((a, b) => {
-        const numA = parseInt(a) || 0;
-        const numB = parseInt(b) || 0;
-        return numA - numB;
-      });
-
-      sortedIds.forEach(id => {
-        const pt = editingPoints[id];
-        lines.push(`${id}, ${pt.x}, ${pt.y}`);
-      });
-
-      const textData = lines.join('\n');
+      const textData = buildPointsFileText(editingPoints, 'Auto-saved');
 
       const response = await fetch('http://localhost:5000/api/save-points-file', {
         method: 'POST',
@@ -518,19 +429,20 @@ const DataFiles = () => {
       return;
     }
 
+    const x = parseCoordinate(newPointX);
+    const y = parseCoordinate(newPointY);
+    if (x === null || y === null) {
+      toast.warning('X and Y must be numbers');
+      return;
+    }
+
     if (editingPoints[newPointId]) {
       if (!(await customConfirm(`Point ID "${newPointId}" already exists. Replace it?`))) {
         return;
       }
     }
 
-    const updatedPoints = {
-      ...editingPoints,
-      [newPointId]: {
-        x: parseFloat(newPointX),
-        y: parseFloat(newPointY)
-      }
-    };
+    const updatedPoints = { ...editingPoints, [newPointId]: { x, y } };
 
     setEditingPoints(updatedPoints);
 
@@ -556,6 +468,12 @@ const DataFiles = () => {
   const handleUpdatePoint = () => {
     if (!newPointId || !newPointX || !newPointY) {
       toast.warning('Fill all fields');
+      return;
+    }
+    const x = parseCoordinate(newPointX);
+    const y = parseCoordinate(newPointY);
+    if (x === null || y === null) {
+      toast.warning('X and Y must be numbers');
       return;
     }
 
@@ -608,10 +526,7 @@ const DataFiles = () => {
       setSavedParcels(renamedParcels);
     }
 
-    updated[newPointId] = {
-      x: parseFloat(newPointX),
-      y: parseFloat(newPointY)
-    };
+    updated[newPointId] = { x, y };
 
     setEditingPoints(updated);
     // Also update loadedPoints to keep them in sync
@@ -640,26 +555,7 @@ const DataFiles = () => {
   // Save changes back to .pnt file
   const handleSavePointsFile = async (forceSaveAs = false) => {
     try {
-      // Convert points object to text format
-      const lines = [];
-      lines.push('# Points File');
-      lines.push(`# Edited: ${new Date().toLocaleString()}`);
-      lines.push('# Format: ID, X, Y');
-      lines.push('');
-
-      // Sort by ID for consistency
-      const sortedIds = Object.keys(editingPoints).sort((a, b) => {
-        const numA = parseInt(a) || 0;
-        const numB = parseInt(b) || 0;
-        return numA - numB;
-      });
-
-      sortedIds.forEach(id => {
-        const pt = editingPoints[id];
-        lines.push(`${id}, ${pt.x}, ${pt.y}`);
-      });
-
-      const textData = lines.join('\n');
+      const textData = buildPointsFileText(editingPoints, 'Edited');
 
       let fileNameToUse = pointsFileName;
       let filePathToUse = pointsFilePath;
@@ -740,7 +636,6 @@ const DataFiles = () => {
         setHasUnsavedChanges(false);
       }
 
-      const location = filePathToUse ? `\nLocation: ${filePathToUse}` : `\nLocation: backend/data/${result.fileName}`;
       toast.success(`✅ Saved ${Object.keys(editingPoints).length} points to ${result.fileName}. File is being watched for external changes!`);
     } catch (error) {
       console.error('Error saving file:', error);
@@ -1077,13 +972,7 @@ const DataFiles = () => {
 
             <div className="bg-dark-700 rounded-lg p-4 max-h-96 overflow-y-auto">
               <div className="grid grid-cols-1 gap-2">
-                {Object.keys(editingPoints)
-                  .sort((a, b) => {
-                    const numA = parseInt(a) || 0;
-                    const numB = parseInt(b) || 0;
-                    return numA - numB;
-                  })
-                  .map((id) => (
+                {sortPointIds(editingPoints).map((id) => (
                     <div
                       key={id}
                       className="bg-dark-800 border border-dark-600 rounded-lg px-4 py-3 flex items-center justify-between hover:border-primary/50 transition-all group"

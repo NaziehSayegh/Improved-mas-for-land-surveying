@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff, CheckSquare, Square, Undo2, Redo2, X } from 'lucide-react';
+import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff, CheckSquare, Undo2, Redo2, X } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { customConfirm, customPrompt } from '../utils/dialogs';
 import { safeHtml, escapeHtml } from '../utils/safeHtml';
@@ -15,6 +15,34 @@ let lastAreaWarning = '';
 const parcelKey = (p) => String(p?.number ?? '').trim().toLowerCase();
 // Area text that never throws when the area is missing or not a number
 const formatArea = (value) => (typeof value === 'number' && isFinite(value)) ? value.toFixed(4) : '—';
+
+// Show a short message at the top of the window. `message` may contain simple HTML (it is sanitised).
+const showPageToast = (message, background, duration = 3000) => {
+  const toast = document.createElement('div');
+  toast.innerHTML = safeHtml(message);
+  toast.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    background: ${background};
+    color: white;
+    padding: 16px 24px;
+    border-radius: 12px;
+    font-weight: bold;
+    z-index: 10000;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    animation: slideIn 0.3s ease-out;
+    max-width: 400px;
+    line-height: 1.5;
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'slideOut 0.3s ease-out';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+};
 
 // ── Parcel editing helpers ──
 // Distance from point p to the segment a→b (world units)
@@ -199,65 +227,10 @@ const ParcelCalculator = () => {
     }
   }, [projectPath]);
 
-  // Helper function to show error toast
-  const showErrorToast = useCallback((message) => {
-    const toast = document.createElement('div');
-    toast.innerHTML = safeHtml(message);
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      right: auto;
-      text-align: center;
-      background: #da3633;
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      font-weight: bold;
-      z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-      animation: slideIn 0.3s ease-out;
-      max-width: 400px;
-      line-height: 1.5;
-    `;
-    document.body.appendChild(toast);
-
-    setTimeout(() => {
-      toast.style.animation = 'slideOut 0.3s ease-out';
-      setTimeout(() => toast.remove(), 300);
-    }, 4000);
-  }, []);
-
-  // Helper function to show success toast
-  const showSuccessToast = useCallback((message) => {
-    const toast = document.createElement('div');
-    toast.innerHTML = safeHtml(message);
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      right: auto;
-      text-align: center;
-      background: #238636;
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      font-weight: bold;
-      z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-      animation: slideIn 0.3s ease-out;
-      max-width: 400px;
-      line-height: 1.5;
-    `;
-    document.body.appendChild(toast);
-
-    setTimeout(() => {
-      toast.style.animation = 'slideOut 0.3s ease-out';
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
-  }, []);
+  // Pop-up messages for this page (red = problem, green = done, blue = information)
+  const showErrorToast = useCallback((message) => showPageToast(message, '#da3633', 4000), []);
+  const showSuccessToast = useCallback((message) => showPageToast(message, '#238636', 3000), []);
+  const showInfoToast = useCallback((message) => showPageToast(message, '#1f6feb', 3500), []);
 
   // Helper function to show confirmation dialog (non-blocking)
   const showConfirmDialog = useCallback((title, message) => {
@@ -916,10 +889,6 @@ const ParcelCalculator = () => {
   const handleLoadFile = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-
-    // Get full path using webkitRelativePath or FileReader
-    // In Electron, file.path should be available
-    const filePath = file.path || file.webkitRelativePath || file.name;
 
     // Reset the input so the same file can be loaded again
     event.target.value = '';
@@ -1581,26 +1550,7 @@ const ParcelCalculator = () => {
         setPendingParcelNumber('');
 
         // Show toast notification
-        const toast = document.createElement('div');
-        toast.innerHTML = safeHtml(`✅ Overwrote existing parcel "${duplicateParcel.number}" with new drawing!`);
-        toast.style.cssText = `
-          position: fixed;
-          top: 20px;
-          right: 20px;
-          background: #238636;
-          color: white;
-          padding: 16px 24px;
-          border-radius: 12px;
-          font-weight: bold;
-          z-index: 10000;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-          animation: slideIn 0.3s ease-out;
-        `;
-        document.body.appendChild(toast);
-        setTimeout(() => {
-          toast.style.animation = 'slideOut 0.3s ease-out';
-          setTimeout(() => toast.remove(), 300);
-        }, 3000);
+        showSuccessToast(`✅ Overwrote existing parcel "${duplicateParcel.number}" with new drawing!`);
       } else {
         // Load the existing parcel for editing
         handleLoadSavedParcel(duplicateParcel);
@@ -1609,26 +1559,7 @@ const ParcelCalculator = () => {
         setPendingParcelNumber('');
 
         // Show toast notification
-        const toast = document.createElement('div');
-        toast.innerHTML = safeHtml(`📝 Loaded parcel "${duplicateParcel.number}" for editing`);
-        toast.style.cssText = `
-          position: fixed;
-          top: 20px;
-          right: 20px;
-          background: #1f6feb;
-          color: white;
-          padding: 16px 24px;
-          border-radius: 12px;
-          font-weight: bold;
-          z-index: 10000;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-          animation: slideIn 0.3s ease-out;
-        `;
-        document.body.appendChild(toast);
-        setTimeout(() => {
-          toast.style.animation = 'slideOut 0.3s ease-out';
-          setTimeout(() => toast.remove(), 300);
-        }, 3000);
+        showInfoToast(`📝 Loaded parcel "${duplicateParcel.number}" for editing`);
       }
     }
   };
@@ -1641,31 +1572,7 @@ const ParcelCalculator = () => {
     setPendingParcelNumber('');
 
     // Show info toast that duplicate will be saved separately
-    const toast = document.createElement('div');
-    toast.innerHTML = safeHtml(`✅ Duplicate allowed! This parcel will be saved separately.<br/>Check "All Parcels" tab to see all versions.`);
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      right: auto;
-      text-align: center;
-      background: #1f6feb;
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      font-weight: bold;
-      z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-      animation: slideIn 0.3s ease-out;
-      max-width: 400px;
-      line-height: 1.5;
-    `;
-    document.body.appendChild(toast);
-    setTimeout(() => {
-      toast.style.animation = 'slideOut 0.3s ease-out';
-      setTimeout(() => toast.remove(), 300);
-    }, 4000);
+    showInfoToast(`✅ Duplicate allowed! This parcel will be saved separately.<br/>Check "All Parcels" tab to see all versions.`);
 
     // Keep the parcel number as is, user can continue
     // Re-focus the input to ensure it's not stuck
@@ -1707,37 +1614,6 @@ const ParcelCalculator = () => {
       if (pointInput) {
         pointInput.focus();
         pointInput.placeholder = `Insert point after ${enteredIds[afterIndex]}`;
-      }
-    }, 100);
-  };
-
-  // Insert point in saved parcel
-  const handleInsertPointInSavedParcel = (parcel, afterIndex) => {
-    // Load parcel into editor
-    handleLoadSavedParcel(parcel);
-    setInsertPointAfterIndex(afterIndex);
-    setPointId('');
-    setTimeout(() => {
-      const pointInput = document.getElementById('point-id-input');
-      if (pointInput) {
-        pointInput.focus();
-        pointInput.placeholder = `Insert point after ${parcel.ids[afterIndex]}`;
-      }
-    }, 100);
-  };
-
-  // Edit point ID in saved parcel
-  const handleEditPointIdInSavedParcel = (parcel, pointIndex) => {
-    // Load parcel into editor
-    handleLoadSavedParcel(parcel);
-    setEditingPointIndex(pointIndex);
-    setPointId(parcel.ids[pointIndex]);
-    setTimeout(() => {
-      const pointInput = document.getElementById('point-id-input');
-      if (pointInput) {
-        pointInput.focus();
-        pointInput.select();
-        pointInput.placeholder = `Edit point ${parcel.ids[pointIndex]}`;
       }
     }, 100);
   };
@@ -1875,29 +1751,8 @@ const ParcelCalculator = () => {
     setIsClosed(false);
 
     // Show success toast
-    const toast = document.createElement('div');
     const saveText = (lastSavedPath || projectPath) ? '💾 Auto-saving...' : '⚠️ Remember to save!';
-    toast.innerHTML = safeHtml(`✅ Parcel ${parcelNumber} updated! ${saveText}`);
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      right: auto;
-      text-align: center;
-      background: #238636;
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      font-weight: bold;
-      z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    `;
-    document.body.appendChild(toast);
-    setTimeout(() => {
-      toast.style.animation = 'slideOut 0.3s ease-out';
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    showSuccessToast(`✅ Parcel ${parcelNumber} updated! ${saveText}`);
   };
 
   // closePolygonAndPrompt awaits user prompts; by the time the user answers, the handlers it
@@ -2394,27 +2249,7 @@ const ParcelCalculator = () => {
       console.error('Error saving project:', error);
 
       // Show error toast instead of blocking alert
-      const errorToast = document.createElement('div');
-      errorToast.innerHTML = safeHtml(`❌ Error saving project: ${error.message}`);
-      errorToast.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #da3633;
-        color: white;
-        padding: 16px 24px;
-        border-radius: 12px;
-        font-weight: bold;
-        z-index: 10000;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-        animation: slideIn 0.3s ease-out;
-      `;
-      document.body.appendChild(errorToast);
-
-      setTimeout(() => {
-        errorToast.style.animation = 'slideOut 0.3s ease-out';
-        setTimeout(() => errorToast.remove(), 300);
-      }, 4000);
+      showErrorToast(`❌ Error saving project: ${error.message}`);
       return false;
     }
   };
@@ -2799,34 +2634,10 @@ const ParcelCalculator = () => {
     });
 
 
-    const toast = document.createElement('div');
     const statusText = exceedsLimit
       ? '⚠️ Error exceeds permissible limits - using original areas'
       : '✅ Within permissible limits - areas adjusted proportionally';
-    toast.innerHTML = safeHtml(`✅ Error calculations completed!<br/>${statusText}`);
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      right: auto;
-      text-align: center;
-      background: ${exceedsLimit ? '#da3633' : '#238636'};
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      font-weight: bold;
-      z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-      animation: slideIn 0.3s ease-out;
-      max-width: 400px;
-      line-height: 1.5;
-    `;
-    document.body.appendChild(toast);
-    setTimeout(() => {
-      toast.style.animation = 'slideOut 0.3s ease-out';
-      setTimeout(() => toast.remove(), 300);
-    }, 4000);
+    (exceedsLimit ? showErrorToast : showSuccessToast)(`✅ Error calculations completed!<br/>${statusText}`);
   };
 
   // Save current error calculation
@@ -2844,24 +2655,7 @@ const ParcelCalculator = () => {
     setHasUnsavedChanges(true);
 
     // Create toast manually to avoid dependencies
-    const toast = document.createElement('div');
-    toast.innerHTML = safeHtml(`✅ Error calculation saved!`);
-    toast.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #238636;
-      color: white;
-      padding: 16px 24px;
-      border-radius: 12px;
-      font-weight: bold;
-      z-index: 10000;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    `;
-    document.body.appendChild(toast);
-    setTimeout(() => {
-      toast.remove();
-    }, 3000);
+    showSuccessToast(`✅ Error calculation saved!`);
   };
 
   // Delete saved error calculation

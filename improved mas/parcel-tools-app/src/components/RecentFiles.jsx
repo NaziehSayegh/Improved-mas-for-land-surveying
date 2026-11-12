@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, MapPin, Clock, X, FolderOpen, Trash2 } from 'lucide-react';
+import { FileText, MapPin, Clock, FolderOpen, Trash2 } from 'lucide-react';
 import { getRecentFiles, clearRecentFiles } from '../utils/api';
 import { useNavigate } from 'react-router-dom';
 import { useProject } from '../context/ProjectContext';
@@ -11,15 +11,9 @@ const RecentFiles = () => {
   const navigate = useNavigate();
   const toast = useToast();
   const {
-    setProjectName,
-    setProjectPath,
     setPointsFileName,
     setPointsFilePath,
     setLoadedPoints,
-    setSavedParcels,
-    setFileHeading,
-    setHasUnsavedChanges,
-    setCurrentParcel,
     loadProjectData
   } = useProject();
   const [recentFiles, setRecentFiles] = useState({ projects: [], points: [] });

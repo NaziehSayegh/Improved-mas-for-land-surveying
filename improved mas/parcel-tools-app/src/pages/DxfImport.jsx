@@ -1,11 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
 import { 
     ArrowLeft, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, MapPin, 
     Layers, ArrowUp, ArrowDown, RefreshCw, Star, Bookmark, History, 
-    Clock, Search, Eye, Trash2, Edit3, X, ChevronRight, Maximize2, 
-    FileText, CheckCircle2, Copy, Sparkles, AlertCircle 
+    Clock, Search, Eye, Trash2, Edit3, X, Sparkles
 } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
@@ -726,7 +724,6 @@ const DxfImport = () => {
     // true when every corner has been brought into the points-file coordinate frame (no 'mixed' coordinates)
     const [coordsConsistent, setCoordsConsistent] = useState(false);
     const [parcelNumberInput, setParcelNumberInput] = useState('');
-    const [newPointsToRegister, setNewPointsToRegister] = useState({});
     const [renumberStartInput, setRenumberStartInput] = useState('1');
     const [editingParcelId, setEditingParcelId] = useState(null);
     const [saveMode, setSaveMode] = useState('update'); // 'update' | 'new'
@@ -994,7 +991,7 @@ const DxfImport = () => {
                             ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
                             ctx.strokeStyle = '#eab308';
                             ctx.lineWidth = 1.5;
-                            const padX = 10, padY = 6;
+                            const padX = 10;
                             const boxW = textWidth + padX * 2;
                             const boxH = 38;
                             const boxX = scx - boxW / 2;
@@ -1752,7 +1749,6 @@ const DxfImport = () => {
         setDetectedNumber(parcelNo);
         setParcelNumberInput(parcelNo);
         setDetectedPoints(detectedPts);
-        setNewPointsToRegister(missingPoints);
 
         // ── New: auto-populate curves from CAD arc segments (non-hatch only) ──
         // extractAutoArcsFromEntity reads the 'segments' array (backend sends M + theta
@@ -1897,7 +1893,6 @@ const DxfImport = () => {
         setDetectedNumber(parcelNo);
         setParcelNumberInput(parcelNo);
         setDetectedPoints(detectedPts);
-        setNewPointsToRegister(missingPoints);
 
         // Exact arcs from the hatch outline (area = corner polygon + true circular segments)
         const autoArcs = extractAutoArcsFromEntity(ent, detectedPts);
@@ -1913,7 +1908,6 @@ const DxfImport = () => {
                 missing[item.pointId] = { x: item.x, y: item.y };
             }
         });
-        setNewPointsToRegister(missing);
     };
 
     const handleUpdatePointId = (vertexIdx, newId) => {
@@ -2656,7 +2650,7 @@ const DxfImport = () => {
                                             if (typeof version.id === 'number' && version.id > 1000000000000) {
                                                 formattedDate = new Date(version.id).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                             }
-                                        } catch (e) {}
+                                        } catch (e) { /* not a timestamp id: leave the date blank */ }
 
                                         return (
                                             <div 
@@ -3288,7 +3282,6 @@ const DxfImport = () => {
                                         const total = detectedPoints.length;
                                         const allMatched = unmatchedCount === 0;
                                         const allUnmatched = matchedCount === 0;
-                                        const isMixed = !allMatched && !allUnmatched && !coordsConsistent;
 
                                         if (!allMatched && coordsConsistent) return (
                                             <div className="bg-blue-500/5 border border-blue-500/20 p-3 rounded-lg flex items-start gap-2.5 font-sans">

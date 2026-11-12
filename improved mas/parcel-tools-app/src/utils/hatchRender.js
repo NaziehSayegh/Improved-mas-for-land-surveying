@@ -20,7 +20,6 @@ export function hatchSegments(lines, bbox, minSpacingWorld = 0, maxSegments = 60
         const d = ox * nx + oy * ny;                    // perpendicular distance between neighbouring lines
         if (Math.abs(d) < 1e-9) continue;
         if (Math.abs(d) < minSpacingWorld) return null; // too dense to be drawn as lines
-        const e = ox * ux + oy * uy;                    // shift along the line between neighbours
 
         const ks = corners.map(([x, y]) => ((x - bx) * nx + (y - by) * ny) / d);
         const kMin = Math.floor(Math.min(...ks)), kMax = Math.ceil(Math.max(...ks));
