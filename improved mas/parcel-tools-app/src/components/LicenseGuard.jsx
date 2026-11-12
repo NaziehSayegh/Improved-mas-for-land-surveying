@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Lock, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { API_LOOPBACK_URL } from '../config';
 
 /**
  * LicenseGuard — wraps protected routes.
@@ -27,7 +28,7 @@ const LicenseGuard = ({ children }) => {
             headers['X-Session-Token'] = token;
           }
 
-          const res = await fetch(`http://127.0.0.1:5000/api/license/status`, { 
+          const res = await fetch(`${API_LOOPBACK_URL}/api/license/status`, { 
             cache: 'no-store',
             headers
           });

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useToast } from './ToastContext';
 import { deduplicatePoints, deduplicateDatasets } from '../utils/deduplication';
+import { API_BASE_URL } from '../config';
 
 const ProjectContext = createContext();
 
@@ -100,7 +101,7 @@ export const ProjectProvider = ({ children }) => {
       if (!pointsFilePath || isReloading) return;
 
       try {
-        const response = await fetch('http://localhost:5000/api/check-file-modified', {
+        const response = await fetch(`${API_BASE_URL}/api/check-file-modified`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filePath: pointsFilePath }),
@@ -138,7 +139,7 @@ export const ProjectProvider = ({ children }) => {
       isReloading = true;
 
       try {
-        const response = await fetch('http://localhost:5000/api/reload-points-file', {
+        const response = await fetch(`${API_BASE_URL}/api/reload-points-file`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filePath: pointsFilePath }),
@@ -201,7 +202,7 @@ export const ProjectProvider = ({ children }) => {
 
       const resultMap = new Map();
       if (hasPoints) {
-        const response = await fetch('http://localhost:5000/api/calculate-batch-areas', {
+        const response = await fetch(`${API_BASE_URL}/api/calculate-batch-areas`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -307,7 +308,7 @@ export const ProjectProvider = ({ children }) => {
         version: __APP_VERSION__
       };
 
-      const response = await fetch('http://localhost:5000/api/project/save', {
+      const response = await fetch(`${API_BASE_URL}/api/project/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

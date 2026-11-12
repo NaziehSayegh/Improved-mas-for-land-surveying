@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogIn, Mail, Lock, AlertCircle, Loader, Eye, EyeOff, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { API_LOOPBACK_URL } from '../config';
 
 const LoginPage = () => {
   const navigate = useNavigate();
@@ -29,7 +30,7 @@ const LoginPage = () => {
     setNeedsVerification(false);
     setLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:5000/api/auth/login', {
+      const res = await fetch(`${API_LOOPBACK_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -84,7 +85,7 @@ const LoginPage = () => {
     setInfo('');
     setLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:5000/api/auth/resend-verification', {
+      const res = await fetch(`${API_LOOPBACK_URL}/api/auth/resend-verification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })

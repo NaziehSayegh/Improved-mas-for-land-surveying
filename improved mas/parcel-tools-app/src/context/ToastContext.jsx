@@ -74,7 +74,8 @@ const ToastContainer = ({ toasts, onRemove }) => {
     );
 };
 
-const Toast = ({ toast, onRemove }) => {
+// forwardRef: AnimatePresence (popLayout mode) needs to measure the element it animates out
+const Toast = React.forwardRef(({ toast, onRemove }, ref) => {
     const icons = {
         success: <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />,
         completed: <Sparkles className="w-5 h-5 text-yellow-400 flex-shrink-0 animate-pulse" />,
@@ -101,6 +102,7 @@ const Toast = ({ toast, onRemove }) => {
 
     return (
         <motion.div
+            ref={ref}
             layout
             initial={{ opacity: 0, y: -20, scale: 0.95, filter: 'blur(4px)' }}
             animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
@@ -166,7 +168,8 @@ const Toast = ({ toast, onRemove }) => {
             )}
         </motion.div>
     );
-};
+});
+Toast.displayName = 'Toast';
 
 export default ToastProvider;
 

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import BackButton from '../components/BackButton';
 import { useNavigate } from 'react-router-dom';
 import { 
-    ArrowLeft, Upload, ZoomIn, ZoomOut, RotateCcw, Plus, MapPin, 
+    Upload, ZoomIn, ZoomOut, RotateCcw, Plus, MapPin, 
     Layers, ArrowUp, ArrowDown, RefreshCw, Star, Bookmark, History, 
     Clock, Search, Eye, Trash2, Edit3, X, Sparkles
 } from 'lucide-react';
@@ -12,6 +13,7 @@ import { reconcileCorners } from '../utils/labelMatch';
 import { drawHatch } from '../utils/hatchRender';
 import { withExactMetrics } from '../utils/entityMetrics';
 import { NUMBER_LAYERS_STORAGE_KEY, resolveNumberLayers, filterCornerLabels, pickParcelNumberText } from '../utils/numberLayers';
+import { API_BASE_URL } from '../config';
 
 // ─── Colour palette for layers fallback ──────────────────────────────────────
 const LAYER_COLORS = [
@@ -1325,7 +1327,7 @@ const DxfImport = () => {
             setTimeout(fitView, 100);
         } else if (cadFilePath && (!cadEntities || cadEntities.length === 0)) {
             setLoading(true);
-            fetch('http://localhost:5000/api/parse-cad', {
+            fetch(`${API_BASE_URL}/api/parse-cad`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filePath: cadFilePath }),
@@ -1484,7 +1486,7 @@ const DxfImport = () => {
         if (!filePath) return;
         setLoading(true);
         try {
-            const res = await fetch('http://localhost:5000/api/parse-cad', {
+            const res = await fetch(`${API_BASE_URL}/api/parse-cad`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filePath }),
@@ -1524,7 +1526,7 @@ const DxfImport = () => {
         if (loading || !cadFilePath) return;
         setLoading(true);
         try {
-            const res = await fetch('http://localhost:5000/api/parse-cad', {
+            const res = await fetch(`${API_BASE_URL}/api/parse-cad`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filePath: cadFilePath }),
@@ -2172,7 +2174,7 @@ const DxfImport = () => {
                     return null;
                 }).filter(Boolean);
 
-                const res = await fetch('http://localhost:5000/api/calculate-area', {
+                const res = await fetch(`${API_BASE_URL}/api/calculate-area`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2279,9 +2281,7 @@ const DxfImport = () => {
 
             {/* Top Bar */}
             <div className="flex-none p-2 border-b border-dark-700 bg-dark-800/50 backdrop-blur-md flex items-center gap-3">
-                <button onClick={handleBackToMainMenu} className="p-2 hover:bg-dark-700 rounded-lg text-dark-400">
-                    <ArrowLeft className="w-5 h-5" />
-                </button>
+                <BackButton onClick={handleBackToMainMenu} compact />
                 <div className="h-8 w-px bg-dark-700" />
                 <h1 className="text-sm font-bold text-primary whitespace-nowrap">🏗️ CAD IMPORT</h1>
 

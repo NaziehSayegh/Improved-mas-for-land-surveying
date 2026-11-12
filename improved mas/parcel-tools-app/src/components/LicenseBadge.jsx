@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
+import { API_LOOPBACK_URL } from '../config';
 
 /**
  * LicenseBadge — shows the current license status as a compact, animated badge.
@@ -18,7 +19,7 @@ const LicenseBadge = ({ refreshInterval = 0, onClick, className = '' }) => {
       if (token) {
         headers['X-Session-Token'] = token;
       }
-      const res = await fetch('http://127.0.0.1:5000/api/license/status', { headers });
+      const res = await fetch(`${API_LOOPBACK_URL}/api/license/status`, { headers });
       const data = await res.json();
       setStatus(data);
     } catch {

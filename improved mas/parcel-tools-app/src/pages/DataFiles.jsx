@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, FolderOpen, File, Plus, Trash2, Edit2, Save, FileText, RefreshCw } from 'lucide-react';
+import { FolderOpen, File, Plus, Trash2, Edit2, Save, FileText, RefreshCw, Search, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
 import { customConfirm } from '../utils/dialogs';
@@ -28,6 +28,8 @@ const parseCoordinate = (text) => {
   const value = parseFloat(text);
   return Number.isFinite(value) ? value : null;
 };
+import BackButton from '../components/BackButton';
+import { API_BASE_URL } from '../config';
 
 const DataFiles = () => {
   const navigate = useNavigate();
@@ -73,6 +75,10 @@ const DataFiles = () => {
   const [savedProjects, setSavedProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [activeTab, setActiveTab] = useState('points'); // 'points' or 'projects'
+  const [pointSearch, setPointSearch] = useState('');
+  const [pointSort, setPointSort] = useState('id');           // id | x | y
+  const [pointPage, setPointPage] = useState(1);
+  const POINTS_PER_PAGE = 100;
 
   // Sync with global heading
   useEffect(() => {
@@ -188,7 +194,7 @@ const DataFiles = () => {
     try {
       // Force refresh by adding timestamp to avoid cache
       const scanParam = scanFull ? '&scan=full' : '';
-      const response = await fetch(`http://localhost:5000/api/projects?t=${Date.now()}${scanParam}`);
+      const response = await fetch(`${API_BASE_URL}/api/projects?t=${Date.now()}${scanParam}`);
       if (response.ok) {
         const projects = await response.json();
         // Filter out any projects that might have been deleted since the last check
@@ -249,7 +255,7 @@ const DataFiles = () => {
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
-        const loadResponse = await fetch('http://localhost:5000/api/project/load', {
+        const loadResponse = await fetch(`${API_BASE_URL}/api/project/load`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileContent: e.target.result, filePath: file.path, fileName: file.name }),
@@ -279,7 +285,7 @@ const DataFiles = () => {
   const handleOpenProjectFromList = async (projectItem) => {
     try {
       // Use filePath if available (for custom Save As paths), otherwise use fileName
-      const loadResponse = await fetch('http://localhost:5000/api/project/load', {
+      const loadResponse = await fetch(`${API_BASE_URL}/api/project/load`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -342,7 +348,7 @@ const DataFiles = () => {
     try {
       const textData = buildPointsFileText(editingPoints, 'Auto-saved');
 
-      const response = await fetch('http://localhost:5000/api/save-points-file', {
+      const response = await fetch(`${API_BASE_URL}/api/save-points-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -379,7 +385,7 @@ const DataFiles = () => {
       try {
         const textData = e.target.result;
 
-        const response = await fetch('http://localhost:5000/api/import-points', {
+        const response = await fetch(`${API_BASE_URL}/api/import-points`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ data: textData }),
@@ -608,7 +614,7 @@ const DataFiles = () => {
         }
       }
 
-      const response = await fetch('http://localhost:5000/api/save-points-file', {
+      const response = await fetch(`${API_BASE_URL}/api/save-points-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -654,6 +660,35 @@ const DataFiles = () => {
     setShowHeadingDialog(false);
     setHasUnsavedChanges(true);
     toast.success('✅ File heading saved! It will be included in PDF exports. Don\'t forget to save your project!');
+  };
+
+  // ── Points table: search, sort, paging ──────────────────────────────────
+  const pointIds = Object.keys(editingPoints);
+  const pointCount = pointIds.length;
+  const bounds = pointCount ? pointIds.reduce((b, id) => {
+    const { x, y } = editingPoints[id];
+    return { minX: Math.min(b.minX, x), maxX: Math.max(b.maxX, x), minY: Math.min(b.minY, y), maxY: Math.max(b.maxY, y) };
+  }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }) : null;
+  const searchText = pointSearch.trim().toLowerCase();
+  const filteredIds = pointIds
+    .filter((id) => !searchText || id.toLowerCase().includes(searchText)
+      || String(editingPoints[id].x.toFixed(2)).includes(searchText) || String(editingPoints[id].y.toFixed(2)).includes(searchText))
+    .sort((a, b) => {
+      if (pointSort === 'x') return editingPoints[a].x - editingPoints[b].x;
+      if (pointSort === 'y') return editingPoints[a].y - editingPoints[b].y;
+      return a.localeCompare(b, undefined, { numeric: true });
+    });
+  const pointPageCount = Math.max(1, Math.ceil(filteredIds.length / POINTS_PER_PAGE));
+  const currentPointPage = Math.min(pointPage, pointPageCount);
+  const pagePointIds = filteredIds.slice((currentPointPage - 1) * POINTS_PER_PAGE, currentPointPage * POINTS_PER_PAGE);
+
+  const handleRemovePointsFile = async () => {
+    if (await customConfirm(`Remove "${pointsFileName}" from this project?\n\nAll saved parcels will stay in your project and will recoordinate when you load a new points file.`)) {
+      removePointsFile();
+      setEditingPoints({});
+      setEditMode(false);
+      toast.success('🗑️ Points file removed while keeping your saved parcels.');
+    }
   };
 
   return (
@@ -743,390 +778,237 @@ const DataFiles = () => {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto scroll-area p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-          <div className="flex gap-2 mb-6">
-            <button onClick={handleBackToMainMenu} className="btn-secondary flex items-center gap-2 group">
-              <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-              ↩ MAIN MENU
+      <header className="page-topbar">
+        <BackButton onClick={handleBackToMainMenu} compact />
+        <h1 className="text-base font-bold text-dark-100 flex-1 truncate">Data Files</h1>
+        <button onClick={handleCloseProject} className="btn-ghost py-1.5 px-3 text-sm text-red-400 hover:text-red-300 border border-red-600/30 flex-shrink-0">
+          Close Project
+        </button>
+      </header>
+      <div className="flex-1 min-h-0 flex flex-col">
+        {/* ── Tabs ── */}
+        <div className="flex items-center gap-1 px-4 border-b border-dark-800 flex-shrink-0 overflow-x-auto">
+          {[['points', <FileText key="i" className="w-4 h-4" />, 'Points file'], ['projects', <FolderOpen key="i" className="w-4 h-4" />, 'Saved projects']].map(([id, icon, label]) => (
+            <button key={id}
+              onClick={() => { setActiveTab(id); if (id === 'projects') loadSavedProjects(); }}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap
+                ${activeTab === id ? 'border-primary text-primary' : 'border-transparent text-dark-400 hover:text-dark-200'}`}>
+              {icon}{label}
+              {id === 'points' && editMode && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-dark-700 text-dark-300 font-bold">{pointCount}</span>}
+              {id === 'projects' && savedProjects.length > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-dark-700 text-dark-300 font-bold">{savedProjects.length}</span>}
             </button>
-            <button onClick={handleCloseProject} className="btn-secondary flex items-center gap-2 bg-red-600/20 hover:bg-red-600/30 border-red-600/50 text-red-400">
-              ❌ Close Project
-            </button>
+          ))}
+          <input type="file" accept=".pnt,.txt,.csv" onChange={handleOpenPointsFile} style={{ display: 'none' }} id="open-points" />
+          <input type="file" accept=".prcl" onChange={handleOpenProject} style={{ display: 'none' }} id="open-project" />
+        </div>
+
+        {/* ═════════ POINTS TAB ═════════ */}
+        {activeTab === 'points' && !editMode && (
+          <div className="flex-1 min-h-0 overflow-y-auto scroll-area p-6 flex items-center justify-center">
+            <div className="max-w-xl w-full text-center border-2 border-dashed border-dark-700 rounded-2xl p-10 bg-dark-900/40">
+              <FolderOpen className="w-14 h-14 mx-auto mb-4 text-primary/70" />
+              <h2 className="text-xl font-bold text-dark-100 mb-1">No points file loaded</h2>
+              <p className="text-sm text-dark-400 mb-6">Open the file with your survey points (<span className="font-mono">.pnt</span>, <span className="font-mono">.txt</span> or <span className="font-mono">.csv</span>) to view and edit it here. Each line is: <span className="font-mono">ID  X  Y</span>.</p>
+              <label htmlFor="open-points" className="btn-primary inline-flex items-center gap-2 cursor-pointer px-6 py-3">
+                <FolderOpen className="w-5 h-5" /> Open points file
+              </label>
+              <p className="text-xs text-dark-500 mt-5">Changes are saved back to the same file automatically, and the Area Calculator, Plotting and CAD Import see them straight away.</p>
+            </div>
           </div>
+        )}
 
-          <div className="glass-effect rounded-xl p-6">
-            <div className="flex items-center gap-4 mb-4">
-              <FolderOpen className="w-10 h-10 text-primary" />
-              <div>
-                <h1 className="text-4xl font-bold gradient-text">📁 Data Files Manager</h1>
-                <p className="text-dark-300 mt-2">Edit points files, manage projects, set file heading</p>
-              </div>
-            </div>
+        {activeTab === 'points' && editMode && (
+          <div className="flex-1 min-h-0 overflow-y-auto min-[960px]:overflow-hidden scroll-area p-4">
+            <div className="min-[960px]:h-full grid gap-4 min-[960px]:grid-cols-[340px_1fr] max-w-[1500px] mx-auto">
 
-            {/* Tabs */}
-            <div className="flex gap-2 mb-4">
-              <button
-                onClick={() => setActiveTab('points')}
-                className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'points'
-                  ? 'bg-dark-800 text-primary border-t-2 border-primary'
-                  : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-                  }`}
-              >
-                📝 Points Files
-              </button>
-              <button
-                onClick={() => { setActiveTab('projects'); loadSavedProjects(); }}
-                className={`px-6 py-3 rounded-t-lg font-semibold transition-all ${activeTab === 'projects'
-                  ? 'bg-dark-800 text-primary border-t-2 border-primary'
-                  : 'bg-dark-700 text-dark-300 hover:bg-dark-600'
-                  }`}
-              >
-                📁 Saved Projects
-              </button>
-            </div>
-
-            {/* Toolbar - Points Files Tab */}
-            {activeTab === 'points' && (
-              <div className="flex gap-2 flex-wrap">
-                <input type="file" accept=".pnt,.txt,.csv" onChange={handleOpenPointsFile} style={{ display: 'none' }} id="open-points" />
-                <label htmlFor="open-points" className="btn-primary py-2 px-4 text-sm cursor-pointer flex items-center gap-2">
-                  <FolderOpen className="w-4 h-4" />
-                  {pointsFileName ? 'Replace Points File' : 'Open Points File'}
-                </label>
-
-                {pointsFileName && (
-                  <button
-                    onClick={async () => {
-                      if (await customConfirm(`Remove "${pointsFileName}" from this project?\n\nAll saved parcels will stay in your project and will recoordinate when you load a new points file.`)) {
-                        removePointsFile();
-                        setEditingPoints({});
-                        setEditMode(false);
-                        toast.success('🗑️ Points file removed while keeping your saved parcels.');
-                      }
-                    }}
-                    className="btn-secondary py-2 px-4 text-sm flex items-center gap-2 bg-red-600/10 hover:bg-red-600/20 border-red-600/30 text-red-400"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Remove Points File
-                  </button>
-                )}
-
-                <button onClick={() => handleSavePointsFile(false)} disabled={!editMode} className="btn-success py-2 px-4 text-sm flex items-center gap-2">
-                  <Save className="w-4 h-4" />
-                  Save Now (Auto-save: ON)
-                </button>
-
-                <button onClick={handleSavePointsAs} disabled={!editMode} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
-                  <Save className="w-4 h-4" />
-                  Save As...
-                </button>
-
-                <button onClick={() => setShowHeadingDialog(true)} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  File Heading
-                </button>
-              </div>
-            )}
-
-            {/* Toolbar - Projects Tab */}
-            {activeTab === 'projects' && (
-              <div className="flex gap-2 flex-wrap">
-                <input type="file" accept=".prcl" onChange={handleOpenProject} style={{ display: 'none' }} id="open-project" />
-                <label htmlFor="open-project" className="btn-primary py-2 px-4 text-sm cursor-pointer flex items-center gap-2">
-                  <FolderOpen className="w-4 h-4" />
-                  Open Project File
-                </label>
-
-                <button onClick={loadSavedProjects} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4" />
-                  Refresh List
-                </button>
-              </div>
-            )}
-
-            {/* File info */}
-            {pointsFileName && (
-              <div className="mt-4 p-3 bg-primary/10 border border-primary rounded-lg flex items-center justify-between">
-                <p className="text-primary font-semibold">
-                  📄 Editing: {pointsFileName} ({Object.keys(editingPoints).length} points)
-                </p>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2 text-success text-sm">
-                    <span className="animate-pulse">💾</span>
-                    <span>Auto-save: ON</span>
+              {/* ── Left: file + add/edit point ── */}
+              <div className="flex flex-col gap-4 min-[960px]:overflow-y-auto scroll-area min-[960px]:pr-1">
+                <div className="rounded-2xl border border-dark-800 bg-dark-900/50 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/30 flex items-center justify-center flex-shrink-0"><FileText className="w-5 h-5 text-primary" /></div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-bold text-dark-100 truncate" title={pointsFileName}>{pointsFileName || 'Unnamed file'}</div>
+                      <div className="text-xs text-dark-400 mt-0.5">{pointCount} points</div>
+                    </div>
+                    <span className="flex items-center gap-1.5 text-[11px] text-green-400 flex-shrink-0" title="Changes are saved automatically 3 seconds after you stop editing">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" /> Auto-save
+                    </span>
                   </div>
-                  <button
-                    onClick={async () => {
-                      if (await customConfirm(`Remove "${pointsFileName}" from this project?\n\nAll saved parcels will stay in your project and will recoordinate when you load a new points file.`)) {
-                        removePointsFile();
-                        setEditingPoints({});
-                        setEditMode(false);
-                        toast.success('🗑️ Points file removed while keeping your saved parcels.');
-                      }
-                    }}
-                    className="btn-secondary py-1 px-3 text-xs bg-red-600/10 hover:bg-red-600/20 border-red-600/30 text-red-400 flex items-center gap-1"
-                    title="Remove points file while preserving all saved parcels in the project"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" /> Remove File
-                  </button>
+                  {bounds && (
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1 mt-3 text-[11px] font-mono text-dark-400">
+                      <dt className="text-dark-500">X from</dt><dd className="text-right text-dark-300">{bounds.minX.toFixed(2)}</dd>
+                      <dt className="text-dark-500">X to</dt><dd className="text-right text-dark-300">{bounds.maxX.toFixed(2)}</dd>
+                      <dt className="text-dark-500">Y from</dt><dd className="text-right text-dark-300">{bounds.minY.toFixed(2)}</dd>
+                      <dt className="text-dark-500">Y to</dt><dd className="text-right text-dark-300">{bounds.maxY.toFixed(2)}</dd>
+                    </dl>
+                  )}
+                  <div className="grid grid-cols-2 gap-2 mt-4">
+                    <button onClick={() => handleSavePointsFile(false)} className="btn-success py-2 px-3 text-xs col-span-2 flex items-center justify-center gap-2"><Save className="w-4 h-4" /> Save now</button>
+                    <button onClick={handleSavePointsAs} className="btn-secondary py-2 px-3 text-xs flex items-center justify-center gap-2"><Save className="w-3.5 h-3.5" /> Save as…</button>
+                    <button onClick={() => setShowHeadingDialog(true)} className="btn-secondary py-2 px-3 text-xs flex items-center justify-center gap-2"><FileText className="w-3.5 h-3.5" /> File heading</button>
+                    <label htmlFor="open-points" className="btn-secondary py-2 px-3 text-xs flex items-center justify-center gap-2 cursor-pointer"><FolderOpen className="w-3.5 h-3.5" /> Replace file</label>
+                    <button onClick={handleRemovePointsFile} className="btn-secondary py-2 px-3 text-xs flex items-center justify-center gap-2 text-red-400 border-red-600/30 hover:bg-red-600/10" title="Remove the points file but keep all saved parcels"><Trash2 className="w-3.5 h-3.5" /> Remove file</button>
+                  </div>
+                </div>
+
+                <div className={`rounded-2xl border p-4 ${editingPointId ? 'border-amber-600/50 bg-amber-950/10' : 'border-dark-800 bg-dark-900/50'}`}>
+                  <h2 className="text-sm font-bold text-dark-100 mb-3 flex items-center gap-2">
+                    {editingPointId ? <><Edit2 className="w-4 h-4 text-amber-400" /> Edit point {editingPointId}</> : <><Plus className="w-4 h-4 text-primary" /> Add a point</>}
+                  </h2>
+                  <form onSubmit={(e) => { e.preventDefault(); editingPointId ? handleUpdatePoint() : handleAddPoint(); }} className="flex flex-col gap-3">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-dark-400">Point ID</span>
+                      <input type="text" value={newPointId} onChange={(e) => setNewPointId(e.target.value)} placeholder="e.g. 26" className="bg-dark-800 border border-dark-700 focus:border-primary outline-none rounded-lg px-3 py-2 text-sm text-white" />
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-dark-400">X</span>
+                        <input type="number" step="0.01" value={newPointX} onChange={(e) => setNewPointX(e.target.value)} placeholder="0.00" className="bg-dark-800 border border-dark-700 focus:border-primary outline-none rounded-lg px-3 py-2 text-sm font-mono text-white" />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-dark-400">Y</span>
+                        <input type="number" step="0.01" value={newPointY} onChange={(e) => setNewPointY(e.target.value)} placeholder="0.00" className="bg-dark-800 border border-dark-700 focus:border-primary outline-none rounded-lg px-3 py-2 text-sm font-mono text-white" />
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="submit" className="btn-primary py-2 px-4 text-sm flex-1 flex items-center justify-center gap-2">
+                        {editingPointId ? <><Save className="w-4 h-4" /> Update point</> : <><Plus className="w-4 h-4" /> Add point</>}
+                      </button>
+                      {editingPointId && (
+                        <button type="button" onClick={() => { setEditingPointId(null); setNewPointId(''); setNewPointX(''); setNewPointY(''); }} className="btn-secondary py-2 px-4 text-sm">Cancel</button>
+                      )}
+                    </div>
+                  </form>
+                </div>
+
+                <details className="rounded-2xl border border-dark-800 bg-dark-900/30 p-4 text-xs text-dark-400">
+                  <summary className="cursor-pointer font-semibold text-dark-300">How this page works</summary>
+                  <ul className="mt-2 space-y-1 list-disc pl-4">
+                    <li>Edits are written back to your points file automatically, keeping its format.</li>
+                    <li>The Area Calculator, Plotting and CAD Import use these points straight away.</li>
+                    <li>The file is watched: changes made in another program are picked up.</li>
+                    <li><strong>File heading</strong> (block, quarter, place…) appears on exported PDFs.</li>
+                  </ul>
+                </details>
+              </div>
+
+              {/* ── Right: points table ── */}
+              <div className="min-h-[420px] min-[960px]:min-h-0 rounded-2xl border border-dark-800 bg-dark-900/40 flex flex-col overflow-hidden">
+                <div className="flex flex-wrap items-center gap-2 p-3 border-b border-dark-800 flex-shrink-0">
+                  <h2 className="text-sm font-bold text-dark-100 mr-1">Points <span className="text-dark-500 font-normal">({filteredIds.length}{filteredIds.length !== pointCount ? ` of ${pointCount}` : ''})</span></h2>
+                  <div className="relative flex-1 min-w-[160px] max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-dark-500" />
+                    <input type="text" value={pointSearch} onChange={(e) => { setPointSearch(e.target.value); setPointPage(1); }} placeholder="Find a point or coordinate…"
+                      className="w-full pl-9 pr-8 py-1.5 text-xs rounded-lg bg-dark-800 border border-dark-700 focus:border-primary outline-none text-dark-100" />
+                    {pointSearch && <button onClick={() => setPointSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dark-500 hover:text-dark-200"><X className="w-3.5 h-3.5" /></button>}
+                  </div>
+                  <label className="ml-auto flex items-center gap-1.5 text-xs text-dark-500">Sort
+                    <select value={pointSort} onChange={(e) => setPointSort(e.target.value)} className="bg-dark-800 border border-dark-700 rounded-lg px-2 py-1.5 text-xs text-dark-200">
+                      <option value="id">ID</option><option value="x">X</option><option value="y">Y</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-auto scroll-area">
+                  {filteredIds.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center gap-2 text-dark-500 py-12">
+                      <Search className="w-8 h-8 text-dark-600" />
+                      <span className="text-sm">{pointCount === 0 ? 'This file has no points yet. Add the first one on the left.' : 'No point matches your search.'}</span>
+                    </div>
+                  ) : (
+                    <table className="w-full text-left border-collapse">
+                      <thead className="sticky top-0 bg-dark-900 z-10 border-b border-dark-800">
+                        <tr className="text-[11px] font-semibold uppercase tracking-wider text-dark-400">
+                          <th className="px-4 py-2.5 w-32">ID</th>
+                          <th className="px-4 py-2.5 w-44 text-right">X</th>
+                          <th className="px-4 py-2.5 w-44 text-right">Y</th>
+                          <th className="px-3 py-2.5 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-dark-800/50 font-mono text-sm">
+                        {pagePointIds.map((id) => (
+                          <tr key={id} className={`hover:bg-dark-800/40 ${editingPointId === id ? 'bg-amber-950/20' : ''}`}>
+                            <td className="px-4 py-1.5 font-bold text-primary">{id}</td>
+                            <td className="px-4 py-1.5 text-right text-dark-100">{editingPoints[id].x.toFixed(2)}</td>
+                            <td className="px-4 py-1.5 text-right text-dark-100">{editingPoints[id].y.toFixed(2)}</td>
+                            <td className="px-3 py-1 text-right whitespace-nowrap">
+                              <button onClick={() => handleEditPoint(id)} title="Edit this point" className="p-1.5 rounded-lg text-dark-400 hover:text-primary hover:bg-primary/10"><Edit2 className="w-4 h-4" /></button>
+                              <button onClick={() => handleDeletePoint(id)} title="Delete this point" className="p-1.5 rounded-lg text-dark-400 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-2 px-4 py-2 border-t border-dark-800 text-xs text-dark-500 flex-shrink-0">
+                  <span>{filteredIds.length === 0 ? '0' : `${(currentPointPage - 1) * POINTS_PER_PAGE + 1}–${Math.min(currentPointPage * POINTS_PER_PAGE, filteredIds.length)}`} of {filteredIds.length}</span>
+                  {pointPageCount > 1 && (
+                    <div className="flex items-center gap-2">
+                      <button disabled={currentPointPage <= 1} onClick={() => setPointPage(currentPointPage - 1)} className="p-1.5 rounded-md border border-dark-800 disabled:opacity-30 hover:bg-dark-800"><ChevronLeft className="w-3.5 h-3.5" /></button>
+                      <span className="text-dark-300">Page {currentPointPage} / {pointPageCount}</span>
+                      <button disabled={currentPointPage >= pointPageCount} onClick={() => setPointPage(currentPointPage + 1)} className="p-1.5 rounded-md border border-dark-800 disabled:opacity-30 hover:bg-dark-800"><ChevronRight className="w-3.5 h-3.5" /></button>
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
-        </motion.div>
-
-        {/* Add/Edit Point Form - Only show on Points Files tab */}
-        {activeTab === 'points' && editMode && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card mb-6">
-            <h2 className="text-2xl font-bold text-primary mb-4">
-              {editingPointId ? `✏️ Edit Point ${editingPointId}` : '➕ Add New Point'}
-            </h2>
-
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div>
-                <label className="block text-dark-300 font-semibold mb-2">Point ID:</label>
-                <input
-                  type="text"
-                  value={newPointId}
-                  onChange={(e) => setNewPointId(e.target.value)}
-                  className="bg-dark-700 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary w-full"
-                  placeholder="e.g., 1"
-                  style={{ fontSize: '16px' }}
-                />
-              </div>
-
-              <div>
-                <label className="block text-dark-300 font-semibold mb-2">X Coordinate:</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newPointX}
-                  onChange={(e) => setNewPointX(e.target.value)}
-                  className="bg-dark-700 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary w-full"
-                  placeholder="0.00"
-                  style={{ fontSize: '16px' }}
-                />
-              </div>
-
-              <div>
-                <label className="block text-dark-300 font-semibold mb-2">Y Coordinate:</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newPointY}
-                  onChange={(e) => setNewPointY(e.target.value)}
-                  className="bg-dark-700 border-2 border-dark-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-primary w-full"
-                  placeholder="0.00"
-                  style={{ fontSize: '16px' }}
-                />
-              </div>
             </div>
+          </div>
+        )}
 
-            <div className="flex gap-4">
-              {editingPointId ? (
-                <>
-                  <button onClick={handleUpdatePoint} className="btn-primary flex items-center gap-2">
-                    <Save className="w-5 h-5" />
-                    Update Point
-                  </button>
-                  <button
-                    onClick={() => {
-                      setEditingPointId(null);
-                      setNewPointId('');
-                      setNewPointX('');
-                      setNewPointY('');
-                    }}
-                    className="btn-secondary"
-                  >
-                    Cancel
-                  </button>
-                </>
+        {/* ═════════ PROJECTS TAB ═════════ */}
+        {activeTab === 'projects' && (
+          <div className="flex-1 min-h-0 overflow-y-auto scroll-area p-4">
+            <div className="max-w-6xl mx-auto rounded-2xl border border-dark-800 bg-dark-900/40 overflow-hidden">
+              <div className="flex flex-wrap items-center gap-2 p-3 border-b border-dark-800">
+                <h2 className="text-sm font-bold text-dark-100 mr-auto">Saved projects <span className="text-dark-500 font-normal">({savedProjects.length})</span></h2>
+                <label htmlFor="open-project" className="btn-primary py-1.5 px-3 text-xs cursor-pointer flex items-center gap-2"><FolderOpen className="w-3.5 h-3.5" /> Open project file</label>
+                <button onClick={() => loadSavedProjects(false)} disabled={loadingProjects} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-2"><RefreshCw className={`w-3.5 h-3.5 ${loadingProjects ? 'animate-spin' : ''}`} /> Refresh</button>
+                <button onClick={handleScanComputer} disabled={loadingProjects} className="btn-secondary py-1.5 px-3 text-xs flex items-center gap-2" title="Search this computer for project files"><Search className="w-3.5 h-3.5" /> Scan computer</button>
+              </div>
+
+              {loadingProjects ? (
+                <div className="text-center py-14"><RefreshCw className="w-9 h-9 mx-auto mb-3 text-primary animate-spin" /><p className="text-sm text-dark-300">Loading projects…</p></div>
+              ) : savedProjects.length === 0 ? (
+                <div className="text-center py-14 px-4">
+                  <File className="w-14 h-14 mx-auto mb-3 text-dark-600" />
+                  <h3 className="text-lg font-bold text-dark-200 mb-1">No projects found</h3>
+                  <p className="text-sm text-dark-400 mb-5">Save a project from the Area Calculator, or open a <span className="font-mono">.prcl</span> file.</p>
+                  <button onClick={() => navigate('/parcel-calculator')} className="btn-primary inline-flex items-center gap-2 text-sm"><Plus className="w-4 h-4" /> Go to calculator</button>
+                </div>
               ) : (
-                <button onClick={handleAddPoint} className="btn-primary flex items-center gap-2">
-                  <Plus className="w-5 h-5" />
-                  Add Point
-                </button>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[720px]">
+                    <thead className="bg-dark-900 border-b border-dark-800">
+                      <tr className="text-[11px] font-semibold uppercase tracking-wider text-dark-400">
+                        <th className="px-4 py-2.5">Project</th><th className="px-4 py-2.5">Parcels</th><th className="px-4 py-2.5">Points file</th><th className="px-4 py-2.5">Last saved</th><th className="px-4 py-2.5 w-24" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-dark-800/50">
+                      {savedProjects.map((project, index) => {
+                        const displayPath = project.filePath && !project.filePath.includes('backend/data') ? project.filePath : project.fileName;
+                        const isEmpty = project.savedParcels === 0;
+                        return (
+                          <tr key={index} onClick={() => handleOpenProjectFromList(project)} className="cursor-pointer hover:bg-dark-800/40 group">
+                            <td className="px-4 py-3">
+                              <div className="text-sm font-semibold text-dark-100 flex items-center gap-2">{project.projectName}{isEmpty && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-dark-700 text-dark-300 border border-dark-600">Empty</span>}</div>
+                              <div className="text-[11px] text-dark-500 font-mono truncate max-w-[420px]" title={displayPath}>{displayPath}</div>
+                            </td>
+                            <td className={`px-4 py-3 text-sm font-mono ${isEmpty ? 'text-dark-500' : 'text-dark-200'}`}>{project.savedParcels}</td>
+                            <td className="px-4 py-3 text-sm text-dark-300 truncate max-w-[200px]" title={project.pointsFile}>{project.pointsFile || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-dark-400 whitespace-nowrap">{new Date(project.lastModified * 1000).toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right"><span className="inline-flex items-center gap-1 text-xs font-semibold text-primary opacity-70 group-hover:opacity-100"><FolderOpen className="w-4 h-4" /> Open</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
-          </motion.div>
-        )}
-
-        {/* Points List */}
-        {editMode && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-dark-50">Points in File ({Object.keys(editingPoints).length})</h2>
-              <button onClick={() => handleSavePointsFile(false)} className="btn-success flex items-center gap-2">
-                <Save className="w-5 h-5" />
-                Save All Changes
-              </button>
-
-              <button onClick={handleSavePointsAs} className="btn-secondary flex items-center gap-2">
-                <Save className="w-5 h-5" />
-                Save As...
-              </button>
-            </div>
-
-            <div className="bg-dark-700 rounded-lg p-4 max-h-96 overflow-y-auto">
-              <div className="grid grid-cols-1 gap-2">
-                {sortPointIds(editingPoints).map((id) => (
-                    <div
-                      key={id}
-                      className="bg-dark-800 border border-dark-600 rounded-lg px-4 py-3 flex items-center justify-between hover:border-primary/50 transition-all group"
-                    >
-                      <div className="flex items-center gap-4 flex-1">
-                        <span className="text-primary font-bold text-lg w-20">{id}</span>
-                        <span className="text-dark-300">
-                          X: <span className="text-white font-mono">{editingPoints[id].x.toFixed(2)}</span>
-                        </span>
-                        <span className="text-dark-300">
-                          Y: <span className="text-white font-mono">{editingPoints[id].y.toFixed(2)}</span>
-                        </span>
-                      </div>
-
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => handleEditPoint(id)}
-                          className="p-2 hover:bg-primary/20 rounded-lg text-primary"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeletePoint(id)}
-                          className="p-2 hover:bg-danger/20 rounded-lg text-danger"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-
-            <div className="mt-4 p-3 bg-success/10 border border-success rounded-lg">
-              <p className="text-success text-sm flex items-center gap-2">
-                <span className="animate-pulse">💾</span>
-                <span>Auto-save enabled! Changes save automatically after 3 seconds.</span>
-              </p>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Saved Projects Tab Content */}
-        {activeTab === 'projects' && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card mt-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-dark-50">Saved Projects ({savedProjects.length})</h2>
-              <div className="flex gap-2">
-                <button onClick={() => loadSavedProjects(false)} disabled={loadingProjects} className="btn-secondary py-2 px-4 text-sm flex items-center gap-2">
-                  <RefreshCw className={`w-4 h-4 ${loadingProjects ? 'animate-spin' : ''}`} />
-                  Refresh
-                </button>
-                <button onClick={handleScanComputer} disabled={loadingProjects} className="btn-primary py-2 px-4 text-sm flex items-center gap-2">
-                  🔍 Scan Computer
-                </button>
-              </div>
-            </div>
-
-            {loadingProjects ? (
-              <div className="text-center py-12">
-                <RefreshCw className="w-12 h-12 mx-auto mb-4 text-primary animate-spin" />
-                <p className="text-dark-300">Loading projects...</p>
-              </div>
-            ) : savedProjects.length === 0 ? (
-              <div className="text-center py-12">
-                <File className="w-20 h-20 mx-auto mb-4 text-dark-600" />
-                <h3 className="text-2xl font-bold text-dark-300 mb-2">No Projects Found</h3>
-                <p className="text-dark-400 mb-6">Save a project from the Parcel Calculator to see it here</p>
-                <button onClick={() => navigate('/parcel-calculator')} className="btn-primary inline-flex items-center gap-2">
-                  <Plus className="w-5 h-5" />
-                  Go to Calculator
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {savedProjects.map((project, index) => {
-                  // Show file path for custom locations, filename for DATA_DIR projects
-                  const displayPath = project.filePath && !project.filePath.includes('backend/data')
-                    ? project.filePath
-                    : project.fileName;
-                  const isEmpty = project.savedParcels === 0;
-
-                  return (
-                    <div
-                      key={index}
-                      className="glass-effect rounded-lg p-5 hover:border-primary/50 transition-all group cursor-pointer"
-                      onClick={() => handleOpenProjectFromList(project)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h3 className="text-lg font-bold text-primary">
-                              {project.projectName}
-                            </h3>
-                            {isEmpty && (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-dark-700 text-dark-300 border border-dark-600">
-                                Empty
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex gap-6 text-sm text-dark-300">
-                            <span>📄 File: <strong>{displayPath}</strong></span>
-                            <span>📐 Parcels: <strong className={isEmpty ? 'text-dark-500' : ''}>{project.savedParcels}</strong></span>
-                            <span>📁 Points: <strong>{project.pointsFile}</strong></span>
-                            <span>🕒 {new Date(project.lastModified * 1000).toLocaleString()}</span>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenProjectFromList(project);
-                            }}
-                            className="p-2 hover:bg-primary/20 rounded-lg text-primary"
-                            title="Open and edit this project"
-                          >
-                            <FolderOpen className="w-5 h-5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </motion.div>
-        )}
-
-        {/* Empty State - Points Files Tab */}
-        {activeTab === 'points' && !editMode && (
-          <div className="card text-center py-12">
-            <FolderOpen className="w-20 h-20 mx-auto mb-4 text-dark-600" />
-            <h3 className="text-2xl font-bold text-dark-300 mb-2">No File Loaded</h3>
-            <p className="text-dark-400 mb-6">Open a points file to start editing</p>
-            <label htmlFor="open-points" className="btn-primary inline-flex items-center gap-2 cursor-pointer">
-              <FolderOpen className="w-5 h-5" />
-              Open Points File
-            </label>
           </div>
         )}
-
-        {/* Help */}
-        <div className="mt-6 p-4 bg-dark-800/50 rounded-lg text-dark-400 text-sm">
-          <p className="font-semibold text-primary mb-2">💡 How to Use Data Files:</p>
-          <ul className="space-y-1">
-            <li>1. <strong>Open Points File</strong> - Load your .pnt/.txt/.csv file</li>
-            <li>2. <strong>Add/Edit/Delete</strong> - Modify points as needed</li>
-            <li>3. <strong>Save Points File</strong> - Writes back to the .pnt file (keeps format!)</li>
-            <li>4. <strong>File Heading</strong> - Set block, quarter, parcels info (for PDF)</li>
-            <li>5. <strong>Auto-sync</strong> - Changes sync with Area Calculator automatically</li>
-            <li>6. <strong>Auto-watch</strong> - File monitored for external changes</li>
-          </ul>
-        </div>
-      </div>
       </div>
     </div>
   );
