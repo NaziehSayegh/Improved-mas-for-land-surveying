@@ -1301,7 +1301,7 @@ function AppVersionControl({ onDone, onError }) {
       </div>
       <div className="grid sm:grid-cols-[160px_1fr] gap-3">
         <Field label="Minimum version" hint={info ? `This copy is v${info.currentVersion}` : ''}>
-          <input value={minVersion} onChange={e => setMinVersion(e.target.value)} placeholder="e.g. 2.0.24" className={inputCls} />
+          <input value={minVersion} onChange={e => setMinVersion(e.target.value)} placeholder="e.g. 2.0.25" className={inputCls} />
         </Field>
         <Field label="Download page" hint="Opened by the “Open the download page” button">
           <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…" className={inputCls} />
@@ -1434,7 +1434,7 @@ function OutdatedBlock({ defaultVersion, onDone, onError }) {
       </div>
       <div className="flex flex-wrap items-end gap-3">
         <Field label="Block accounts not seen on">
-          <input value={minVersion} onChange={e => { setMinVersion(e.target.value); setPreview(null); }} placeholder="e.g. 2.0.24" className={`${inputCls} w-36`} />
+          <input value={minVersion} onChange={e => { setMinVersion(e.target.value); setPreview(null); }} placeholder="e.g. 2.0.25" className={`${inputCls} w-36`} />
         </Field>
         <button disabled={working || !minVersion} onClick={loadPreview} className="px-3.5 py-2 rounded-lg bg-dark-800 hover:bg-dark-700 disabled:opacity-40 text-xs text-dark-200 border border-dark-700">{working ? 'Loading…' : 'Preview who would be blocked'}</button>
         <button disabled={working} onClick={restore} title="Users who were blocked and have since updated are already let in by the app; this tidies their stored status"

@@ -1,6 +1,28 @@
 # 📦 Parcel Tools - Release Notes
 
-## 🎉 What's New in v2.0.2 (July 2026)
+## 🎉 What's New in v2.0.25 (November 2026)
+
+### ✨ New Features & Enhancements
+- ✅ **New Edit Mode (Parcel Calculator)**: the parcel under the mouse highlights and opens with one click. Add, replace and remove corners directly on the map or by typed point ID, with live area, the difference from the saved area, undo / redo and a Save / Cancel bar.
+- ✅ **Sort for Saved Parcels and All Versions**: order saved, newest, parcel number or area. The choice is remembered.
+- ✅ **Search in Saved Projects**: find a project by name, file name, folder or points file.
+- ✅ **Redesigned Data Files and Admin pages**: searchable, paged tables and one shared back button on every page.
+- ✅ **Animated loading screen** and a quick fade between pages.
+
+### ⚡ Speed
+- 🚀 Pages open at once: the "Verifying license" screen no longer appears on every page change.
+- 🚀 Faster start-up: each screen loads when it is first opened.
+- 🚀 Faster map on large point files.
+
+### 🐛 Bug Fixes & Stability
+- 🔧 Fixed the black screen when opening All Versions for a parcel number with more than one saved version.
+- 🔧 A crash on one screen now shows a message with Try again / Reload instead of a black window.
+- 🔧 Data Files: "Open Project File" no longer asks for the file twice; "Scan Computer" reports the right count; coordinates must be numbers.
+- 🔧 Dragging the map no longer counts as a click; cancelling an edit no longer leaves the parcel linked to the editor.
+
+---
+
+## Previous Release: v2.0.2 (July 2026)
 
 ### ✨ New Features & Enhancements
 - ✅ **DWG File Handling**: Added support for importing and handling DWG CAD files with a new, redesigned DWG import page.
