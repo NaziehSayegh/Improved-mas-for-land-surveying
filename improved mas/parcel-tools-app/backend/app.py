@@ -1644,8 +1644,9 @@ def save_project_file():
         has_back_slash = '\\' in filepath
         print(f'[Save] Has forward slash: {has_forward_slash}, Has backslash: {has_back_slash}')
         
-        # Normalize path separators to Windows style
-        filepath = filepath.replace('/', '\\')
+        # Normalize path separators to Windows style (only on Windows: elsewhere '\\' is not a separator)
+        if os.name == 'nt':
+            filepath = filepath.replace('/', '\\')
         print(f'[Save] After normalizing separators: {repr(filepath)}')
         
         # Split into directory and filename

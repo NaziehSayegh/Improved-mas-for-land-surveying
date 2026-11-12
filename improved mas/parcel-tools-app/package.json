@@ -12,6 +12,8 @@
     "electron:build": "npm run build && electron-builder && node scripts/check-package.cjs",
     "build:premium": "npm run build && electron-builder && node scripts/check-package.cjs",
     "start:python": "python backend/app.py",
+    "test": "node scripts/run-tests.cjs",
+    "test:backend": "cd backend && python -m pytest -q --ignore=python-embed",
     "start": "npm run electron:dev"
   },
   "keywords": [

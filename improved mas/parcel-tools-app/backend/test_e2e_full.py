@@ -1,8 +1,13 @@
 import sys
 import os
 import json
-import time
+import tempfile
 
+# Keep the app's own files (recent projects, settings) in a throwaway folder, never the real user profile
+_home = tempfile.mkdtemp()
+os.environ['HOME'] = _home
+os.environ['PORTABLE_EXECUTABLE_DIR'] = '1'
+os.environ['LOCALAPPDATA'] = _home
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import app as app_module
 
@@ -10,7 +15,8 @@ app = app_module.app
 from test_support import authed_client
 client = authed_client(app_module)
 
-def run_end_to_end_verification():
+def test_end_to_end():
+    """One pass through the whole backend the way the app uses it. Runs under pytest or directly."""
     print("==================================================================")
     print("PARCEL TOOLS COMPLETE END-TO-END FRONTEND <-> BACKEND TEST")
     print("==================================================================")
@@ -57,8 +63,7 @@ def run_end_to_end_verification():
     print(f"✅ 5. Batch Parcel Area Calculations: 200 OK ({len(b_res)} parcels computed)")
 
     # 6. Save & Load Project State
-    import tempfile
-    temp_dir = tempfile.gettempdir()
+    temp_dir = tempfile.mkdtemp()  # fresh folder, so nothing is left behind or reused
     proj_path = os.path.join(temp_dir, "test_e2e_project.prcl")
     proj_data = {
         'projectName': 'E2E_Test_Project',
@@ -115,4 +120,4 @@ def run_end_to_end_verification():
     print("==================================================================")
 
 if __name__ == '__main__':
-    run_end_to_end_verification()
+    test_end_to_end()
