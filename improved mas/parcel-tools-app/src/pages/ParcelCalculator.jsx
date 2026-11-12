@@ -2,13 +2,40 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff, CheckSquare, Square } from 'lucide-react';
+import { ArrowLeft, Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff, CheckSquare, Square, Undo2, Redo2, X } from 'lucide-react';
 import { useProject } from '../context/ProjectContext';
 import { customConfirm, customPrompt } from '../utils/dialogs';
 import { safeHtml, escapeHtml } from '../utils/safeHtml';
 
 // Last area warning shown, so the same warning isn't repeated on every recalculation
 let lastAreaWarning = '';
+
+// ── Parcel editing helpers ──
+// Distance from point p to the segment a→b (world units)
+const distToSegment = (p, a, b) => {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+};
+
+// Index i of the boundary edge ids[i] → ids[i+1] (closed loop) that lies nearest to pt
+const nearestEdgeIndex = (ids, points, pt) => {
+  let best = ids.length - 1, bestD = Infinity;
+  for (let i = 0; i < ids.length; i++) {
+    const a = points[ids[i]], b = points[ids[(i + 1) % ids.length]];
+    if (!a || !b) continue;
+    const d = distToSegment(pt, a, b);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+};
+
+// Keep only the curves whose two ends are still neighbours on the boundary
+const pruneCurves = (ids, curveList) => (curveList || []).filter(c => {
+  const i = ids.indexOf(c.from), j = ids.indexOf(c.to), n = ids.length;
+  return i >= 0 && j >= 0 && ((i + 1) % n === j || (j + 1) % n === i);
+});
 
 const ParcelCalculator = () => {
   const navigate = useNavigate();
@@ -81,6 +108,14 @@ const ParcelCalculator = () => {
   const [editingParcelId, setEditingParcelId] = useState(null); // ID of parcel being edited
   const [insertPointAfterIndex, setInsertPointAfterIndex] = useState(null); // Index to insert point after
   const [editingPointIndex, setEditingPointIndex] = useState(null); // Index of point being edited
+  const [selectedVertexIndex, setSelectedVertexIndex] = useState(null); // Corner selected on the map/list while editing a saved parcel
+  const [editOriginal, setEditOriginal] = useState(null); // Snapshot of the saved parcel taken when editing began
+  const [, setHistoryTick] = useState(0); // Re-render when the undo/redo stacks change
+  const editHistoryRef = useRef({ past: [], future: [], last: null, skip: false, reset: false });
+  const hoverRef = useRef({ parcelId: null, pointId: null }); // What the mouse is over on the map
+  const dragMovedRef = useRef(false); // True when the mouse moved during a press (pan, not a click)
+  const editActionsRef = useRef({}); // Latest edit handlers, for the long-lived canvas listeners
+  const editKeysRef = useRef({}); // Latest edit handlers, for the keyboard shortcuts
 
   // Duplicate parcel dialog state
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
@@ -122,6 +157,16 @@ const ParcelCalculator = () => {
   useEffect(() => { areaRef.current = area; }, [area]);
   useEffect(() => { parcelNumberRef.current = parcelNumber; }, [parcelNumber]);
   useEffect(() => { isClosedRef.current = isClosed; }, [isClosed]);
+
+  // Edit-session values the canvas reads while drawing (kept current on every render)
+  const editingParcelIdRef = useRef(null);
+  const selectedVertexIndexRef = useRef(null);
+  const insertPointAfterIndexRef = useRef(null);
+  const editOriginalRef = useRef(null);
+  editingParcelIdRef.current = editingParcelId;
+  selectedVertexIndexRef.current = selectedVertexIndex;
+  insertPointAfterIndexRef.current = insertPointAfterIndex;
+  editOriginalRef.current = editOriginal;
 
   // Sync context projectPath with local lastSavedPath
   useEffect(() => {
@@ -422,7 +467,7 @@ const ParcelCalculator = () => {
     }
   }, [screenToWorld, worldToScreen]);
 
-  const drawParcel = useCallback((ctx, parcel, index, isActive = false) => {
+  const drawParcel = useCallback((ctx, parcel, index, isActive = false, isHovered = false) => {
     if (!parcel.ids || parcel.ids.length < 2) return;
     const points = loadedPointsRef.current;
     
@@ -435,8 +480,8 @@ const ParcelCalculator = () => {
     }
     
     ctx.strokeStyle = color;
-    ctx.fillStyle = color + (isActive ? '25' : '08');
-    ctx.lineWidth = isActive ? 3 : 1.5;
+    ctx.fillStyle = color + (isHovered ? '40' : isActive ? '25' : '08');
+    ctx.lineWidth = isHovered ? 3.5 : isActive ? 3 : 1.5;
     ctx.beginPath();
     
     const parcelPts = parcel.ids.map(id => points[id]).filter(Boolean);
@@ -485,10 +530,10 @@ const ParcelCalculator = () => {
       });
       if (cnt > 0) {
         const s = worldToScreen(sx / cnt, sy / cnt);
-        ctx.fillStyle = color;
-        ctx.font = 'bold 12px Inter, sans-serif';
+        ctx.fillStyle = isHovered ? '#ffffff' : color;
+        ctx.font = isHovered ? 'bold 14px Inter, sans-serif' : 'bold 12px Inter, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(`Parcel ${parcel.number}`, s.x, s.y);
+        ctx.fillText(isHovered ? `✏️ Parcel ${parcel.number}` : `Parcel ${parcel.number}`, s.x, s.y);
       }
     }
   }, [worldToScreen, getArcPoints, isPolygonCCW]);
@@ -499,7 +544,7 @@ const ParcelCalculator = () => {
     const activeCurves = curvesRef.current;
     if (activeIds.length === 0) return;
     
-    ctx.strokeStyle = '#a78bfa';
+    ctx.strokeStyle = editingParcelIdRef.current ? '#fbbf24' : '#a78bfa';
     ctx.lineWidth = 3;
     ctx.beginPath();
     
@@ -547,28 +592,99 @@ const ParcelCalculator = () => {
     }
     
     if (activePathClosed) {
-      ctx.fillStyle = 'rgba(167, 139, 250, 0.15)';
+      ctx.fillStyle = editingParcelIdRef.current ? 'rgba(251, 191, 36, 0.14)' : 'rgba(167, 139, 250, 0.15)';
       ctx.fill();
     }
     ctx.stroke();
   }, [worldToScreen, getArcPoints, isPolygonCCW, area, isClosed]);
 
+  // While editing a saved parcel: dashed outline of the parcel as it was saved,
+  // plus a preview of what clicking the hovered point would do.
+  const drawEditOverlays = useCallback((ctx) => {
+    if (!editingParcelIdRef.current) return;
+    const points = loadedPointsRef.current;
+    const ids = enteredIdsRef.current;
+
+    const original = editOriginalRef.current;
+    if (original && original.ids.join('\u0001') !== ids.join('\u0001')) {
+      const pts = original.ids.map(id => points[id]).filter(Boolean);
+      if (pts.length >= 2) {
+        ctx.save();
+        ctx.setLineDash([6, 5]);
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        pts.forEach((pt, i) => {
+          const s = worldToScreen(pt.x, pt.y);
+          if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y);
+        });
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    const hoverId = hoverRef.current.pointId;
+    const hoverPt = hoverId != null ? points[hoverId] : null;
+    if (!hoverPt || ids.includes(hoverId) || ids.length < 2) return;
+
+    const sel = selectedVertexIndexRef.current;
+    let fromId, toId, color;
+    if (sel !== null && sel < ids.length) {
+      // Replace preview: neighbours of the selected corner join the hovered point
+      fromId = ids[(sel - 1 + ids.length) % ids.length];
+      toId = ids[(sel + 1) % ids.length];
+      color = '#fbbf24';
+    } else {
+      const target = insertPointAfterIndexRef.current;
+      const edge = (target !== null && target < ids.length) ? target : nearestEdgeIndex(ids, points, hoverPt);
+      fromId = ids[edge];
+      toId = ids[(edge + 1) % ids.length];
+      color = '#34d399';
+    }
+    const a = points[fromId], b = points[toId];
+    if (!a || !b) return;
+    const sa = worldToScreen(a.x, a.y), sb = worldToScreen(b.x, b.y), sh = worldToScreen(hoverPt.x, hoverPt.y);
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(sa.x, sa.y);
+    ctx.lineTo(sh.x, sh.y);
+    ctx.lineTo(sb.x, sb.y);
+    ctx.stroke();
+    ctx.restore();
+  }, [worldToScreen]);
+
   const drawPoint = useCallback((ctx, id, pt) => {
     const activeIds = enteredIdsRef.current;
     const s = worldToScreen(pt.x, pt.y);
     const isActivePoint = activeIds.includes(id);
+    const editing = !!editingParcelIdRef.current;
+    const sel = selectedVertexIndexRef.current;
+    const isSelected = editing && sel !== null && activeIds[sel] === id;
+    const isHovered = editing && hoverRef.current.pointId === id;
     
     ctx.beginPath();
-    ctx.arc(s.x, s.y, isActivePoint ? 7 : 4, 0, Math.PI * 2);
-    ctx.fillStyle = isActivePoint ? '#a78bfa' : '#475569';
+    ctx.arc(s.x, s.y, isSelected ? 9 : isActivePoint ? 7 : (isHovered ? 6 : 4), 0, Math.PI * 2);
+    ctx.fillStyle = isSelected ? '#f59e0b' : isActivePoint ? (editing ? '#fbbf24' : '#a78bfa') : (isHovered ? '#34d399' : '#475569');
     ctx.fill();
     
     ctx.strokeStyle = '#fff';
-    ctx.lineWidth = isActivePoint ? 1.5 : 1;
+    ctx.lineWidth = isSelected ? 2.5 : isActivePoint ? 1.5 : 1;
     ctx.stroke();
+
+    if (isSelected || isHovered) {
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, isSelected ? 14 : 11, 0, Math.PI * 2);
+      ctx.strokeStyle = isSelected ? '#f59e0b' : (isActivePoint ? '#fbbf24' : '#34d399');
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
     
     if (showPointLabelsRef.current) {
-      ctx.fillStyle = isActivePoint ? '#e9d5ff' : '#94a3b8';
+      ctx.fillStyle = isActivePoint ? (editing ? '#fde68a' : '#e9d5ff') : '#94a3b8';
       ctx.font = isActivePoint ? 'bold 11px Inter, monospace' : '9px Inter, monospace';
       ctx.textAlign = 'center';
       ctx.fillText(id, s.x, s.y - (isActivePoint ? 10 : 8));
@@ -603,28 +719,79 @@ const ParcelCalculator = () => {
     // Draw saved parcels
     if (showSavedParcelsMapRef.current) {
       const parcels = savedParcelsRef.current;
+      const editingId = editingParcelIdRef.current;
+      const hoverParcelId = (!editingId && selectEditParcelModeRef.current) ? hoverRef.current.parcelId : null;
       parcels.forEach((p, index) => {
-        drawParcel(ctx, p, index, false);
+        if (p.id === editingId) return; // the parcel being edited is drawn as the active one
+        drawParcel(ctx, p, index, false, p.id === hoverParcelId);
       });
     }
     
     // Draw active parcel lines
     drawActiveParcelLines(ctx);
+    drawEditOverlays(ctx);
     
     // Draw all points
     bounds.points.forEach(p => {
       drawPoint(ctx, p.id, loadedPointsRef.current[p.id]);
     });
-  }, [getBounds, drawGrid, drawParcel, drawActiveParcelLines, drawPoint]);
+  }, [getBounds, drawGrid, drawParcel, drawActiveParcelLines, drawEditOverlays, drawPoint]);
 
   useEffect(() => {
     selectEditParcelModeRef.current = selectEditParcelMode;
+    hoverRef.current = { parcelId: null, pointId: null };
     const canvas = canvasRef.current;
     if (canvas) {
-      canvas.style.cursor = selectEditParcelMode ? 'pointer' : 'crosshair';
+      canvas.style.cursor = (selectEditParcelMode && !editingParcelId) ? 'pointer' : 'crosshair';
     }
     drawCanvas();
-  }, [selectEditParcelMode, drawCanvas]);
+  }, [selectEditParcelMode, editingParcelId, drawCanvas]);
+
+  // Which saved parcel is under a canvas position (its number label wins, then the smallest parcel)
+  const hitTestParcel = useCallback((cx, cy) => {
+    const worldPt = screenToWorld(cx, cy);
+    const parcels = savedParcelsRef.current || [];
+    const points = loadedPointsRef.current || {};
+    let best = null;
+    parcels.forEach(parcel => {
+      const pts = (parcel.ids || []).map(id => points[id]).filter(Boolean);
+      if (pts.length < 3) return;
+      const inside = isPointInPolygon(worldPt, pts);
+      const c = getCentroid(pts);
+      const sc = worldToScreen(c.x, c.y);
+      const distToLabel = Math.hypot(sc.x - cx, sc.y - cy);
+      const nearLabel = distToLabel < 30;
+      if (!inside && !nearLabel) return;
+      const cand = { parcel, nearLabel, distToLabel, area: parcel.area || 0 };
+      if (!best) { best = cand; return; }
+      if (cand.nearLabel !== best.nearLabel) { if (cand.nearLabel) best = cand; return; }
+      if (cand.nearLabel ? cand.distToLabel < best.distToLabel : cand.area < best.area) best = cand;
+    });
+    return best ? best.parcel : null;
+  }, [screenToWorld, worldToScreen, isPointInPolygon, getCentroid]);
+
+  // Zoom the map onto a set of point IDs (used when a parcel is opened for editing from a list)
+  const focusOnIds = useCallback((ids) => {
+    const canvas = canvasRef.current;
+    const pts = (ids || []).map(id => loadedPointsRef.current[id]).filter(Boolean);
+    if (!canvas || pts.length === 0) return;
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const padding = 140;
+    const scale = Math.max(0.01, Math.min(
+      (canvas.width - padding * 2) / Math.max(maxX - minX, 1),
+      (canvas.height - padding * 2) / Math.max(maxY - minY, 1),
+      100
+    ));
+    zoomRef.current = scale;
+    panRef.current = {
+      x: canvas.width / 2 - ((minX + maxX) / 2) * scale,
+      y: canvas.height / 2 + ((minY + maxY) / 2) * scale
+    };
+    setZoomDisplay(scale);
+    drawCanvas();
+  }, [drawCanvas]);
 
   const resetView = useCallback(() => {
     const bounds = getBounds();
@@ -650,7 +817,7 @@ const ParcelCalculator = () => {
     if (activeTab === 'map') {
       drawCanvas();
     }
-  }, [loadedPoints, savedParcels, enteredIds, area, isClosed, showPointLabels, showCoordinates, showSavedParcelsMap, activeTab, drawCanvas]);
+  }, [loadedPoints, savedParcels, enteredIds, curves, area, isClosed, showPointLabels, showCoordinates, showSavedParcelsMap, activeTab, drawCanvas, editingParcelId, editOriginal, selectedVertexIndex, insertPointAfterIndex]);
 
   // Enter/ESC keyboard shortcut listeners for the confirm dialog
   useEffect(() => {
@@ -853,7 +1020,7 @@ const ParcelCalculator = () => {
 
   // Add point ID
   const handleAddPoint = () => {
-    if ((isClosed || area !== null) && editingPointIndex === null && insertPointAfterIndex === null) {
+    if ((isClosed || area !== null) && editingPointIndex === null && insertPointAfterIndex === null && !editingParcelId) {
       showErrorToast('⚠️ Boundary is already closed! Save or clear the active parcel first.');
       return;
     }
@@ -889,6 +1056,14 @@ const ParcelCalculator = () => {
     // If editing a point ID
     if (editingPointIndex !== null) {
       handleUpdatePointId(editingPointIndex, pointId);
+      return;
+    }
+
+    // Editing a saved parcel: a typed ID behaves exactly like clicking that point on the map
+    if (editingParcelId) {
+      handleEditMapClick(pointId);
+      setPointId('');
+      setTimeout(() => document.getElementById('point-id-input')?.focus(), 50);
       return;
     }
 
@@ -1139,6 +1314,10 @@ const ParcelCalculator = () => {
 
   // Delete point at index
   const handleDeletePoint = (index) => {
+    if (editingParcelId) {
+      removeVertexAt(index);
+      return;
+    }
     const newIds = enteredIds.filter((_, i) => i !== index);
     setEnteredIds(newIds);
     setArea(null);
@@ -1155,6 +1334,17 @@ const ParcelCalculator = () => {
     setArea(parcel.area);
     setPerimeter(parcel.perimeter);
     setEditingParcelId(parcel.id); // Track which parcel we're editing
+    setEditOriginal({
+      number: parcel.number,
+      ids: [...parcel.ids],
+      curves: (parcel.curves || []).map(c => ({ ...c })),
+      area: parcel.area
+    });
+    editHistoryRef.current = { past: [], future: [], last: null, skip: false, reset: true };
+    setSelectedVertexIndex(null);
+    setInsertPointAfterIndex(null);
+    setEditingPointIndex(null);
+    setPointId('');
     setIsClosed(true);
     setActiveTab('map');
     // Close duplicate dialog if open
@@ -1162,6 +1352,192 @@ const ParcelCalculator = () => {
     setDuplicateParcel(null);
     setPendingParcelNumber('');
   };
+
+  // ── Edit session (a saved parcel is loaded in the editor) ──
+
+  // Has the parcel in the editor been changed since it was opened for editing?
+  const editDirty = Boolean(editingParcelId && editOriginal && (
+    parcelNumber !== editOriginal.number ||
+    JSON.stringify(enteredIds) !== JSON.stringify(editOriginal.ids) ||
+    JSON.stringify(curves) !== JSON.stringify(editOriginal.curves)
+  ));
+  // Area change against the saved version (null when there is nothing worth showing)
+  const editAreaDelta = (editingParcelId && editOriginal && typeof editOriginal.area === 'number' && area !== null && Math.abs(area - editOriginal.area) >= 0.00005)
+    ? area - editOriginal.area
+    : null;
+  const canUndoEdit = editHistoryRef.current.past.length > 0;
+  const canRedoEdit = editHistoryRef.current.future.length > 0;
+
+  // Apply a new corner list. The boundary stays closed, so the area recalculates by itself.
+  const applyParcelEdit = (newIds) => {
+    const kept = pruneCurves(newIds, curves);
+    if (kept.length !== curves.length) {
+      setCurves(kept);
+      const removed = curves.length - kept.length;
+      showErrorToast(`⚠️ ${removed} curve${removed > 1 ? 's' : ''} removed — the edge ${removed > 1 ? 'they were' : 'it was'} on no longer exists. (Undo brings ${removed > 1 ? 'them' : 'it'} back.)`);
+    }
+    setEnteredIds(newIds);
+    setIsClosed(true);
+    setSelectedVertexIndex(null);
+    setInsertPointAfterIndex(null);
+    setEditingPointIndex(null);
+    setPointId('');
+  };
+
+  const removeVertexAt = (index) => {
+    if (index === null || index < 0 || index >= enteredIds.length) return;
+    if (enteredIds.length <= 3) {
+      showErrorToast('⚠️ A parcel needs at least 3 corners. Replace this point instead of removing it.');
+      return;
+    }
+    applyParcelEdit(enteredIds.filter((_, i) => i !== index));
+  };
+
+  // A point was picked while editing a saved parcel (map click or typed ID). null = empty space.
+  const handleEditMapClick = (id) => {
+    if (id === null || id === undefined) {
+      setSelectedVertexIndex(null);
+      return;
+    }
+    const existingIndex = enteredIds.indexOf(id);
+    if (existingIndex >= 0) {
+      // A corner of this parcel: select it (click again to deselect)
+      setInsertPointAfterIndex(null);
+      setEditingPointIndex(null);
+      setSelectedVertexIndex(prev => (prev === existingIndex ? null : existingIndex));
+      return;
+    }
+    if (!loadedPoints[id]) return;
+    if (selectedVertexIndex !== null && selectedVertexIndex < enteredIds.length) {
+      // Replace the selected corner with this point
+      const newIds = [...enteredIds];
+      newIds[selectedVertexIndex] = id;
+      applyParcelEdit(newIds);
+      return;
+    }
+    // Insert on the chosen edge, or else on the edge nearest to the point
+    const afterIndex = (insertPointAfterIndex !== null && insertPointAfterIndex < enteredIds.length)
+      ? insertPointAfterIndex
+      : nearestEdgeIndex(enteredIds, loadedPoints, loadedPoints[id]);
+    const newIds = [...enteredIds];
+    newIds.splice(afterIndex + 1, 0, id);
+    applyParcelEdit(newIds);
+  };
+
+  const restoreEditSnapshot = (snap) => {
+    editHistoryRef.current.skip = true;
+    setEnteredIds(snap.ids);
+    setCurves(snap.curves);
+    setIsClosed(true);
+    setSelectedVertexIndex(null);
+    setInsertPointAfterIndex(null);
+    setEditingPointIndex(null);
+    setPointId('');
+  };
+
+  const handleEditUndo = () => {
+    const h = editHistoryRef.current;
+    if (!editingParcelId || h.past.length === 0 || !h.last) return;
+    const prev = h.past.pop();
+    h.future.push(h.last);
+    restoreEditSnapshot(prev);
+  };
+
+  const handleEditRedo = () => {
+    const h = editHistoryRef.current;
+    if (!editingParcelId || h.future.length === 0 || !h.last) return;
+    const next = h.future.pop();
+    h.past.push(h.last);
+    restoreEditSnapshot(next);
+  };
+
+  // Leave the edit session and empty the editor (nothing is written to the saved parcel)
+  const exitEditSession = () => {
+    setEditingParcelId(null);
+    setEditOriginal(null);
+    setSelectedVertexIndex(null);
+    setInsertPointAfterIndex(null);
+    setEditingPointIndex(null);
+    setPointId('');
+    setParcelNumber('');
+    setEnteredIds([]);
+    setArea(null);
+    setPerimeter(null);
+    setCurves([]);
+    setIsClosed(false);
+    handleCancelEdit();
+  };
+
+  const handleCancelEditSession = async () => {
+    if (!editingParcelId) return;
+    if (editDirty) {
+      const discard = await showConfirmDialog(
+        'Discard changes?',
+        `Your changes to Parcel ${editOriginal?.number ?? parcelNumber} have not been saved. The parcel will stay as it was.`
+      );
+      if (!discard) return;
+    }
+    exitEditSession();
+  };
+
+  // Open a saved parcel for editing, asking first if that would throw away work in the editor
+  const beginEditParcel = async (parcel, { focus = false } = {}) => {
+    if (editingParcelId === parcel.id) {
+      setActiveTab('map');
+      return;
+    }
+    const hasWork = editingParcelId ? editDirty : enteredIds.length > 0;
+    if (hasWork) {
+      const proceed = await showConfirmDialog(
+        editingParcelId ? 'Discard changes?' : 'Replace current drawing?',
+        editingParcelId
+          ? `Your changes to Parcel ${editOriginal?.number ?? parcelNumber} have not been saved. Open Parcel ${parcel.number} anyway?`
+          : `The points you entered have not been saved as a parcel. Open Parcel ${parcel.number} for editing anyway?`
+      );
+      if (!proceed) return;
+    }
+    handleLoadSavedParcel(parcel);
+    if (focus) setTimeout(() => focusOnIds(parcel.ids), 250);
+  };
+
+  editActionsRef.current = { beginEditParcel, handleEditMapClick };
+  editKeysRef.current = { cancel: handleCancelEditSession, undo: handleEditUndo, redo: handleEditRedo, remove: removeVertexAt };
+
+  // Record undo history while a saved parcel is being edited
+  useEffect(() => {
+    const h = editHistoryRef.current;
+    if (!editingParcelId) {
+      if (h.last || h.past.length || h.future.length) {
+        editHistoryRef.current = { past: [], future: [], last: null, skip: false, reset: false };
+        setHistoryTick(t => t + 1);
+      }
+      return;
+    }
+    const snap = { key: JSON.stringify([enteredIds, curves]), ids: enteredIds, curves };
+    if (h.reset || !h.last) {
+      editHistoryRef.current = { past: [], future: [], last: snap, skip: false, reset: false };
+      setHistoryTick(t => t + 1);
+      return;
+    }
+    if (snap.key === h.last.key) return;
+    if (h.skip) {
+      h.skip = false;
+    } else {
+      h.past.push(h.last);
+      if (h.past.length > 100) h.past.shift();
+      h.future = [];
+    }
+    h.last = snap;
+    setHistoryTick(t => t + 1);
+  }, [enteredIds, curves, editingParcelId]);
+
+  // Whenever the edit session ends (save, cancel, replace…), drop its leftovers
+  useEffect(() => {
+    if (!editingParcelId) {
+      setEditOriginal(null);
+      setSelectedVertexIndex(null);
+    }
+  }, [editingParcelId]);
 
   // Handle duplicate parcel dialog - Replace option
   const handleReplaceDuplicate = () => {
@@ -1378,6 +1754,19 @@ const ParcelCalculator = () => {
 
     const newIds = [...enteredIds];
     newIds[index] = newId;
+    if (editingParcelId) {
+      // Saved parcel being edited: keep the boundary closed so the area just updates
+      if (enteredIds.some((id, i) => id === newId && i !== index)) {
+        showErrorToast(`⚠️ Point "${newId}" is already a corner of this parcel.`);
+        return;
+      }
+      applyParcelEdit(newIds);
+      setTimeout(() => {
+        const pointInput = document.getElementById('point-id-input');
+        if (pointInput) pointInput.focus();
+      }, 50);
+      return;
+    }
     setEnteredIds(newIds);
     setEditingPointIndex(null);
     setPointId('');
@@ -1403,6 +1792,10 @@ const ParcelCalculator = () => {
 
     if (enteredIds.length < 3) {
       showErrorToast('⚠️ Need at least 3 points!');
+      return;
+    }
+    if (!parcelNumber.trim()) {
+      showErrorToast('⚠️ Enter parcel number!');
       return;
     }
 
@@ -1592,128 +1985,98 @@ const ParcelCalculator = () => {
       drawCanvas();
     };
     
+    const baseCursor = () => (selectEditParcelModeRef.current && !editingParcelIdRef.current) ? 'pointer' : 'crosshair';
+
+    // Loaded point nearest to a canvas position (within 15px), or null
+    const pointAt = (cx, cy) => {
+      const points = loadedPointsRef.current || {};
+      let closest = null;
+      let minD = 15;
+      Object.keys(points).forEach(id => {
+        const s = worldToScreen(points[id].x, points[id].y);
+        const d = Math.hypot(s.x - cx, s.y - cy);
+        if (d < minD) { minD = d; closest = id; }
+      });
+      return closest;
+    };
+
+    const setHover = (next) => {
+      const cur = hoverRef.current;
+      if (cur.parcelId === next.parcelId && cur.pointId === next.pointId) return;
+      hoverRef.current = next;
+      drawCanvas();
+    };
+
     const onDown = (e) => {
       isDraggingRef.current = true;
-      dragStartRef.current = { x: e.clientX, y: e.clientY };
-      canvas.style.cursor = 'grabbing';
+      dragMovedRef.current = false;
+      dragStartRef.current = { x: e.clientX, y: e.clientY, downX: e.clientX, downY: e.clientY };
     };
     
     const onMouseMove = (e) => {
-      if (!isDraggingRef.current) return;
-      panRef.current = {
-        x: panRef.current.x + (e.clientX - dragStartRef.current.x),
-        y: panRef.current.y + (e.clientY - dragStartRef.current.y)
-      };
-      dragStartRef.current = { x: e.clientX, y: e.clientY };
-      drawCanvas();
+      if (isDraggingRef.current) {
+        const start = dragStartRef.current;
+        if (!dragMovedRef.current && Math.hypot(e.clientX - start.downX, e.clientY - start.downY) < 4) return;
+        dragMovedRef.current = true;
+        canvas.style.cursor = 'grabbing';
+        panRef.current = {
+          x: panRef.current.x + (e.clientX - start.x),
+          y: panRef.current.y + (e.clientY - start.y)
+        };
+        dragStartRef.current = { ...start, x: e.clientX, y: e.clientY };
+        drawCanvas();
+        return;
+      }
+
+      // Not dragging: highlight what a click would act on
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      if (editingParcelIdRef.current) {
+        const id = pointAt(cx, cy);
+        canvas.style.cursor = id ? 'pointer' : 'crosshair';
+        setHover({ parcelId: null, pointId: id });
+      } else if (selectEditParcelModeRef.current) {
+        const parcel = hitTestParcel(cx, cy);
+        canvas.style.cursor = parcel ? 'pointer' : 'default';
+        setHover({ parcelId: parcel ? parcel.id : null, pointId: null });
+      }
     };
     
     const onMouseUp = () => {
       isDraggingRef.current = false;
-      canvas.style.cursor = selectEditParcelModeRef.current ? 'pointer' : 'crosshair';
+      canvas.style.cursor = baseCursor();
+    };
+
+    const onMouseLeave = () => {
+      isDraggingRef.current = false;
+      canvas.style.cursor = baseCursor();
+      setHover({ parcelId: null, pointId: null });
     };
     
     const onClick = async (e) => {
+      // A press that moved the map is a pan, not a click
+      if (dragMovedRef.current) {
+        dragMovedRef.current = false;
+        return;
+      }
       const rect = canvas.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
+
+      // EDITING A SAVED PARCEL: clicks add / select / replace its corners
+      if (editingParcelIdRef.current) {
+        editActionsRef.current.handleEditMapClick(pointAt(cx, cy));
+        return;
+      }
       
+      // EDIT MODE: pick the saved parcel to edit
       if (selectEditParcelModeRef.current) {
-        // SELECT/EDIT PARCEL MODE: check if clicked a parcel or its number label
-        const worldPt = screenToWorld(cx, cy);
-        console.log('[EditMode Click] cx:', cx, 'cy:', cy, 'worldPt:', worldPt);
-        
-        const currentSavedParcels = savedParcelsRef.current || [];
-        const currentPoints = loadedPointsRef.current || {};
-        console.log('[EditMode Click] Total saved parcels in state:', currentSavedParcels.length);
-        
-        const candidates = [];
-        
-        for (let i = 0; i < currentSavedParcels.length; i++) {
-          const parcel = currentSavedParcels[i];
-          const pts = (parcel.ids || []).map(id => currentPoints[id]).filter(Boolean);
-          if (pts.length >= 3) {
-            // Check 1: Point in polygon
-            const isInside = isPointInPolygon(worldPt, pts);
-            
-            // Check 2: Near label centroid
-            let isNearLabel = false;
-            let sx = 0, sy = 0, cnt = 0;
-            parcel.ids.forEach(id => {
-              const pt = currentPoints[id];
-              if (pt) { sx += pt.x; sy += pt.y; cnt++; }
-            });
-            let distToLabel = Infinity;
-            if (cnt > 0) {
-              const s = worldToScreen(sx / cnt, sy / cnt);
-              distToLabel = Math.hypot(s.x - cx, s.y - cy);
-              if (distToLabel < 30) { // 30px click radius around label
-                isNearLabel = true;
-              }
-            }
-            
-            console.log(`[EditMode Click] Checking Parcel #${parcel.number}: isInside=${isInside}, isNearLabel=${isNearLabel} (distToLabel=${distToLabel !== Infinity ? distToLabel.toFixed(1) : 'N/A'}), pointCount=${pts.length}`);
-            
-            if (isInside || isNearLabel) {
-              candidates.push({
-                parcel,
-                isInside,
-                isNearLabel,
-                distToLabel,
-                area: parcel.area || 0
-              });
-            }
-          } else {
-            console.log(`[EditMode Click] Skipped Parcel #${parcel.number} (less than 3 valid points: ${pts.length})`);
-          }
-        }
-        
-        let clickedParcel = null;
-        if (candidates.length > 0) {
-          // Sort candidates:
-          // 1. Prioritize near label
-          // 2. Sort by distance to label if both near label
-          // 3. Otherwise, sort by area ascending (smallest area first, e.g. nested parcels)
-          candidates.sort((a, b) => {
-            if (a.isNearLabel && !b.isNearLabel) return -1;
-            if (!a.isNearLabel && b.isNearLabel) return 1;
-            if (a.isNearLabel && b.isNearLabel) {
-              return a.distToLabel - b.distToLabel;
-            }
-            return a.area - b.area;
-          });
-          clickedParcel = candidates[0].parcel;
-          console.log(`[EditMode Click] MATCH FOUND: Selected Parcel #${clickedParcel.number} out of ${candidates.length} candidates`);
-        }
-        
+        const clickedParcel = hitTestParcel(cx, cy);
         if (clickedParcel) {
-          const confirmEdit = await showConfirmDialog(
-            'Edit Parcel',
-            `Would you like to edit Parcel #${clickedParcel.number}?`
-          );
-          if (confirmEdit) {
-            handleLoadSavedParcel(clickedParcel);
-            setSelectEditParcelMode(false);
-          }
+          editActionsRef.current.beginEditParcel(clickedParcel);
         } else {
-          // Diagnostic toast to show what went wrong
-          const matchLogs = currentSavedParcels.map(p => {
-            const pts = (p.ids || []).map(id => currentPoints[id]).filter(Boolean);
-            const inside = isPointInPolygon(worldPt, pts);
-            let dist = 'N/A';
-            let sx = 0, sy = 0, cnt = 0;
-            p.ids.forEach(id => {
-              const pt = currentPoints[id];
-              if (pt) { sx += pt.x; sy += pt.y; cnt++; }
-            });
-            if (cnt > 0) {
-              const s = worldToScreen(sx / cnt, sy / cnt);
-              dist = Math.hypot(s.x - cx, s.y - cy).toFixed(1) + 'px';
-            }
-            return `#${p.number}: inside=${inside}, dist=${dist}, pts=${pts.length}/${p.ids ? p.ids.length : 0}`;
-          }).reverse().slice(0, 5).join('<br/>');
-          
-          showErrorToast(`❌ Click at (${worldPt.x.toFixed(1)}, ${worldPt.y.toFixed(1)}) did not match any parcel.<br/><br/><b>Checked Parcels:</b><br/>${matchLogs || 'None saved'}`);
+          showErrorToast('No saved parcel there. Click inside a parcel or on its number.');
         }
         return;
       }
@@ -1758,7 +2121,7 @@ const ParcelCalculator = () => {
     canvas.addEventListener('mousedown', onDown);
     canvas.addEventListener('mousemove', onMouseMove);
     canvas.addEventListener('mouseup', onMouseUp);
-    canvas.addEventListener('mouseleave', onMouseUp);
+    canvas.addEventListener('mouseleave', onMouseLeave);
     canvas.addEventListener('click', onClick);
     
     return () => {
@@ -1767,10 +2130,10 @@ const ParcelCalculator = () => {
       canvas.removeEventListener('mousedown', onDown);
       canvas.removeEventListener('mousemove', onMouseMove);
       canvas.removeEventListener('mouseup', onMouseUp);
-      canvas.removeEventListener('mouseleave', onMouseUp);
+      canvas.removeEventListener('mouseleave', onMouseLeave);
       canvas.removeEventListener('click', onClick);
     };
-  }, [activeTab, drawCanvas, getBounds, worldToScreen, screenToWorld, closePolygonAndPrompt, isPointInPolygon, showConfirmDialog, handleLoadSavedParcel]);
+  }, [activeTab, drawCanvas, getBounds, worldToScreen, closePolygonAndPrompt, hitTestParcel, showErrorToast]);
 
   // Delete saved parcel
   const handleDeleteSaved = async (id) => {
@@ -1782,6 +2145,7 @@ const ParcelCalculator = () => {
     if (confirmed) {
       setSavedParcels(savedParcels.filter(p => p.id !== id));
       setHasUnsavedChanges(true);
+      if (id === editingParcelId) exitEditSession();
       showSuccessToast('✅ Parcel deleted');
     }
   };
@@ -2916,16 +3280,53 @@ const ParcelCalculator = () => {
           setPendingParcelNumber('');
           return;
         }
-        // Only navigate if no dialogs are open
-        if (!showDuplicateDialog && !confirmDialog.isOpen) {
+        if (confirmDialog.isOpen) return;
+        // While editing: Esc backs out one step at a time instead of leaving the page
+        if (selectedVertexIndex !== null || insertPointAfterIndex !== null || editingPointIndex !== null) {
           e.preventDefault();
-          handleBackToMainMenu();
+          setSelectedVertexIndex(null);
+          setInsertPointAfterIndex(null);
+          setEditingPointIndex(null);
+          setPointId('');
+          return;
         }
+        if (editingParcelId) {
+          e.preventDefault();
+          editKeysRef.current.cancel();
+          return;
+        }
+        if (selectEditParcelMode) {
+          e.preventDefault();
+          setSelectEditParcelMode(false);
+          return;
+        }
+        // Only navigate if no dialogs are open
+        e.preventDefault();
+        handleBackToMainMenu();
+        return;
+      }
+
+      // Shortcuts for editing a saved parcel
+      if (!editingParcelId || confirmDialog.isOpen || showDuplicateDialog) return;
+      const el = e.target;
+      const typing = el && (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && el.value !== ''));
+      if (typing) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        editKeysRef.current.undo();
+      } else if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        editKeysRef.current.redo();
+      } else if ((e.key === 'Delete' || (e.key === 'Backspace' && el?.tagName !== 'INPUT')) && selectedVertexIndex !== null) {
+        e.preventDefault();
+        editKeysRef.current.remove(selectedVertexIndex);
       }
     };
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [handleBackToMainMenu, showDuplicateDialog, confirmDialog.isOpen]);
+  }, [handleBackToMainMenu, showDuplicateDialog, confirmDialog.isOpen, selectedVertexIndex, insertPointAfterIndex, editingPointIndex, editingParcelId, selectEditParcelMode]);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-dark-900 text-white overflow-hidden select-none">
@@ -3136,6 +3537,17 @@ const ParcelCalculator = () => {
         
         {/* Left column - Point Entry & Path Editor */}
         <section className="w-[360px] flex-shrink-0 bg-dark-850 border-r border-dark-700 flex flex-col min-h-0 h-full">
+          {editingParcelId && (
+            <div className="px-4 py-2 bg-warning/15 border-b border-warning/40 flex-shrink-0 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-warning text-xs font-bold truncate">✏️ Editing saved Parcel {editOriginal?.number}</p>
+                <p className="text-[10px] text-dark-300">{editDirty ? 'Unsaved changes' : 'No changes yet'}</p>
+              </div>
+              <button onClick={handleCancelEditSession} className="text-[10px] text-dark-200 hover:text-white border border-dark-600 hover:border-dark-400 rounded px-2 py-1 flex-shrink-0">
+                Cancel
+              </button>
+            </div>
+          )}
           <div className="p-4 border-b border-dark-700 flex-shrink-0">
             <h2 className="text-sm font-bold text-dark-200 mb-2 uppercase tracking-wide">1. Parcel Details</h2>
             <div className="space-y-3">
@@ -3165,7 +3577,12 @@ const ParcelCalculator = () => {
               </div>
 
               <div>
-                <label className="block text-dark-400 text-xs mb-1 font-semibold">Add Corner Point ID:</label>
+                <label className="block text-dark-400 text-xs mb-1 font-semibold">
+                  {!editingParcelId ? 'Add Corner Point ID:' :
+                    selectedVertexIndex !== null ? `Replace corner ${enteredIds[selectedVertexIndex]} with Point ID:` :
+                    insertPointAfterIndex !== null ? `Insert after ${enteredIds[insertPointAfterIndex]} — Point ID:` :
+                    'Add Corner Point ID (goes on the nearest edge):'}
+                </label>
                 <div className="flex gap-1.5">
                   <input
                     id="point-id-input"
@@ -3178,18 +3595,20 @@ const ParcelCalculator = () => {
                         handleAddPoint();
                       }
                     }}
-                    disabled={(isClosed || area !== null) && editingPointIndex === null && insertPointAfterIndex === null}
+                    disabled={(isClosed || area !== null) && editingPointIndex === null && insertPointAfterIndex === null && !editingParcelId}
                     className="flex-1 bg-dark-800 border-2 border-dark-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
                     placeholder={
                       editingPointIndex !== null ? `Edit point ${enteredIds[editingPointIndex]}` :
                       insertPointAfterIndex !== null ? `Insert point after ${enteredIds[insertPointAfterIndex]}` :
+                      (editingParcelId && selectedVertexIndex !== null) ? `Replace ${enteredIds[selectedVertexIndex]} with…` :
+                      editingParcelId ? "Point ID to add" :
                       (isClosed || area !== null) ? "Boundary is closed" : "Point ID"
                     }
                     autoComplete="off"
                   />
                   <button 
                     onClick={handleAddPoint} 
-                    disabled={(isClosed || area !== null) && editingPointIndex === null && insertPointAfterIndex === null}
+                    disabled={(isClosed || area !== null) && editingPointIndex === null && insertPointAfterIndex === null && !editingParcelId}
                     className="bg-primary hover:bg-primary-light text-white text-xs px-3 rounded font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     ADD
@@ -3198,21 +3617,35 @@ const ParcelCalculator = () => {
               </div>
             </div>
 
-            <div className="flex gap-2 mt-3 pt-3 border-t border-dark-750/50">
-              <button onClick={handleUndo} disabled={enteredIds.length === 0} className="btn-secondary py-1 px-2.5 text-[11px] flex-1 flex items-center justify-center gap-1">
-                <RefreshCw className="w-3 h-3" /> Undo Point
-              </button>
-              <button onClick={handleReset} disabled={enteredIds.length === 0} className="btn-secondary py-1 px-2.5 text-[11px] flex-1 flex items-center justify-center gap-1 hover:border-danger/45 hover:text-danger">
-                <Trash2 className="w-3 h-3" /> Clear Active
-              </button>
-            </div>
+            {editingParcelId ? (
+              <div className="flex gap-2 mt-3 pt-3 border-t border-dark-750/50">
+                <button onClick={handleEditUndo} disabled={!canUndoEdit} title="Undo (Ctrl+Z)" className="btn-secondary py-1 px-2.5 text-[11px] flex-1 flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed">
+                  <Undo2 className="w-3 h-3" /> Undo
+                </button>
+                <button onClick={handleEditRedo} disabled={!canRedoEdit} title="Redo (Ctrl+Y)" className="btn-secondary py-1 px-2.5 text-[11px] flex-1 flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed">
+                  <Redo2 className="w-3 h-3" /> Redo
+                </button>
+                <button onClick={handleCancelEditSession} title="Stop editing without saving (Esc)" className="btn-secondary py-1 px-2.5 text-[11px] flex-1 flex items-center justify-center gap-1 hover:border-danger/45 hover:text-danger">
+                  <X className="w-3 h-3" /> Cancel Edit
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2 mt-3 pt-3 border-t border-dark-750/50">
+                <button onClick={handleUndo} disabled={enteredIds.length === 0} className="btn-secondary py-1 px-2.5 text-[11px] flex-1 flex items-center justify-center gap-1">
+                  <RefreshCw className="w-3 h-3" /> Undo Point
+                </button>
+                <button onClick={handleReset} disabled={enteredIds.length === 0} className="btn-secondary py-1 px-2.5 text-[11px] flex-1 flex items-center justify-center gap-1 hover:border-danger/45 hover:text-danger">
+                  <Trash2 className="w-3 h-3" /> Clear Active
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Current point list (Scrollable) */}
           <div className="flex-1 overflow-y-auto p-4 min-h-0 bg-dark-850/40">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-bold text-dark-300 uppercase tracking-wider">Active Corners ({enteredIds.length})</h3>
-              {editingParcelId && <span className="text-warning text-xs font-semibold">✏️ Editing saved</span>}
+              {editingParcelId && <span className="text-dark-400 text-[10px]">Click a corner to select it</span>}
             </div>
 
             {enteredIds.length === 0 ? (
@@ -3228,7 +3661,7 @@ const ParcelCalculator = () => {
                     {index > 0 && (
                       <div className="flex items-center justify-center h-4 group/insert">
                         <button
-                          onClick={() => handleInsertPointAt(index - 1)}
+                          onClick={() => { setSelectedVertexIndex(null); handleInsertPointAt(index - 1); }}
                           className="opacity-0 group-hover/insert:opacity-100 hover:opacity-100 transition-all text-primary bg-primary/10 border border-primary/30 text-[9px] px-2 py-0.5 rounded-full"
                           title="Insert point here"
                         >
@@ -3237,7 +3670,17 @@ const ParcelCalculator = () => {
                       </div>
                     )}
 
-                    <div className={`flex items-center justify-between bg-dark-800 rounded p-2 border ${editingPointIndex === index ? 'border-warning' : 'border-dark-700/80'} group hover:border-dark-600 transition-all`}>
+                    <div
+                      onClick={editingParcelId ? () => {
+                        setInsertPointAfterIndex(null);
+                        setEditingPointIndex(null);
+                        setSelectedVertexIndex(prev => (prev === index ? null : index));
+                      } : undefined}
+                      className={`flex items-center justify-between rounded p-2 border ${
+                        (editingParcelId && selectedVertexIndex === index) ? 'bg-warning/15 border-warning' :
+                        editingPointIndex === index ? 'bg-dark-800 border-warning' : 'bg-dark-800 border-dark-700/80 hover:border-dark-600'
+                      } ${editingParcelId ? 'cursor-pointer' : ''} group transition-all`}
+                    >
                       <div className="flex items-center gap-2">
                         <span className="text-dark-500 text-[10px] w-4">{index + 1}.</span>
                         <span className="text-primary font-mono font-bold text-sm">{id}</span>
@@ -3247,23 +3690,31 @@ const ParcelCalculator = () => {
                           </span>
                         )}
                       </div>
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className={`flex gap-2 transition-opacity ${(editingParcelId && selectedVertexIndex === index) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                         <button
-                          onClick={() => {
-                            setEditingPointIndex(index);
-                            setPointId(id);
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setInsertPointAfterIndex(null);
+                            if (editingParcelId) {
+                              // Select the corner; the next point typed or clicked replaces it
+                              setEditingPointIndex(null);
+                              setSelectedVertexIndex(index);
+                              setPointId('');
+                            } else {
+                              setEditingPointIndex(index);
+                              setPointId(id);
+                            }
                             document.getElementById('point-id-input')?.focus();
                           }}
                           className="text-warning text-xs hover:underline"
                         >
-                          Edit
+                          {editingParcelId ? 'Replace' : 'Edit'}
                         </button>
                         <button
-                          onClick={() => handleDeletePoint(index)}
+                          onClick={(e) => { e.stopPropagation(); handleDeletePoint(index); }}
                           className="text-danger text-xs hover:underline"
                         >
-                          Delete
+                          {editingParcelId ? 'Remove' : 'Delete'}
                         </button>
                       </div>
                     </div>
@@ -3273,7 +3724,7 @@ const ParcelCalculator = () => {
             )}
 
             {/* Loop indicator */}
-            {enteredIds.length > 0 && (
+            {enteredIds.length > 0 && !editingParcelId && (
               <div className="mt-3 text-[11px] text-dark-400 bg-dark-800/40 p-2 rounded border border-dark-800 text-center">
                 {enteredIds.length >= 3 ? (
                   <div className="flex flex-col gap-2">
@@ -3406,6 +3857,11 @@ const ParcelCalculator = () => {
                 <div className="bg-dark-900/60 p-2 rounded border border-success/15">
                   <p className="text-dark-400 text-[9px] mb-0.5">Area</p>
                   <p className="text-base font-mono font-bold text-success">{area.toFixed(4)} m²</p>
+                  {editAreaDelta !== null && (
+                    <p className="text-[10px] font-mono text-warning mt-0.5">
+                      {editAreaDelta > 0 ? '+' : '−'}{Math.abs(editAreaDelta).toFixed(4)} m² vs saved
+                    </p>
+                  )}
                 </div>
                 <div className="bg-dark-900/60 p-2 rounded border border-dark-700/50">
                   <p className="text-dark-400 text-[9px] mb-0.5">Perimeter</p>
@@ -3415,9 +3871,14 @@ const ParcelCalculator = () => {
 
               <div className="flex gap-2 mt-3">
                 {editingParcelId ? (
-                  <button id="save-parcel-btn" onClick={handleUpdateSavedParcel} className="btn-success w-full py-2 text-xs font-bold flex items-center justify-center gap-1.5">
-                    <Save className="w-3.5 h-3.5" /> Save Changes
-                  </button>
+                  <>
+                    <button onClick={handleCancelEditSession} className="btn-secondary py-2 px-3 text-xs font-bold">
+                      Cancel
+                    </button>
+                    <button id="save-parcel-btn" onClick={handleUpdateSavedParcel} disabled={!editDirty} title={editDirty ? 'Save the changes to this parcel' : 'Nothing has changed yet'} className="btn-success flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed">
+                      <Save className="w-3.5 h-3.5" /> Save Changes
+                    </button>
+                  </>
                 ) : (
                   <button id="save-parcel-btn" onClick={handleSaveParcel} className="btn-success w-full py-2 text-xs font-bold flex items-center justify-center gap-1.5">
                     <Plus className="w-3.5 h-3.5" /> Save Parcel
@@ -3536,16 +3997,20 @@ const ParcelCalculator = () => {
                   </button>
                   <div className="h-6 w-px bg-dark-750 mx-1"></div>
                   <button
-                    onClick={() => setSelectEditParcelMode(prev => !prev)}
+                    onClick={() => {
+                      // The saved parcels must be visible to be picked
+                      if (!selectEditParcelMode) setShowSavedParcelsMap(true);
+                      setSelectEditParcelMode(prev => !prev);
+                    }}
                     className={`p-1 rounded border flex items-center gap-1 px-2 font-bold ${
                       selectEditParcelMode
                         ? 'bg-warning/20 border-warning text-warning'
                         : 'border-dark-700 text-dark-400 hover:text-dark-200'
                     }`}
-                    title="Edit Parcel Mode: Click a saved parcel or its number on the map to load/edit its points"
+                    title="Edit Mode: click a saved parcel (or its number) on the map to edit its corners. Esc to leave."
                   >
                     <Edit className="w-3.5 h-3.5" />
-                    <span className="text-[10px]">EDIT MODE</span>
+                    <span className="text-[10px]">{selectEditParcelMode ? 'EDIT MODE: ON' : 'EDIT MODE'}</span>
                   </button>
                 </div>
               </div>
@@ -3558,9 +4023,50 @@ const ParcelCalculator = () => {
             {/* Visual Map Tab */}
             {activeTab === 'map' && (
               <div ref={canvasContainerRef} className="w-full h-full relative overflow-hidden bg-dark-950">
-                {selectEditParcelMode && (
-                  <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-warning/90 border border-warning/30 text-dark-955 font-bold px-4 py-2 rounded-full shadow-lg text-[11px] z-50 flex items-center gap-2 animate-pulse backdrop-blur">
-                    <span>✏️ Select Mode: Click a parcel or its number to edit it</span>
+                {editingParcelId ? (
+                  <div className="absolute top-3 left-1/2 transform -translate-x-1/2 z-50 bg-dark-900/95 border border-warning/60 rounded-xl shadow-2xl backdrop-blur px-3 py-2 max-w-[calc(100%-24px)]">
+                    <div className="flex items-center gap-3 flex-wrap justify-center">
+                      <span className="text-warning font-bold text-xs whitespace-nowrap">✏️ Editing Parcel {parcelNumber || editOriginal?.number}</span>
+                      <span className="text-dark-300 text-[11px] font-mono whitespace-nowrap">
+                        {enteredIds.length} corners{area !== null ? ` · ${area.toFixed(2)} m²` : ''}
+                        {editAreaDelta !== null && (
+                          <span className="text-warning"> ({editAreaDelta > 0 ? '+' : '−'}{Math.abs(editAreaDelta).toFixed(2)})</span>
+                        )}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={handleEditUndo} disabled={!canUndoEdit} title="Undo (Ctrl+Z)" className="p-1.5 rounded border border-dark-600 text-dark-200 hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed">
+                          <Undo2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={handleEditRedo} disabled={!canRedoEdit} title="Redo (Ctrl+Y)" className="p-1.5 rounded border border-dark-600 text-dark-200 hover:bg-dark-700 disabled:opacity-30 disabled:cursor-not-allowed">
+                          <Redo2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={handleCancelEditSession} title="Stop editing without saving (Esc)" className="py-1 px-2.5 rounded border border-dark-600 text-dark-200 hover:bg-dark-700 text-[11px] font-bold">
+                          Cancel
+                        </button>
+                        <button onClick={handleUpdateSavedParcel} disabled={!editDirty} title={editDirty ? 'Save the changes to this parcel' : 'Nothing has changed yet'} className="py-1 px-2.5 rounded bg-success text-white hover:bg-success/90 text-[11px] font-bold flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed">
+                          <Save className="w-3 h-3" /> Save Changes
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-1.5 text-[10.5px] text-dark-300 text-center flex items-center justify-center gap-2 flex-wrap">
+                      {selectedVertexIndex !== null && selectedVertexIndex < enteredIds.length ? (
+                        <>
+                          <span>Corner <strong className="text-warning">{enteredIds[selectedVertexIndex]}</strong> selected — click another point to replace it</span>
+                          <button onClick={() => removeVertexAt(selectedVertexIndex)} className="text-danger border border-danger/40 hover:bg-danger/10 rounded px-1.5 py-0.5 font-bold">
+                            Remove corner (Del)
+                          </button>
+                        </>
+                      ) : insertPointAfterIndex !== null && insertPointAfterIndex < enteredIds.length ? (
+                        <span>Click or type the point to insert after <strong className="text-warning">{enteredIds[insertPointAfterIndex]}</strong></span>
+                      ) : (
+                        <span>Click a grey point to add it to the nearest edge · Click a corner to select it</span>
+                      )}
+                    </div>
+                  </div>
+                ) : selectEditParcelMode && (
+                  <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-warning/95 border border-warning/30 text-dark-955 font-bold px-4 py-2 rounded-full shadow-lg text-[11px] z-50 flex items-center gap-3 backdrop-blur whitespace-nowrap">
+                    <span>✏️ Edit Mode: click a parcel or its number to edit it</span>
+                    <button onClick={() => setSelectEditParcelMode(false)} className="underline font-bold">Exit (Esc)</button>
                   </div>
                 )}
                 <canvas
@@ -3573,10 +4079,21 @@ const ParcelCalculator = () => {
                 <div className="absolute bottom-4 left-4 bg-dark-900/90 border border-dark-700 px-3 py-2 rounded-lg text-[10px] text-dark-300 backdrop-blur pointer-events-none select-none max-w-xs shadow-xl">
                   <p className="font-bold text-primary mb-1">🗺️ Map Guide:</p>
                   <ul className="space-y-0.5 list-disc pl-3 text-dark-400">
-                    <li>Left click & drag to **Pan**.</li>
-                    <li>Scroll wheel to **Zoom**.</li>
-                    <li>Click a point dot to **Add to Path**.</li>
-                    <li>Click starting point to **Close Loop**.</li>
+                    <li>Left click & drag to <strong>Pan</strong>.</li>
+                    <li>Scroll wheel to <strong>Zoom</strong>.</li>
+                    {editingParcelId ? (
+                      <>
+                        <li><strong>Ctrl+Z</strong> / <strong>Ctrl+Y</strong> undo and redo · <strong>Del</strong> removes the selected corner · <strong>Esc</strong> cancels.</li>
+                        <li>Dashed grey line = the parcel as saved.</li>
+                      </>
+                    ) : selectEditParcelMode ? (
+                      <li>Click a saved parcel or its number to <strong>edit</strong> it.</li>
+                    ) : (
+                      <>
+                        <li>Click a point dot to <strong>Add to Path</strong>.</li>
+                        <li>Click starting point to <strong>Close Loop</strong>.</li>
+                      </>
+                    )}
                   </ul>
                 </div>
               </div>
@@ -3664,7 +4181,7 @@ const ParcelCalculator = () => {
                   <UniqueParcelsList
                     savedParcels={savedParcels}
                     onEdit={(parcel) => {
-                      handleLoadSavedParcel(parcel);
+                      beginEditParcel(parcel, { focus: true });
                     }}
                     onDelete={handleDeleteSaved}
                     onExport={handleExportSingle}
@@ -3722,7 +4239,7 @@ const ParcelCalculator = () => {
                   <AllParcelsList
                     savedParcels={savedParcels}
                     onEdit={(parcel) => {
-                      handleLoadSavedParcel(parcel);
+                      beginEditParcel(parcel, { focus: true });
                     }}
                     onDelete={handleDeleteSaved}
                     onExport={handleExportSingle}
