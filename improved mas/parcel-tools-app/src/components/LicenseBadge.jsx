@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, CheckCircle, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
+import { CheckCircle, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
 
 /**
  * LicenseBadge — shows the current license status as a compact, animated badge.

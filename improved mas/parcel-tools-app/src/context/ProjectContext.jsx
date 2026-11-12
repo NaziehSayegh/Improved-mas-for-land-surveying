@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useToast } from './ToastContext';
-import { deduplicatePoints, deduplicateParcels, deduplicateDatasets } from '../utils/deduplication';
+import { deduplicatePoints, deduplicateDatasets } from '../utils/deduplication';
 
 const ProjectContext = createContext();
 

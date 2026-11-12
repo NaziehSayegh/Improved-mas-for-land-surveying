@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Users, RefreshCw, ShieldCheck, ShieldX, Clock, Cpu,
+  Users, RefreshCw, ShieldX, Clock,
   Crown, Zap, CheckCircle, XCircle, AlertTriangle, Search,
-  RotateCcw, TrendingUp, LogOut, Shield, ShieldAlert,
-  Lock, Unlock, Key, Calendar, Monitor, User, UserCheck,
+  RotateCcw, Shield, ShieldAlert,
+  Lock, Unlock, Key, Monitor, User, UserCheck,
   UserX, ChevronRight, X, Check, Activity, Laptop
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -334,7 +334,6 @@ export default function AdminPanel() {
                 </thead>
                 <tbody className="divide-y divide-dark-800/40">
                   {filteredUsers.map((u, i) => {
-                    const isBusy = busy[u.uid];
                     const daysLeft = u.trial_days_left;
                     const isExpired = u.account_type === 'demo' && typeof daysLeft === 'number' && daysLeft <= 0;
                     const isBlocked = u.is_active === false;

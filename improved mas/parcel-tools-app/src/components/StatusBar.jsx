@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Shield, CheckCircle, AlertTriangle, FolderOpen } from 'lucide-react';
+import { Shield, CheckCircle, AlertTriangle, FolderOpen } from 'lucide-react';
 
 /**
  * StatusBar — fixed bottom 1-line status bar.

@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserPlus, Mail, Lock, Key, AlertCircle, Loader, Eye, EyeOff, CheckCircle, X, Zap, Crown } from 'lucide-react';
+import { UserPlus, Mail, Lock, Key, AlertCircle, Loader, Eye, EyeOff, CheckCircle, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const SignupPage = () => {
     const navigate = useNavigate();
     const { login } = useAuth();
-    const [accountType, setAccountType] = useState('premium'); // premium version only
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');

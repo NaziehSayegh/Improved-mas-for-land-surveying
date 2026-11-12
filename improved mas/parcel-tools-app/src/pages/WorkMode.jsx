@@ -12,7 +12,7 @@ const loadSettings = () => {
   try {
     const stored = localStorage.getItem(SETTINGS_KEY);
     if (stored) return JSON.parse(stored);
-  } catch {}
+  } catch { /* unreadable saved settings: fall back to the defaults */ }
   return { coordinateSystem: 'utm', units: 'metric', precision: 2 };
 };
 
@@ -45,7 +45,7 @@ const WorkMode = () => {
         const cfg = await getAiConfig();
         setAiHasKey(!!cfg.hasKey);
         if (cfg.model) setAiModel(cfg.model);
-      } catch {}
+      } catch { /* assistant settings unavailable: keep the defaults */ }
     })();
   }, []);
 

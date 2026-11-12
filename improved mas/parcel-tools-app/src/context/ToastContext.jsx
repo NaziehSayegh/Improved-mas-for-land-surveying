@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, AlertCircle, Info, AlertTriangle, X, Sparkles, ArrowRight } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Info, AlertTriangle, X, Sparkles } from 'lucide-react';
 
 const ToastContext = createContext();
 
@@ -75,8 +75,6 @@ const ToastContainer = ({ toasts, onRemove }) => {
 };
 
 const Toast = ({ toast, onRemove }) => {
-    const isCompleted = toast.type === 'completed';
-
     const icons = {
         success: <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />,
         completed: <Sparkles className="w-5 h-5 text-yellow-400 flex-shrink-0 animate-pulse" />,
