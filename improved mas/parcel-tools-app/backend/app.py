@@ -1959,10 +1959,13 @@ def load_project_file():
         for p in saved_parcels:
             if not isinstance(p, dict):
                 continue
-            p_num = str(p.get('parcelNumber') or p.get('parcel_number') or p.get('number') or '')
+            # 'number' is what the editor writes, so it is the most current value; parcelNumber /
+            # parcel_number are aliases that older saves kept and that can be stale after an edit.
+            p_num = str(p.get('number') or p.get('parcelNumber') or p.get('parcel_number') or '')
             p_ids = [str(x) for x in (p.get('ids') or p.get('enteredIds') or p.get('entered_ids') or [])]
             p_curves = p.get('curves') or []
             normalized_parcels.append({
+                'number': p_num,
                 'parcelNumber': p_num,
                 'parcel_number': p_num,
                 'ids': p_ids,
