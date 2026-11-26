@@ -7,6 +7,17 @@
 - 🔧 **Opening a project keeps everything saved with each parcel**, including the CAD badge on parcels created from a CAD drawing.
 - 🔧 **A damaged point in a project file no longer blocks the whole project.** The bad point is skipped and the rest opens normally.
 - 🔧 **CAD Import:** the parcel number and area labels no longer print on top of each other when you select a saved parcel's boundary.
+
+---
+
+## 🔜 Next release (not yet published)
+
+### ✨ New
+- ✅ **Error Adjustment:** a **Discard** button throws away results you do not want to keep, and each saved calculation now has a clear **Delete** button. New calculations never reuse the name of one that is still in the list.
+
+### 🐛 Bug Fixes & Stability
+- 🔧 **Closing a project now closes its CAD drawing too.** Closing a project or starting a New project in the Area Calculator left the old CAD file open, and it reappeared in the next project.
+- 🔧 **A New project starts empty.** Its file used to be saved with the previous project's parcels, points and CAD drawing.
 - 🔧 **Admin Console: "Last seen" is now correct.** It showed the last sign-in, so anyone who stays signed in looked inactive for weeks. It now shows when the account's PC last opened the app, in the right time zone.
 - 🔧 **Admin Console: outdated users are now detected correctly.** "Latest version" is no longer taken only from what users have reported, so users still on an old version are flagged even when nobody has updated yet.
 
