@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from atomic_io import atomic_write_text as _atomic_write_text
 from license_manager import LicenseManager
-from firebase_service import FirebaseService
+from firebase_service import FirebaseService, utc_now_iso
 from email_rules import is_disposable_email, EmailPolicy, start_background_refresh
 from firebase_config import is_firebase_available
 
@@ -766,7 +766,7 @@ def auth_login():
         # ── 6. Update last_login ──────────────────────────────────────────────
         if firebase_service._is_online():
             firebase_service.db.collection('users').document(uid).update(
-                {'last_login': datetime.now().isoformat()}
+                {'last_login': utc_now_iso()}
             )
 
         # ── 7. Auto-activate license key locally if present or premium ────────

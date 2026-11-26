@@ -7,6 +7,7 @@
 - 🔧 **Opening a project keeps everything saved with each parcel**, including the CAD badge on parcels created from a CAD drawing.
 - 🔧 **A damaged point in a project file no longer blocks the whole project.** The bad point is skipped and the rest opens normally.
 - 🔧 **CAD Import:** the parcel number and area labels no longer print on top of each other when you select a saved parcel's boundary.
+- 🔧 **Admin Console: "Last seen" is now correct.** It showed the last sign-in, so anyone who stays signed in looked inactive for weeks. It now shows when the account's PC last opened the app, in the right time zone.
 
 ---
 
