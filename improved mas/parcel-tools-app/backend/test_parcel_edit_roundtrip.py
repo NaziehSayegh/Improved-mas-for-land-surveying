@@ -45,3 +45,26 @@ def test_edited_corners_survive_reload():
     p = _roundtrip({'id': 'a', 'number': '5', 'parcelNumber': '5',
                     'ids': ['1', '2', '3'], 'enteredIds': ['1', '2', '3', '4'], 'curves': []})
     assert p['ids'] == ['1', '2', '3']
+
+
+def test_extra_parcel_fields_survive_reload():
+    # CAD-created parcels carry source='cad' (drives the CAD badge); the loader must not drop it.
+    p = _roundtrip({'id': 'a', 'number': '7', 'ids': ['1', '2', '3', '4'], 'curves': [], 'source': 'cad',
+                    'pointCount': 4})
+    assert p.get('source') == 'cad'
+    assert p.get('id') == 'a'
+
+
+def test_load_skips_malformed_points_instead_of_failing(tmp_path):
+    f = tmp_path / 'junk.prcl'
+    f.write_text(json.dumps({
+        'savedParcels': [{'number': '5', 'ids': ['2', '3', '4']}],
+        'loadedPoints': {'1': None, '2': [1, 2], '3': {'x': 'q', 'y': 1}, '4': {'x': 5, 'y': 6}, '5': 'bad'},
+    }))
+    client = authed_client(backend)
+    r = client.post('/api/project/load', json={'filePath': str(f)})
+    assert r.status_code == 200, r.get_json()
+    pts = r.get_json()['projectData']['loadedPoints']
+    assert pts['2'] == {'x': 1.0, 'y': 2.0}
+    assert pts['4'] == {'x': 5.0, 'y': 6.0}
+    assert '3' not in pts and '1' not in pts and '5' not in pts

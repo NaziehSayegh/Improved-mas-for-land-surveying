@@ -1156,11 +1156,15 @@ const DxfImport = () => {
                         ctx.textBaseline = 'middle';
                         ctx.shadowColor = '#000000';
                         ctx.shadowBlur = 8;
-                        ctx.fillText(`PARCEL #${activeParcel.number}`, scx, scy);
+                        // A selected closed shape shows its own gold area badge at the same centroid.
+                        // Lift this label above that badge so the two never print on top of each other.
+                        const selEnt = selectedIdxRef.current !== null ? entitiesRef.current[selectedIdxRef.current] : null;
+                        const lift = (selEnt && selEnt.closed) ? 44 : 0;
+                        ctx.fillText(`PARCEL #${activeParcel.number}`, scx, scy - lift);
                         if (activeParcel.area != null) {
                             ctx.font = '10px Inter, sans-serif';
                             ctx.fillStyle = '#a5f3fc';
-                            ctx.fillText(`${Number(activeParcel.area).toFixed(2)} m²`, scx, scy + 16);
+                            ctx.fillText(`${Number(activeParcel.area).toFixed(2)} m²`, scx, scy - lift + 16);
                         }
                     }
 
