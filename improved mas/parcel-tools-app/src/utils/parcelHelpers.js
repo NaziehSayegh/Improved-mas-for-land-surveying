@@ -93,3 +93,12 @@ export const sortParcels = (parcels, sortId) => {
     default: return list;
   }
 };
+
+
+/** Next free "Calculation #N": one more than the highest number in use, so deleting one never makes two share a name. */
+export function nextCalculationNumber(list) {
+    return (list || []).reduce((max, c) => {
+        const n = parseInt(String((c && c.name) || '').match(/#(\d+)/)?.[1], 10);
+        return Number.isFinite(n) && n > max ? n : max;
+    }, 0) + 1;
+}

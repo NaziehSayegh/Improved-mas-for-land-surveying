@@ -63,6 +63,17 @@ export const ProjectProvider = ({ children }) => {
   const setCadLayersSynced = React.useCallback((v) => { cadLayersRef.current = v; setCadLayers(v); }, []);
   const setCadVisibleLayersSynced = React.useCallback((v) => { cadVisibleLayersRef.current = v; setCadVisibleLayers(v); }, []);
 
+  // Forget the open CAD drawing (file, entities, layers). Uses the synced setters so the refs used when saving are
+  // cleared at once too, not only after the next render. Every way of closing / replacing a project must call this,
+  // otherwise the old project's drawing reappears in the next one.
+  const clearCad = React.useCallback(() => {
+    setCadFilePathSynced('');
+    setCadFileNameSynced('');
+    setCadEntitiesSynced([]);
+    setCadLayersSynced([]);
+    setCadVisibleLayersSynced({});
+  }, [setCadFilePathSynced, setCadFileNameSynced, setCadEntitiesSynced, setCadLayersSynced, setCadVisibleLayersSynced]);
+
   // Use ref to access latest savedParcels and loadedPoints without triggering re-renders
   const savedParcelsRef = useRef(savedParcels);
   useEffect(() => {
@@ -357,12 +368,8 @@ export const ProjectProvider = ({ children }) => {
       enteredIds: [],
       curves: []
     });
-    setCadFilePath('');
-    setCadFileName('');
-    setCadEntities([]);
-    setCadLayers([]);
-    setCadVisibleLayers({});
-  }, []);
+    clearCad();
+  }, [clearCad]);
 
   // Centralized helper to completely replace all project state with newly loaded projectData
   const loadProjectData = React.useCallback((projectData, filePath) => {
@@ -471,6 +478,7 @@ export const ProjectProvider = ({ children }) => {
     removePointsFile,
     saveActiveProject,
     closeProject,
+    clearCad,
     loadProjectData,
     deduplicateActiveDatasets,
     deduplicateDatasets,
@@ -500,6 +508,7 @@ export const ProjectProvider = ({ children }) => {
     recalculateAllParcels,
     removePointsFile,
     closeProject,
+    clearCad,
     loadProjectData,
     deduplicateActiveDatasets,
     currentParcel,

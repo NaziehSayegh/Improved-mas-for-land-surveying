@@ -6,9 +6,16 @@ Provides high-level operations for Firestore with offline fallback to JSON files
 import json
 import os
 from atomic_io import atomic_write_text
-from datetime import datetime
+from datetime import datetime, timezone
 from firebase_config import get_firestore_client, is_firebase_available, get_firebase_api_key, get_firebase_project_id
 from google.cloud.firestore_v1.base_query import FieldFilter
+
+
+def utc_now_iso():
+    """Current time as an ISO string WITH a timezone (UTC), for 'last seen' style fields.
+    A bare local time is read in the viewer's timezone by the admin page, so it comes out hours off
+    when the user and the admin are in different timezones."""
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
 
 class FirebaseService:
@@ -123,7 +130,7 @@ class FirebaseService:
                     'email': email, 'license_key': license_key or '', 'account_type': account_type,
                     'machine_id_hash': machine_id_hash or '', 'trial_start': trial_start or datetime.now().isoformat(),
                     'is_active': True, 'is_admin': False, 'created_at': datetime.now().isoformat(),
-                    'last_login': datetime.now().isoformat(),
+                    'last_login': utc_now_iso(),
                 }
                 self.db.collection('users').document(uid).set(user_data)
                 self._save_user_to_json(uid, user_data)
@@ -146,7 +153,7 @@ class FirebaseService:
                     'is_active': True,                     # admin can set False to block
                     'is_admin': False,
                     'created_at': datetime.now().isoformat(),
-                    'last_login': datetime.now().isoformat(),
+                    'last_login': utc_now_iso(),
                 }
 
                 self.db.collection('users').document(user.uid).set(user_data)
@@ -166,7 +173,7 @@ class FirebaseService:
                     'is_active': True,
                     'is_admin': False,
                     'created_at': datetime.now().isoformat(),
-                    'last_login': datetime.now().isoformat(),
+                    'last_login': utc_now_iso(),
                 }
                 self._save_user_to_json(user_id, user_data)
                 return {'success': True, 'user_id': user_id, 'message': 'User created in offline mode'}
@@ -193,7 +200,7 @@ class FirebaseService:
 
                 try:
                     self.db.collection('users').document(user.uid).update({
-                        'last_login': datetime.now().isoformat()
+                        'last_login': utc_now_iso()
                     })
                 except Exception:
                     pass
@@ -517,7 +524,7 @@ class FirebaseService:
                     if stored_hash == machine_id_hash:
                         # Update last_seen and other details
                         update_fields = {
-                            f'devices.{device_id}.last_seen': datetime.now().isoformat(),
+                            f'devices.{device_id}.last_seen': utc_now_iso(),
                             f'devices.{device_id}.machine_id': machine_id_hash # Migrate to hash
                         }
                         if computer_name:
@@ -550,7 +557,7 @@ class FirebaseService:
                     'os_user': os_user or '',
                     'os_platform': os_platform or '',
                     'activated_at': datetime.now().isoformat(),
-                    'last_seen': datetime.now().isoformat()
+                    'last_seen': utc_now_iso()
                 }
                 
                 user_ref.update({'devices': devices})
@@ -578,7 +585,7 @@ class FirebaseService:
                         stored_hash = _hashlib.sha256(stored.encode()).hexdigest() if stored else ''
 
                     if stored_hash == machine_id_hash:
-                        devices[device_id]['last_seen'] = datetime.now().isoformat()
+                        devices[device_id]['last_seen'] = utc_now_iso()
                         devices[device_id]['machine_id'] = machine_id_hash # Migrate to hash
                         if computer_name:
                             devices[device_id]['computer_name'] = computer_name
@@ -611,7 +618,7 @@ class FirebaseService:
                     'os_user': os_user or '',
                     'os_platform': os_platform or '',
                     'activated_at': datetime.now().isoformat(),
-                    'last_seen': datetime.now().isoformat()
+                    'last_seen': utc_now_iso()
                 }
                 
                 users[user_id]['devices'] = devices

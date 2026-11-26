@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../utils/api';
+import { lastSeenMs } from '../utils/userActivity';
+import { compareVersions, newestVersion } from '../utils/versions';
 import PageLayout from '../components/PageLayout';
 
 // ── Badge Component ─────────────────────────────────────────────────────────
@@ -53,15 +55,6 @@ const ActionButton = ({ onClick, children, color = 'default', disabled, title })
 };
 
 // ── Small helpers ───────────────────────────────────────────────────────────
-const versionParts = (v) => String(v || '').replace(/^v/i, '').split('-')[0].split('.').map(n => parseInt(n, 10) || 0);
-const compareVersions = (a, b) => {
-  const x = versionParts(a), y = versionParts(b);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (x[i] || 0) - (y[i] || 0);
-    if (d) return d;
-  }
-  return 0;
-};
 const timeAgo = (iso) => {
   if (!iso) return 'Never';
   const t = new Date(iso).getTime();
@@ -183,8 +176,8 @@ export default function AdminPanel() {
   };
 
   // Filter and search logic
-  // Newest app version any user has reported: older or unknown copies count as "outdated"
-  const latestVersion = users.reduce((best, u) => (u.app_version && (!best || compareVersions(u.app_version, best) > 0) ? u.app_version : best), '');
+  // Newest version we know exists (the newest any user reported, but never lower than this admin copy): older or unknown copies count as "outdated"
+  const latestVersion = newestVersion(users, __APP_VERSION__);
 
   const filteredUsers = users.filter(u => {
     // 1. Account Type filter
@@ -242,7 +235,7 @@ export default function AdminPanel() {
 
   const sortedUsers = [...filteredUsers].sort((a, b) => {
     switch (sortBy) {
-      case 'seen':  return String(b.last_login || '').localeCompare(String(a.last_login || ''));
+      case 'seen':  return (lastSeenMs(b) ?? 0) - (lastSeenMs(a) ?? 0);
       case 'email': return String(a.email || '').localeCompare(String(b.email || ''));
       case 'trial': {
         const t = (u) => (u.account_type === 'premium' ? 9999 : (typeof u.trial_days_left === 'number' ? u.trial_days_left : 9998));
@@ -300,9 +293,9 @@ export default function AdminPanel() {
   const openFilter = (type, status) => { setTab('users'); setFilterType(type); setFilterStatus(status); setSearch(''); };
 
   const exportCsv = () => {
-    const rows = [['email', 'plan', 'status', 'email_verified', 'app_version', 'pcs', 'created_at', 'last_login']];
+    const rows = [['email', 'plan', 'status', 'email_verified', 'app_version', 'pcs', 'created_at', 'last_login', 'last_seen']];
     sortedUsers.forEach(u => rows.push([u.email, u.account_type, u.is_active === false ? 'suspended' : 'active', u.email_verified === null || u.email_verified === undefined ? '' : u.email_verified,
-      u.app_version || '', u.devices ? Object.keys(u.devices).length : 0, u.created_at || '', u.last_login || '']));
+      u.app_version || '', u.devices ? Object.keys(u.devices).length : 0, u.created_at || '', u.last_login || '', lastSeenMs(u) ? new Date(lastSeenMs(u)).toISOString() : '']));
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -503,7 +496,7 @@ export default function AdminPanel() {
                             {u.account_type === 'demo' && <span className={!isExpired && (daysLeft || 0) <= 5 ? 'text-amber-400' : ''}>{isExpired ? 'Trial expired' : `${daysLeft ?? 0} days left`}</span>}
                             <span>{pcs}/{pcLimit} PCs</span>
                             <span className={isOld ? 'text-amber-300' : ''}>{u.app_version ? `v${u.app_version}` : 'old build'}</span>
-                            <span>Seen {timeAgo(u.last_login)}</span>
+                            <span>Seen {timeAgo(lastSeenMs(u))}</span>
                           </div>
                         </div>
                       </div>
@@ -585,7 +578,7 @@ export default function AdminPanel() {
                                 {!u.disposable_email && u.email_verified === false && !u.is_admin && <Badge color="amber"><Mail className="w-3 h-3" /> Unverified</Badge>}
                               </div>
                             </td>
-                            <td className="px-3 py-2.5 text-xs text-dark-400 whitespace-nowrap" title={u.last_login ? formatDate(u.last_login) : ''}>{timeAgo(u.last_login)}</td>
+                            <td className="px-3 py-2.5 text-xs text-dark-400 whitespace-nowrap" title={lastSeenMs(u) ? formatDate(lastSeenMs(u)) : 'Never seen'}>{timeAgo(lastSeenMs(u))}</td>
                             <td className="px-3 py-2.5"><ChevronRight className="w-4 h-4 text-dark-600" /></td>
                           </tr>
                         );
@@ -721,8 +714,8 @@ export default function AdminPanel() {
                       <div className="text-dark-200 mt-1 font-semibold">{formatDate(selectedUser.created_at).split(',')[0]}</div>
                     </div>
                     <div>
-                      <div className="text-dark-500 font-medium">Last Login</div>
-                      <div className="text-dark-200 mt-1 font-semibold">{selectedUser.last_login ? formatDate(selectedUser.last_login) : 'Never'}</div>
+                      <div className="text-dark-500 font-medium" title="The newest of the last sign-in and the last time any of this account's PCs opened the app">Last seen</div>
+                      <div className="text-dark-200 mt-1 font-semibold">{lastSeenMs(selectedUser) ? formatDate(lastSeenMs(selectedUser)) : 'Never'}</div>
                     </div>
                   </div>
                   <div className="h-[1px] bg-dark-800/50 my-1"></div>

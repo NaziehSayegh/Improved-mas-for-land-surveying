@@ -7,7 +7,7 @@ import { Upload, Save, FileDown, Plus, Trash2, Edit, RefreshCw, ZoomIn, ZoomOut,
 import { useProject } from '../context/ProjectContext';
 import { customConfirm, customPrompt } from '../utils/dialogs';
 import { safeHtml, escapeHtml } from '../utils/safeHtml';
-import { parcelKey, formatArea, latestVersions, nearestEdgeIndex, pruneCurves } from '../utils/parcelHelpers';
+import { parcelKey, formatArea, latestVersions, nearestEdgeIndex, pruneCurves, nextCalculationNumber } from '../utils/parcelHelpers';
 import { UniqueParcelsList, AllParcelsList } from '../components/ParcelLists';
 import { API_BASE_URL } from '../config';
 
@@ -74,6 +74,7 @@ const ParcelCalculator = () => {
     cadEntities,
     cadLayers,
     cadVisibleLayers,
+    clearCad,
     removePointsFile
   } = useProject();
 
@@ -1997,6 +1998,27 @@ const ParcelCalculator = () => {
     }
   };
 
+  // What a brand-new project contains: nothing. "New project" saves this explicitly, because the save function
+  // reads the screen state captured when the button was clicked (still the OLD project's data at that moment).
+  const buildEmptyProjectData = (projectNameValue) => ({
+    projectName: projectNameValue,
+    pointsFileName: '',
+    pointsFilePath: '',
+    loadedPoints: {},
+    savedParcels: [],
+    fileHeading: { block: '', quarter: '', parcels: '', place: '', additionalInfo: '' },
+    currentParcel: { parcelNumber: '', enteredIds: [], curves: [] },
+    savedErrorCalculations: [],
+    cadFilePath: '',
+    cadFileName: '',
+    cadEntities: [],
+    cadLayers: [],
+    cadVisibleLayers: {},
+    savedAt: new Date().toISOString(),
+    isEmpty: true,
+    pointsCount: 0
+  });
+
   const buildProjectDataPayload = (projectNameValue) => {
     const effectiveName = projectNameValue || globalProjectName || 'Untitled Project';
     return {
@@ -2043,7 +2065,8 @@ const ParcelCalculator = () => {
     const {
       projectNameOverride,
       preferredPath,
-      skipExistingPath = false
+      skipExistingPath = false,
+      projectDataOverride = null   // save exactly this instead of the current screen state (used by "New project")
     } = options;
 
     try {
@@ -2158,7 +2181,7 @@ const ParcelCalculator = () => {
         return false;
       }
 
-      const projectData = buildProjectDataPayload(projectName);
+      const projectData = projectDataOverride ? { ...projectDataOverride, projectName } : buildProjectDataPayload(projectName);
 
       const response = await fetch(`${API_BASE_URL}/api/project/save`, {
         method: 'POST',
@@ -2397,6 +2420,7 @@ const ParcelCalculator = () => {
       block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
     });
     setSavedErrorCalculations([]);
+    clearCad();                       // the old project's CAD drawing must not carry over into the new project
     setProjectPath('');
     setLastSavedPath(null);
 
@@ -2412,7 +2436,8 @@ const ParcelCalculator = () => {
 
     const saved = await handleSaveProject(true, {
       projectNameOverride: sanitizedName,
-      skipExistingPath: true
+      skipExistingPath: true,
+      projectDataOverride: buildEmptyProjectData(sanitizedName)
     });
 
     if (saved) {
@@ -2460,6 +2485,7 @@ const ParcelCalculator = () => {
       block: '', quarter: '', parcels: '', place: '', additionalInfo: ''
     });
     setSavedErrorCalculations([]);
+    clearCad();                       // close the CAD drawing together with its project
     setHasUnsavedChanges(false);
     setLastSavedPath(null);
     setProjectPath('');
@@ -2633,7 +2659,7 @@ const ParcelCalculator = () => {
     const newCalculation = {
       id: Date.now().toString(),
       timestamp: new Date().toISOString(),
-      name: `Calculation #${savedErrorCalculations.length + 1}`,
+      name: `Calculation #${nextCalculationNumber(savedErrorCalculations)}`,
       ...errorResults
     };
 
@@ -2646,7 +2672,8 @@ const ParcelCalculator = () => {
 
   // Delete saved error calculation
   const handleDeleteErrorCalculation = async (id) => {
-    if (await customConfirm('Are you sure you want to delete this saved calculation?')) {
+    const target = savedErrorCalculations.find(c => c.id === id);
+    if (await customConfirm(`Delete "${target?.name || 'this calculation'}"? This cannot be undone.`)) {
       const updatedCalculations = savedErrorCalculations.filter(c => c.id !== id);
       setSavedErrorCalculations(updatedCalculations);
       setHasUnsavedChanges(true);
@@ -4086,9 +4113,18 @@ const ParcelCalculator = () => {
                     <div className="bg-dark-800 border border-dark-700 rounded-xl p-5 mb-6">
                       <div className="flex items-center justify-between border-b border-dark-700 pb-3 mb-4">
                         <h3 className="text-sm font-bold text-primary uppercase tracking-wider">Adjustment Results</h3>
-                        <button onClick={handleSaveErrorCalculation} className="btn-success py-1 px-3 text-xs flex items-center gap-1 font-bold">
-                          <Save className="w-3.5 h-3.5" /> Save Results
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setErrorResults(null)}
+                            title="Throw away these results without saving them"
+                            className="py-1 px-3 text-xs flex items-center gap-1 font-bold rounded-lg border border-danger/50 text-danger hover:bg-danger/10 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Discard
+                          </button>
+                          <button onClick={handleSaveErrorCalculation} className="btn-success py-1 px-3 text-xs flex items-center gap-1 font-bold">
+                            <Save className="w-3.5 h-3.5" /> Save Results
+                          </button>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4 text-center">
@@ -4151,7 +4187,13 @@ const ParcelCalculator = () => {
                           <div key={calc.id} className="bg-dark-800 border border-dark-700 rounded-lg p-4">
                             <div className="flex justify-between items-center mb-3">
                               <h4 className="text-sm font-bold text-white">{calc.name} <span className="text-[10px] text-dark-500 font-normal">({new Date(calc.timestamp).toLocaleDateString()})</span></h4>
-                              <button onClick={() => handleDeleteErrorCalculation(calc.id)} className="text-danger hover:underline text-xs">Delete</button>
+                              <button
+                                onClick={() => handleDeleteErrorCalculation(calc.id)}
+                                title="Delete this saved calculation"
+                                className="py-1 px-2.5 text-xs flex items-center gap-1 font-semibold rounded-lg border border-danger/50 text-danger hover:bg-danger/10 transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> Delete
+                              </button>
                             </div>
                             <div className="text-[11px] text-dark-400 space-y-1">
                               <p>Registered: {calc.totalRegisteredArea} m² | Calc: {calc.totalCalculatedArea.toFixed(4)} m² | Status: <span className={calc.exceedsLimit ? 'text-danger' : 'text-success font-bold'}>{calc.exceedsLimit ? 'Exceeded Limit' : 'Adjusted'}</span></p>

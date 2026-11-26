@@ -1,7 +1,7 @@
 // Run with: node --test src/utils/parcelHelpers.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parcelKey, formatArea, latestVersions, countVersions, distToSegment, nearestEdgeIndex, pruneCurves, sortParcels, PARCEL_SORTS } from './parcelHelpers.js';
+import { parcelKey, formatArea, latestVersions, countVersions, distToSegment, nearestEdgeIndex, pruneCurves, sortParcels, PARCEL_SORTS, nextCalculationNumber } from './parcelHelpers.js';
 
 test('parcelKey ignores case and spaces and never throws', () => {
     assert.equal(parcelKey({ number: ' 12/B ' }), '12/b');
@@ -69,4 +69,13 @@ test('sortParcels orders by number, area and save order without changing the ori
     assert.deepEqual(ids('unknown'), [1, 2, 3, 4]);
     assert.deepEqual(parcels.map(p => p.id), [1, 2, 3, 4]);
     assert.ok(PARCEL_SORTS.every(o => o.id && o.label));
+});
+
+test('nextCalculationNumber never reuses a name still in the list', () => {
+    assert.equal(nextCalculationNumber([]), 1);
+    assert.equal(nextCalculationNumber(null), 1);
+    assert.equal(nextCalculationNumber([{ name: 'Calculation #1' }, { name: 'Calculation #2' }]), 3);
+    // #1 was deleted, #2 remains: the next one is #3, not #2 again
+    assert.equal(nextCalculationNumber([{ name: 'Calculation #2' }]), 3);
+    assert.equal(nextCalculationNumber([{ name: 'Calculation #7' }, { name: 'My own name' }, {}]), 8);
 });
