@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../utils/api';
 import { lastSeenMs } from '../utils/userActivity';
+import { compareVersions, newestVersion } from '../utils/versions';
 import PageLayout from '../components/PageLayout';
 
 // ── Badge Component ─────────────────────────────────────────────────────────
@@ -54,15 +55,6 @@ const ActionButton = ({ onClick, children, color = 'default', disabled, title })
 };
 
 // ── Small helpers ───────────────────────────────────────────────────────────
-const versionParts = (v) => String(v || '').replace(/^v/i, '').split('-')[0].split('.').map(n => parseInt(n, 10) || 0);
-const compareVersions = (a, b) => {
-  const x = versionParts(a), y = versionParts(b);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (x[i] || 0) - (y[i] || 0);
-    if (d) return d;
-  }
-  return 0;
-};
 const timeAgo = (iso) => {
   if (!iso) return 'Never';
   const t = new Date(iso).getTime();
@@ -184,8 +176,8 @@ export default function AdminPanel() {
   };
 
   // Filter and search logic
-  // Newest app version any user has reported: older or unknown copies count as "outdated"
-  const latestVersion = users.reduce((best, u) => (u.app_version && (!best || compareVersions(u.app_version, best) > 0) ? u.app_version : best), '');
+  // Newest version we know exists (the newest any user reported, but never lower than this admin copy): older or unknown copies count as "outdated"
+  const latestVersion = newestVersion(users, __APP_VERSION__);
 
   const filteredUsers = users.filter(u => {
     // 1. Account Type filter
