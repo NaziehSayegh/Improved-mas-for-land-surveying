@@ -221,7 +221,7 @@ license_manager = LicenseManager(DATA_DIR)
 firebase_service = FirebaseService(DATA_DIR)
 
 # Version of the running app (the Electron shell passes the real one; the fallback is bumped with each release).
-APP_VERSION = os.environ.get('PARCEL_TOOLS_VERSION') or '2.0.25'
+APP_VERSION = os.environ.get('PARCEL_TOOLS_VERSION') or '2.0.26'
 from app_version import VersionPolicy, parse_version
 firebase_service.app_version = APP_VERSION
 version_policy = VersionPolicy(firebase_service, DATA_DIR, APP_VERSION)
@@ -1033,7 +1033,7 @@ def admin_set_app_version():
         data = request.get_json(silent=True) or {}
         minimum = str(data.get('minVersion', '')).strip()
         if minimum and parse_version(minimum) is None:
-            return jsonify({'success': False, 'error': 'Version must look like 2.0.25'}), 400
+            return jsonify({'success': False, 'error': 'Version must look like 2.0.26'}), 400
         from app_version import is_older
         if minimum and is_older(APP_VERSION, minimum):
             return jsonify({'success': False, 'error': f'You are running {APP_VERSION}. Update this copy first, otherwise you would lock yourself out.'}), 400
@@ -1110,7 +1110,7 @@ def admin_outdated_users():
     from flask import g
     minimum = (request.args.get('minVersion') or '').strip()
     if parse_version(minimum) is None:
-        return jsonify({'success': False, 'error': 'Enter a version like 2.0.25'}), 400
+        return jsonify({'success': False, 'error': 'Enter a version like 2.0.26'}), 400
     users = _outdated_candidates(minimum, g.uid)
     return jsonify({'success': True, 'count': len(users), 'users': users[:200]})
 
@@ -1125,7 +1125,7 @@ def admin_block_outdated():
     try:
         minimum = str((request.get_json(silent=True) or {}).get('minVersion', '')).strip()
         if parse_version(minimum) is None:
-            return jsonify({'success': False, 'error': 'Enter a version like 2.0.25'}), 400
+            return jsonify({'success': False, 'error': 'Enter a version like 2.0.26'}), 400
         if is_older(APP_VERSION, minimum):
             return jsonify({'success': False, 'error': f'You are running {APP_VERSION}. Update this copy first.'}), 400
         blocked = 0
@@ -1938,20 +1938,32 @@ def load_project_file():
             else:
                 project_data['loadedPoints'] = {}
                 
-        if isinstance(project_data.get('loadedPoints'), list):
-            pts_dict = {}
-            for p in project_data['loadedPoints']:
+        def _coerce_point(x, y):
+            # One damaged point (non-numeric, NaN, null) must not make the whole project unreadable.
+            try:
+                fx, fy = float(x), float(y)
+            except (TypeError, ValueError):
+                return None
+            return {'x': fx, 'y': fy} if math.isfinite(fx) and math.isfinite(fy) else None
+
+        raw_points = project_data.get('loadedPoints')
+        pts_dict = {}
+        if isinstance(raw_points, list):
+            for p in raw_points:
                 if isinstance(p, dict) and 'id' in p:
-                    pts_dict[str(p['id'])] = {'x': float(p.get('x', 0)), 'y': float(p.get('y', 0))}
-            project_data['loadedPoints'] = pts_dict
-        elif isinstance(project_data.get('loadedPoints'), dict):
-            pts_dict = {}
-            for k, v in project_data['loadedPoints'].items():
+                    pt = _coerce_point(p.get('x', 0), p.get('y', 0))
+                    if pt:
+                        pts_dict[str(p['id'])] = pt
+        elif isinstance(raw_points, dict):
+            for k, v in raw_points.items():
+                pt = None
                 if isinstance(v, dict):
-                    pts_dict[str(k)] = {'x': float(v.get('x', 0)), 'y': float(v.get('y', 0))}
+                    pt = _coerce_point(v.get('x', 0), v.get('y', 0))
                 elif isinstance(v, (list, tuple)) and len(v) >= 2:
-                    pts_dict[str(k)] = {'x': float(v[0]), 'y': float(v[1])}
-            project_data['loadedPoints'] = pts_dict
+                    pt = _coerce_point(v[0], v[1])
+                if pt:
+                    pts_dict[str(k)] = pt
+        project_data['loadedPoints'] = pts_dict
 
         # Normalize savedParcels and individual parcel keys
         saved_parcels = project_data.get('savedParcels') or project_data.get('parcels') or []
@@ -1959,10 +1971,16 @@ def load_project_file():
         for p in saved_parcels:
             if not isinstance(p, dict):
                 continue
-            p_num = str(p.get('parcelNumber') or p.get('parcel_number') or p.get('number') or '')
+            # 'number' is what the editor writes, so it is the most current value; parcelNumber /
+            # parcel_number are aliases that older saves kept and that can be stale after an edit.
+            p_num = str(p.get('number') or p.get('parcelNumber') or p.get('parcel_number') or '')
             p_ids = [str(x) for x in (p.get('ids') or p.get('enteredIds') or p.get('entered_ids') or [])]
             p_curves = p.get('curves') or []
+            # Start from everything the parcel already holds (id, source, pointCount, ...) so no saved
+            # field is lost on reload, then overlay the normalized core fields.
             normalized_parcels.append({
+                **p,
+                'number': p_num,
                 'parcelNumber': p_num,
                 'parcel_number': p_num,
                 'ids': p_ids,

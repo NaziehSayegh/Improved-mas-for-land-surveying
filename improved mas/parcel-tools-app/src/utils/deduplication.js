@@ -145,8 +145,17 @@ export function deduplicateParcels(parcelsList) {
     seenSignatures.add(contentSignature);
     seenIds.add(parcelId);
 
+    // number / ids are the source of truth. Drop the legacy aliases so a stale copy can never
+    // be saved next to an edited value and win when the project is loaded again.
+    const {
+      parcelNumber: _legacyNumber,
+      parcel_number: _legacyNumber2,
+      enteredIds: _legacyIds,
+      entered_ids: _legacyIds2,
+      ...rest
+    } = rawParcel;
     const sanitizedParcel = {
-      ...rawParcel,
+      ...rest,
       id: parcelId,
       number: parcelNumber,
       ids: cleanedIds,

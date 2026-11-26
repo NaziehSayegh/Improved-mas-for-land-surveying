@@ -1,6 +1,16 @@
 # 📦 Parcel Tools - Release Notes
 
-## 🎉 What's New in v2.0.25 (November 2026)
+## 🎉 What's New in v2.0.26 (November 2026)
+
+### 🐛 Bug Fixes & Stability
+- 🔧 **Edited parcel numbers are no longer lost.** After renaming a parcel and reopening the project, the old number came back. The edited number is now kept.
+- 🔧 **Opening a project keeps everything saved with each parcel**, including the CAD badge on parcels created from a CAD drawing.
+- 🔧 **A damaged point in a project file no longer blocks the whole project.** The bad point is skipped and the rest opens normally.
+- 🔧 **CAD Import:** the parcel number and area labels no longer print on top of each other when you select a saved parcel's boundary.
+
+---
+
+## Previous Release: v2.0.25 (November 2026)
 
 ### ✨ New Features & Enhancements
 - ✅ **New Edit Mode (Parcel Calculator)**: the parcel under the mouse highlights and opens with one click. Add, replace and remove corners directly on the map or by typed point ID, with live area, the difference from the saved area, undo / redo and a Save / Cancel bar.
